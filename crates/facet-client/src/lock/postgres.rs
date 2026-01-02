@@ -74,11 +74,11 @@ use sqlx::PgPool;
 ///
 /// For automatic cleanup use [`LockGuard`]:
 ///
-/// ```ignore
-/// use std::sync::Arc;
-/// use facet_client::lock::{LockManager, LockGuard};
-/// use facet_client::lock::postgres::PostgresLockManager;
-///
+/// ```
+/// # use std::sync::Arc;
+/// # use facet_client::lock::{LockManager, LockGuard};
+/// # use facet_client::lock::postgres::PostgresLockManager;
+/// # async fn example(manager: Arc<dyn LockManager>) -> Result<(), Box<dyn std::error::Error>> {
 /// manager.lock("resource1", "service-a").await?;
 /// let guard = LockGuard {
 ///     lock_manager: manager.clone(),
@@ -86,7 +86,8 @@ use sqlx::PgPool;
 ///     owner: "service-a".to_string(),
 /// };
 /// // Lock is automatically released when `guard` is dropped
-/// # Ok::<_, anyhow::Error>(())
+/// # Ok(())
+/// # }
 /// ```
 ///
 /// [`LockGuard`]: crate::lock::LockGuard
@@ -123,7 +124,7 @@ impl PostgresLockManager {
         sqlx::query("CREATE INDEX IF NOT EXISTS idx_distributed_locks_acquired_at ON distributed_locks(acquired_at)")
             .execute(&self.pool)
             .await?;
-        
+
         Ok(())
     }
 }
