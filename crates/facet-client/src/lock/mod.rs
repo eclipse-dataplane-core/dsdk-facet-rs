@@ -18,6 +18,9 @@ use std::sync::Arc;
 pub mod mem;
 pub mod postgres;
 
+pub use mem::MemoryLockManager;
+pub use postgres::PostgresLockManager;
+
 /// Provide distributed locking for coordinating access to shared resources.
 ///
 /// Enables clients to acquire and release locks on named resources. Lock semantics
