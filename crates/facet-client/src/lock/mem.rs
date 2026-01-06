@@ -10,8 +10,7 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
-use crate::lock::LockManager;
-use anyhow::{Result, anyhow};
+use crate::lock::{LockError, LockManager};
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -82,7 +81,7 @@ impl Default for MemoryLockManager {
 
 #[async_trait]
 impl LockManager for MemoryLockManager {
-    async fn lock(&self, identifier: &str, owner: &str) -> Result<()> {
+    async fn lock(&self, identifier: &str, owner: &str) -> Result<(), LockError> {
         let mut locks = self.locks.lock().await;
 
         Self::cleanup_expired_lock(&mut locks, identifier, self.timeout);
@@ -93,11 +92,7 @@ impl LockManager for MemoryLockManager {
                 return Ok(());
             }
 
-            return Err(anyhow!(
-                "Lock for identifier '{}' is already held by '{}'",
-                identifier,
-                existing_lock.owner
-            ));
+            return Err(LockError::lock_already_held(identifier, &existing_lock.owner));
         }
 
         locks.insert(
@@ -111,17 +106,12 @@ impl LockManager for MemoryLockManager {
         Ok(())
     }
 
-    async fn unlock(&self, identifier: &str, owner: &str) -> Result<()> {
+    async fn unlock(&self, identifier: &str, owner: &str) -> Result<(), LockError> {
         let mut locks = self.locks.lock().await;
 
         if let Some(lock) = locks.get_mut(identifier) {
             if lock.owner != owner {
-                return Err(anyhow!(
-                    "Lock for identifier '{}' is held by '{}', not '{}'",
-                    identifier,
-                    lock.owner,
-                    owner
-                ));
+                return Err(LockError::wrong_owner(identifier, &lock.owner, owner));
             }
 
             lock.reentrant_count -= 1;
@@ -133,11 +123,7 @@ impl LockManager for MemoryLockManager {
             return Ok(());
         }
 
-        Err(anyhow!(
-            "No lock found for identifier '{}' owned by '{}'",
-            identifier,
-            owner
-        ))
+        Err(LockError::lock_not_found(identifier, owner))
     }
 }
 
@@ -159,7 +145,13 @@ mod tests {
         manager.lock("resource1", "owner1").await.expect("First lock failed");
         let result = manager.lock("resource1", "owner2").await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("already held by"));
+
+        if let Err(LockError::LockAlreadyHeld { identifier, owner }) = result {
+            assert_eq!(identifier, "resource1");
+            assert_eq!(owner, "owner1");
+        } else {
+            panic!("Expected LockAlreadyHeld error");
+        }
     }
 
     #[tokio::test]
@@ -184,7 +176,19 @@ mod tests {
         manager.lock("resource1", "owner1").await.expect("Lock failed");
         let result = manager.unlock("resource1", "owner2").await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("held by 'owner1'"));
+
+        if let Err(LockError::WrongOwner {
+                       identifier,
+                       existing_owner,
+                       owner,
+                   }) = result
+        {
+            assert_eq!(identifier, "resource1");
+            assert_eq!(existing_owner, "owner1");
+            assert_eq!(owner, "owner2");
+        } else {
+            panic!("Expected WrongOwner error");
+        }
     }
 
     #[tokio::test]
@@ -192,7 +196,13 @@ mod tests {
         let manager = MemoryLockManager::new();
         let result = manager.unlock("nonexistent", "owner1").await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("No lock found"));
+
+        if let Err(LockError::LockNotFound { identifier, owner }) = result {
+            assert_eq!(identifier, "nonexistent");
+            assert_eq!(owner, "owner1");
+        } else {
+            panic!("Expected LockNotFound error");
+        }
     }
 
     #[tokio::test]
@@ -250,5 +260,45 @@ mod tests {
 
         let result = manager.lock("resource1", "owner2").await;
         assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_lock_exclusive_error_message() {
+        let manager = MemoryLockManager::new();
+        manager.lock("resource1", "owner1").await.expect("First lock failed");
+        let result = manager.lock("resource1", "owner2").await;
+
+        assert!(result.is_err());
+        let error_msg = result.unwrap_err().to_string();
+        assert!(error_msg.contains("already held"));
+        assert!(error_msg.contains("owner1"));
+    }
+
+    #[tokio::test]
+    async fn test_unlock_wrong_owner_error_message() {
+        let manager = MemoryLockManager::new();
+        manager.lock("resource1", "owner1").await.expect("Lock failed");
+        let result = manager.unlock("resource1", "owner2").await;
+
+        assert!(result.is_err());
+        let error_msg = result.unwrap_err().to_string();
+        assert!(error_msg.contains("held by"));
+        assert!(error_msg.contains("owner1"));
+        assert!(error_msg.contains("owner2"));
+    }
+
+    #[tokio::test]
+    async fn test_concurrent_lock_acquisition() {
+        let manager = std::sync::Arc::new(MemoryLockManager::new());
+
+        manager.lock("resource", "owner1").await.expect("Lock failed");
+
+        let manager_clone = manager.clone();
+        let handle = tokio::spawn(async move {
+            manager_clone.lock("resource", "owner2").await
+        });
+
+        let result = handle.await.unwrap();
+        assert!(result.is_err());
     }
 }

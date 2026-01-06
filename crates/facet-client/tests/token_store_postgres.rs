@@ -171,7 +171,7 @@ async fn test_postgres_remove_nonexistent_token() {
     let store = PostgresTokenStore::builder().pool(pool).build();
     store.initialize().await.unwrap();
 
-    // Should succeed even if token doesn't exist
+    // Should succeed even if then token doesn't exist
     let result = store.remove_token("nonexistent").await;
     assert!(result.is_ok());
 }

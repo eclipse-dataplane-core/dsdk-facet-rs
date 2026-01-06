@@ -1,3 +1,4 @@
+
 //  Copyright (c) 2026 Metaform Systems, Inc
 //
 //  This program and the accompanying materials are made available under the
@@ -10,8 +11,7 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
-use crate::token::{TokenData, TokenStore};
-use anyhow::{Result, anyhow};
+use crate::token::{TokenData, TokenError, TokenStore};
 use async_trait::async_trait;
 use chrono::Utc;
 use std::collections::HashMap;
@@ -54,11 +54,11 @@ impl MemoryTokenStore {
     /// (useful for cleaning up old tokens)
     ///
     /// # Arguments
-    /// * `cutoff_date` - Remove tokens used before this date
+    /// * `cutoff` - Remove tokens used before this date
     ///
     /// # Returns
     /// The number of tokens removed
-    pub async fn remove_tokens_accessed_before(&self, cutoff: i64) -> Result<usize> {
+    pub async fn remove_tokens_accessed_before(&self, cutoff: i64) -> Result<usize, TokenError> {
         let mut tokens = self.tokens.write().await;
 
         let initial_count = tokens.len();
@@ -71,9 +71,15 @@ impl MemoryTokenStore {
     }
 }
 
+impl Default for MemoryTokenStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[async_trait]
 impl TokenStore for MemoryTokenStore {
-    async fn get_token(&self, identifier: &str) -> Result<TokenData> {
+    async fn get_token(&self, identifier: &str) -> Result<TokenData, TokenError> {
         let tokens = self.tokens.read().await;
         tokens
             .get(identifier)
@@ -84,10 +90,10 @@ impl TokenStore for MemoryTokenStore {
                 expires_at: record.expires_at,
                 refresh_endpoint: record.refresh_endpoint.clone(),
             })
-            .ok_or_else(|| anyhow!("Token not found for {}", identifier))
+            .ok_or_else(|| TokenError::token_not_found(identifier))
     }
 
-    async fn save_token(&self, data: TokenData) -> Result<()> {
+    async fn save_token(&self, data: TokenData) -> Result<(), TokenError> {
         let record = TokenRecord {
             identifier: data.identifier.clone(),
             token: data.token,
@@ -100,15 +106,13 @@ impl TokenStore for MemoryTokenStore {
         self.tokens.write().await.insert(data.identifier, record);
         Ok(())
     }
-    async fn update_token(&self, data: TokenData) -> Result<()> {
+
+    async fn update_token(&self, data: TokenData) -> Result<(), TokenError> {
         let mut tokens = self.tokens.write().await;
 
         // Only update if the token exists
         if !tokens.contains_key(&data.identifier) {
-            return Err(anyhow!(
-                "Cannot update non-existent token '{}'",
-                data.identifier
-            ));
+            return Err(TokenError::cannot_update_non_existent(&data.identifier));
         }
 
         tokens.entry(data.identifier).and_modify(|record| {
@@ -122,7 +126,7 @@ impl TokenStore for MemoryTokenStore {
         Ok(())
     }
 
-    async fn remove_token(&self, identifier: &str) -> Result<()> {
+    async fn remove_token(&self, identifier: &str) -> Result<(), TokenError> {
         self.tokens.write().await.remove(identifier);
         Ok(())
     }

@@ -13,7 +13,7 @@
 use chrono::Utc;
 use facet_client::lock::mem::MemoryLockManager;
 use facet_client::token::mem::MemoryTokenStore;
-use facet_client::token::{TokenClientApi, TokenData, TokenStore};
+use facet_client::token::{TokenClientApi, TokenData, TokenError, TokenStore};
 use std::sync::Arc;
 
 #[tokio::test]
@@ -43,7 +43,7 @@ struct MockTokenClient {}
 
 #[async_trait::async_trait]
 impl facet_client::token::TokenClient for MockTokenClient {
-    async fn refresh_token(&self, _refresh_token: &str, _refresh_endpoint: &str) -> anyhow::Result<TokenData> {
+    async fn refresh_token(&self, _refresh_token: &str, _refresh_endpoint: &str) -> Result<TokenData, TokenError> {
         // FIXME
         Ok(TokenData {
             identifier: "test".to_string(),

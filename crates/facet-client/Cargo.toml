@@ -5,7 +5,7 @@ edition.workspace = true
 
 [dependencies]
 bon = { workspace = true }
-anyhow = { workspace = true }
+thiserror = { workspace = true }
 chrono = { workspace = true }
 tokio = { workspace = true }
 async-trait = { workspace = true }

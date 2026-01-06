@@ -16,6 +16,7 @@ use crate::common::setup_postgres_container;
 use facet_client::lock::postgres::PostgresLockManager;
 use facet_client::lock::LockManager;
 use uuid::Uuid;
+use facet_client::lock::LockError::{LockAlreadyHeld, LockNotFound};
 
 #[tokio::test]
 async fn test_postgres_lock_exclusive_lock() {
@@ -33,7 +34,12 @@ async fn test_postgres_lock_exclusive_lock() {
     // The second owner should fail
     let result = manager.lock(&identifier, owner2).await;
     assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().contains("already held by"));
+    if let Err(LockAlreadyHeld { identifier, owner }) = result {
+        assert_eq!(identifier, identifier);
+        assert_eq!(owner, "owner1");
+    } else {
+        panic!("Expected LockAlreadyHeld error");
+    }
 }
 
 #[tokio::test]
@@ -89,6 +95,13 @@ async fn test_postgres_unlock_wrong_owner() {
     // Owner2 tries to unlock - should fail
     let result = manager.unlock(&identifier, owner2).await;
     assert!(result.is_err());
+
+    if let Err(LockNotFound { identifier: error_identifier, owner: error_owner }) = result {
+        assert_eq!(error_identifier, identifier);
+        assert_eq!(error_owner, "owner2");
+    } else {
+        panic!("Expected LockNotFound error");
+    }
 
     // Verify lock is still held by owner1
     assert!(manager.lock(&identifier, owner2).await.is_err());

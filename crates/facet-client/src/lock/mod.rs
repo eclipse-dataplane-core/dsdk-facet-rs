@@ -1,3 +1,4 @@
+
 //  Copyright (c) 2026 Metaform Systems, Inc
 //
 //  This program and the accompanying materials are made available under the
@@ -10,16 +11,75 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
-use anyhow::Result;
 use async_trait::async_trait;
 use log::warn;
 use std::sync::Arc;
+use thiserror::Error;
 
 pub mod mem;
 pub mod postgres;
 
 pub use mem::MemoryLockManager;
 pub use postgres::PostgresLockManager;
+
+/// Errors that can occur during lock operations.
+#[derive(Debug, Error)]
+pub enum LockError {
+    #[error("Lock for identifier '{identifier}' is already held by '{owner}'")]
+    LockAlreadyHeld { identifier: String, owner: String },
+
+    #[error("No lock found for identifier '{identifier}' owned by '{owner}'")]
+    LockNotFound { identifier: String, owner: String },
+
+    #[error("Lock for identifier '{identifier}' is held by '{existing_owner}', not '{owner}'")]
+    WrongOwner {
+        identifier: String,
+        existing_owner: String,
+        owner: String,
+    },
+
+    #[error("Database error: {0}")]
+    DatabaseError(String),
+
+    #[error("Internal lock error: {0}")]
+    InternalError(String),
+}
+
+impl LockError {
+    pub fn lock_already_held(identifier: impl Into<String>, owner: impl Into<String>) -> Self {
+        LockError::LockAlreadyHeld {
+            identifier: identifier.into(),
+            owner: owner.into(),
+        }
+    }
+
+    pub fn lock_not_found(identifier: impl Into<String>, owner: impl Into<String>) -> Self {
+        LockError::LockNotFound {
+            identifier: identifier.into(),
+            owner: owner.into(),
+        }
+    }
+
+    pub fn wrong_owner(
+        identifier: impl Into<String>,
+        existing_owner: impl Into<String>,
+        owner: impl Into<String>,
+    ) -> Self {
+        LockError::WrongOwner {
+            identifier: identifier.into(),
+            existing_owner: existing_owner.into(),
+            owner: owner.into(),
+        }
+    }
+
+    pub fn database_error(message: impl Into<String>) -> Self {
+        LockError::DatabaseError(message.into())
+    }
+
+    pub fn internal_error(message: impl Into<String>) -> Self {
+        LockError::InternalError(message.into())
+    }
+}
 
 /// Provide distributed locking for coordinating access to shared resources.
 ///
@@ -28,8 +88,8 @@ pub use postgres::PostgresLockManager;
 /// one owner may hold a lock for a given identifier at any time.
 #[async_trait]
 pub trait LockManager: Send + Sync {
-    async fn lock(&self, identifier: &str, owner: &str) -> Result<()>;
-    async fn unlock(&self, identifier: &str, owner: &str) -> Result<()>;
+    async fn lock(&self, identifier: &str, owner: &str) -> Result<(), LockError>;
+    async fn unlock(&self, identifier: &str, owner: &str) -> Result<(), LockError>;
 }
 
 /// Guard that releases a lock when dropped.

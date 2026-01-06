@@ -19,18 +19,51 @@ pub use postgres::PostgresTokenStore;
 const FIVE_SECONDS_MILLIS: i64 = 5_000;
 
 use crate::lock::{LockGuard, LockManager};
-use anyhow::Result;
 use async_trait::async_trait;
 use bon::Builder;
 use chrono::Utc;
 use std::sync::Arc;
+use thiserror::Error;
+
+/// Errors that can occur during token operations.
+#[derive(Debug, Error)]
+pub enum TokenError {
+    #[error("Token not found for identifier: {identifier}")]
+    TokenNotFound { identifier: String },
+
+    #[error("Cannot update non-existent token '{identifier}'")]
+    CannotUpdateNonExistent { identifier: String },
+
+    #[error("Database error: {0}")]
+    DatabaseError(String),
+
+    #[error("System time error: {0}")]
+    SystemTimeError(#[from] std::time::SystemTimeError),
+}
+
+impl TokenError {
+    pub fn token_not_found(identifier: impl Into<String>) -> Self {
+        TokenError::TokenNotFound {
+            identifier: identifier.into(),
+        }
+    }
+
+    pub fn cannot_update_non_existent(identifier: impl Into<String>) -> Self {
+        TokenError::CannotUpdateNonExistent {
+            identifier: identifier.into(),
+        }
+    }
+
+    pub fn database_error(message: impl Into<String>) -> Self {
+        TokenError::DatabaseError(message.into())
+    }
+}
 
 /// Manages token lifecycle with automatic refresh and distributed coordination.
 ///
 /// Coordinates retrieval and refresh of tokens from a remote authorization server,
 /// using a lock manager to prevent concurrent refresh attempts. Automatically refreshes
 /// expiring tokens before returning them.
-/// ```
 #[derive(Clone, Builder)]
 pub struct TokenClientApi {
     lock_manager: Arc<dyn LockManager>,
@@ -41,12 +74,14 @@ pub struct TokenClientApi {
 }
 
 impl TokenClientApi {
-    pub async fn get_token(&self, identifier: &str, owner: &str) -> Result<String> {
+    pub async fn get_token(&self, identifier: &str, owner: &str) -> Result<String, TokenError> {
         let data = self.token_store.get_token(identifier).await?;
 
         let token = if (Utc::now().timestamp_millis() + self.refresh_before_expiry_ms) > data.expires_at {
             // Token is expiring, refresh it
-            self.lock_manager.lock(identifier, owner).await?;
+            self.lock_manager.lock(identifier, owner).await.map_err(|e| {
+                TokenError::database_error(format!("Failed to acquire lock: {}", e))
+            })?;
 
             let guard = LockGuard {
                 lock_manager: self.lock_manager.clone(),
@@ -75,7 +110,7 @@ impl TokenClientApi {
 /// token.
 #[async_trait]
 pub trait TokenClient: Send + Sync {
-    async fn refresh_token(&self, refresh_token: &str, refresh_endpoint: &str) -> Result<TokenData>;
+    async fn refresh_token(&self, refresh_token: &str, refresh_endpoint: &str) -> Result<TokenData, TokenError>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -93,9 +128,9 @@ pub struct TokenData {
 /// expiration times. The storage backend (in-memory, database, etc.) is implementation-dependent.
 #[async_trait]
 pub trait TokenStore: Send + Sync {
-    async fn get_token(&self, identifier: &str) -> Result<TokenData>;
-    async fn save_token(&self, data: TokenData) -> Result<()>;
-    async fn update_token(&self, data: TokenData) -> Result<()>;
-    async fn remove_token(&self, identifier: &str) -> Result<()>;
+    async fn get_token(&self, identifier: &str) -> Result<TokenData, TokenError>;
+    async fn save_token(&self, data: TokenData) -> Result<(), TokenError>;
+    async fn update_token(&self, data: TokenData) -> Result<(), TokenError>;
+    async fn remove_token(&self, identifier: &str) -> Result<(), TokenError>;
     async fn close(&self);
 }

@@ -10,8 +10,7 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
-use crate::lock::LockManager;
-use anyhow::{Result, anyhow};
+use crate::lock::{LockError, LockManager};
 use async_trait::async_trait;
 use bon::Builder;
 use sqlx::PgPool;
@@ -23,7 +22,7 @@ use sqlx::PgPool;
 ///
 /// # Features
 ///
-/// - **Distributed Coordination**: Locks are persisted in Postgre, enabling coordination across
+/// - **Distributed Coordination**: Locks are persisted in Postgres, enabling coordination across
 ///   multiple services or instances.
 /// - **Exclusive Locks**: Only one owner can hold a lock for a given identifier at any time.
 /// - **Reentrant Locks**: The same owner can safely request a lock multiple times.
@@ -67,7 +66,7 @@ use sqlx::PgPool;
 /// manager.lock("resource1", "service-a").await?;
 /// // Perform critical work...
 /// manager.unlock("resource1", "service-a").await?;
-/// # Ok::<_, anyhow::Error>(())
+/// # Ok::<_, Box<dyn std::error::Error>>(())
 /// ```
 ///
 /// ## With Lock Guard
@@ -110,96 +109,106 @@ impl PostgresLockManager {
     /// # Errors
     ///
     /// Returns an error if the database operation fails.
-    pub async fn initialize(&self) -> Result<()> {
-        let mut tx = self.pool.begin().await?;
+    pub async fn initialize(&self) -> Result<(), LockError> {
+        let mut tx = self.pool.begin().await.map_err(|e| {
+            LockError::database_error(format!("Failed to begin transaction: {}", e))
+        })?;
 
         sqlx::query(
             "CREATE TABLE IF NOT EXISTS distributed_locks (
-            identifier VARCHAR(255) PRIMARY KEY,
-            owner VARCHAR(255) NOT NULL,
-            acquired_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )",
+                identifier VARCHAR(255) PRIMARY KEY,
+                owner VARCHAR(255) NOT NULL,
+                acquired_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )",
         )
-        .execute(&mut *tx)
-        .await?;
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| LockError::database_error(format!("Failed to create locks table: {}", e)))?;
 
         sqlx::query("CREATE INDEX IF NOT EXISTS idx_distributed_locks_acquired_at ON distributed_locks(acquired_at)")
             .execute(&mut *tx)
-            .await?;
+            .await
+            .map_err(|e| LockError::database_error(format!("Failed to create index: {}", e)))?;
 
-        tx.commit().await?;
+        tx.commit().await.map_err(|e| {
+            LockError::database_error(format!("Failed to commit transaction: {}", e))
+        })?;
         Ok(())
     }
 }
 
 #[async_trait]
 impl LockManager for PostgresLockManager {
-    async fn lock(&self, identifier: &str, owner: &str) -> Result<()> {
+    async fn lock(&self, identifier: &str, owner: &str) -> Result<(), LockError> {
         // Wrap entire lock acquisition logic in a transaction
-        let mut tx = self.pool.begin().await?;
+        let mut tx = self.pool.begin().await.map_err(|e| {
+            LockError::database_error(format!("Failed to begin transaction: {}", e))
+        })?;
 
         // Cleanup expired locks (using server time)
         sqlx::query(
             "DELETE FROM distributed_locks
-         WHERE EXTRACT(EPOCH FROM (NOW() - acquired_at)) * 1000 > $1",
+             WHERE EXTRACT(EPOCH FROM (NOW() - acquired_at)) * 1000 > $1",
         )
-        .bind(self.timeout_ms)
-        .execute(&mut *tx)
-        .await?;
+            .bind(self.timeout_ms)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| LockError::database_error(format!("Failed to cleanup expired locks: {}", e)))?;
 
         // Try to insert the lock with server timestamp
         let result = sqlx::query(
             "INSERT INTO distributed_locks (identifier, owner, acquired_at)
-         VALUES ($1, $2, NOW())
-         ON CONFLICT (identifier) DO NOTHING",
+             VALUES ($1, $2, NOW())
+             ON CONFLICT (identifier) DO NOTHING",
         )
-        .bind(identifier)
-        .bind(owner)
-        .execute(&mut *tx)
-        .await?;
+            .bind(identifier)
+            .bind(owner)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| LockError::database_error(format!("Failed to insert lock: {}", e)))?;
 
         // Check if insert succeeded
         if result.rows_affected() > 0 {
             // Lock acquired successfully
-            tx.commit().await?;
+            tx.commit().await.map_err(|e| {
+                LockError::database_error(format!("Failed to commit transaction: {}", e))
+            })?;
             return Ok(());
         }
 
         // Lock already exists, verify ownership within the current transaction to avoid race conditions
-        let (existing_owner,): (String,) = sqlx::query_as("SELECT owner FROM distributed_locks WHERE identifier = $1")
+        let (existing_owner,): (String,) = sqlx::query_as(
+            "SELECT owner FROM distributed_locks WHERE identifier = $1",
+        )
             .bind(identifier)
             .fetch_one(&mut *tx)
-            .await?;
+            .await
+            .map_err(|e| LockError::database_error(format!("Failed to fetch lock owner: {}", e)))?;
 
-        tx.commit().await?;
+        tx.commit().await.map_err(|e| {
+            LockError::database_error(format!("Failed to commit transaction: {}", e))
+        })?;
 
         if existing_owner == owner {
             // Same owner - reentrant lock allowed
             Ok(())
         } else {
             // Different owner holds the lock
-            Err(anyhow!(
-                "Lock for identifier '{}' is already held by '{}'",
-                identifier,
-                existing_owner
-            ))
+            Err(LockError::lock_already_held(identifier, &existing_owner))
         }
     }
 
-    async fn unlock(&self, identifier: &str, owner: &str) -> Result<()> {
+    async fn unlock(&self, identifier: &str, owner: &str) -> Result<(), LockError> {
         let rows_deleted = sqlx::query("DELETE FROM distributed_locks WHERE identifier = $1 AND owner = $2")
             .bind(identifier)
             .bind(owner)
             .execute(&self.pool)
-            .await?
+            .await
+            .map_err(|e| LockError::database_error(format!("Failed to delete lock: {}", e)))?
             .rows_affected();
 
         if rows_deleted == 0 {
-            return Err(anyhow!(
-                "No lock found for identifier '{}' owned by '{}'",
-                identifier,
-                owner
-            ));
+            return Err(LockError::lock_not_found(identifier, owner));
         }
 
         Ok(())
