@@ -58,15 +58,7 @@ impl MemoryLockManager {
             clock: default_clock(),
         }
     }
-
-    pub fn with_timeout(timeout: Duration) -> Self {
-        Self {
-            locks: Mutex::new(HashMap::new()),
-            timeout,
-            clock: default_clock(),
-        }
-    }
-
+    
     #[cfg(test)]
     pub fn with_timeout_and_clock(timeout: Duration, clock: Arc<dyn Clock>) -> Self {
         Self {
