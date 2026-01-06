@@ -58,7 +58,7 @@ impl MemoryLockManager {
             clock: default_clock(),
         }
     }
-    
+
     #[cfg(test)]
     pub fn with_timeout_and_clock(timeout: Duration, clock: Arc<dyn Clock>) -> Self {
         Self {
