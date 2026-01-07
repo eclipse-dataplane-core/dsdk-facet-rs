@@ -11,9 +11,12 @@ async-trait = { workspace = true }
 sqlx = { workspace = true }
 log = { workspace = true }
 chrono = { workspace = true }
+sodiumoxide = { workspace = true }
+hex = { workspace = true }
 
 [dev-dependencies]
 testcontainers = { workspace = true }
 testcontainers-modules = { workspace = true }
 mockall = { workspace = true }
 uuid = { workspace = true }
+once_cell = { workspace = true }

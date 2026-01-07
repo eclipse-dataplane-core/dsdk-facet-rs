@@ -13,18 +13,28 @@
 mod common;
 
 use chrono::{TimeDelta, Utc};
+use common::setup_postgres_container;
 use facet_client::token::{PostgresTokenStore, TokenData, TokenStore};
-use facet_client::util::{Clock, MockClock};
+use facet_client::util::{Clock, MockClock, encryption_key};
+use once_cell::sync::Lazy;
+use sodiumoxide::crypto::secretbox;
 use std::sync::Arc;
 
-use common::setup_postgres_container;
+const TEST_SALT: &str = "6b9768804c86626227e61acd9e06f8ff";
+
+static TEST_KEY: Lazy<secretbox::Key> =
+    Lazy::new(|| encryption_key("test_password", TEST_SALT).expect("Failed to derive test key"));
 
 #[tokio::test]
 async fn test_postgres_token_store_initialization_idempotent() {
     let (pool, _container) = setup_postgres_container().await;
     let initial_time = Utc::now();
     let clock = Arc::new(MockClock::new(initial_time));
-    let store = PostgresTokenStore::builder().pool(pool).clock(clock).build();
+    let store = PostgresTokenStore::builder()
+        .pool(pool)
+        .clock(clock)
+        .encryption_key(TEST_KEY.clone())
+        .build();
 
     // Initialize multiple times - should not fail
     store.initialize().await.unwrap();
@@ -37,7 +47,11 @@ async fn test_postgres_save_and_get_token() {
     let (pool, _container) = setup_postgres_container().await;
     let initial_time = Utc::now();
     let clock = Arc::new(MockClock::new(initial_time));
-    let store = PostgresTokenStore::builder().pool(pool).clock(clock).build();
+    let store = PostgresTokenStore::builder()
+        .pool(pool)
+        .clock(clock)
+        .encryption_key(TEST_KEY.clone())
+        .build();
     store.initialize().await.unwrap();
 
     let expires_at = initial_time + TimeDelta::seconds(3600);
@@ -64,7 +78,11 @@ async fn test_postgres_get_nonexistent_token() {
     let (pool, _container) = setup_postgres_container().await;
     let initial_time = Utc::now();
     let clock = Arc::new(MockClock::new(initial_time));
-    let store = PostgresTokenStore::builder().pool(pool).clock(clock).build();
+    let store = PostgresTokenStore::builder()
+        .pool(pool)
+        .clock(clock)
+        .encryption_key(TEST_KEY.clone())
+        .build();
     store.initialize().await.unwrap();
 
     let result = store.get_token("nonexistent").await;
@@ -73,11 +91,15 @@ async fn test_postgres_get_nonexistent_token() {
 }
 
 #[tokio::test]
-async fn test_postgres_save_token_overwrites_existing() {
+async fn test_postgres_save_token_fails_on_duplicate() {
     let (pool, _container) = setup_postgres_container().await;
     let initial_time = Utc::now();
     let clock = Arc::new(MockClock::new(initial_time));
-    let store = PostgresTokenStore::builder().pool(pool).clock(clock).build();
+    let store = PostgresTokenStore::builder()
+        .pool(pool)
+        .clock(clock)
+        .encryption_key(TEST_KEY.clone())
+        .build();
     store.initialize().await.unwrap();
 
     let expires_at_1 = initial_time + TimeDelta::seconds(1000);
@@ -99,13 +121,19 @@ async fn test_postgres_save_token_overwrites_existing() {
         refresh_endpoint: "https://new.example.com/refresh".to_string(),
     };
 
+    // First save succeeds
     store.save_token(token_data1).await.unwrap();
-    store.save_token(token_data2).await.unwrap();
 
+    // Second save with same identifier should fail
+    let result = store.save_token(token_data2).await;
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("Database error"));
+
+    // Verify original token is still there unchanged
     let retrieved = store.get_token("user1").await.unwrap();
-    assert_eq!(retrieved.token, "new_token");
-    assert_eq!(retrieved.refresh_token, "new_refresh");
-    assert_eq!(retrieved.expires_at, expires_at_2);
+    assert_eq!(retrieved.token, "old_token");
+    assert_eq!(retrieved.refresh_token, "old_refresh");
+    assert_eq!(retrieved.expires_at, expires_at_1);
 }
 
 #[tokio::test]
@@ -113,7 +141,11 @@ async fn test_postgres_update_token_success() {
     let (pool, _container) = setup_postgres_container().await;
     let initial_time = Utc::now();
     let clock = Arc::new(MockClock::new(initial_time));
-    let store = PostgresTokenStore::builder().pool(pool).clock(clock).build();
+    let store = PostgresTokenStore::builder()
+        .pool(pool)
+        .clock(clock)
+        .encryption_key(TEST_KEY.clone())
+        .build();
     store.initialize().await.unwrap();
 
     let expires_at = initial_time + TimeDelta::seconds(1000);
@@ -149,7 +181,11 @@ async fn test_postgres_update_nonexistent_token() {
     let (pool, _container) = setup_postgres_container().await;
     let initial_time = Utc::now();
     let clock = Arc::new(MockClock::new(initial_time));
-    let store = PostgresTokenStore::builder().pool(pool).clock(clock).build();
+    let store = PostgresTokenStore::builder()
+        .pool(pool)
+        .clock(clock)
+        .encryption_key(TEST_KEY.clone())
+        .build();
     store.initialize().await.unwrap();
 
     let expires_at = initial_time + TimeDelta::seconds(1000);
@@ -171,7 +207,11 @@ async fn test_postgres_remove_token_success() {
     let (pool, _container) = setup_postgres_container().await;
     let initial_time = Utc::now();
     let clock = Arc::new(MockClock::new(initial_time));
-    let store = PostgresTokenStore::builder().pool(pool).clock(clock).build();
+    let store = PostgresTokenStore::builder()
+        .pool(pool)
+        .clock(clock)
+        .encryption_key(TEST_KEY.clone())
+        .build();
     store.initialize().await.unwrap();
 
     let expires_at = initial_time + TimeDelta::seconds(1000);
@@ -195,7 +235,11 @@ async fn test_postgres_remove_nonexistent_token() {
     let (pool, _container) = setup_postgres_container().await;
     let initial_time = Utc::now();
     let clock = Arc::new(MockClock::new(initial_time));
-    let store = PostgresTokenStore::builder().pool(pool).clock(clock).build();
+    let store = PostgresTokenStore::builder()
+        .pool(pool)
+        .clock(clock)
+        .encryption_key(TEST_KEY.clone())
+        .build();
     store.initialize().await.unwrap();
 
     // Should succeed even if the token doesn't exist
@@ -208,7 +252,11 @@ async fn test_postgres_multiple_tokens() {
     let (pool, _container) = setup_postgres_container().await;
     let initial_time = Utc::now();
     let clock = Arc::new(MockClock::new(initial_time));
-    let store = PostgresTokenStore::builder().pool(pool).clock(clock).build();
+    let store = PostgresTokenStore::builder()
+        .pool(pool)
+        .clock(clock)
+        .encryption_key(TEST_KEY.clone())
+        .build();
     store.initialize().await.unwrap();
 
     let expires_at = initial_time + TimeDelta::seconds(1000);
@@ -244,7 +292,11 @@ async fn test_postgres_token_with_special_characters() {
     let (pool, _container) = setup_postgres_container().await;
     let initial_time = Utc::now();
     let clock = Arc::new(MockClock::new(initial_time));
-    let store = PostgresTokenStore::builder().pool(pool).clock(clock).build();
+    let store = PostgresTokenStore::builder()
+        .pool(pool)
+        .clock(clock)
+        .encryption_key(TEST_KEY.clone())
+        .build();
     store.initialize().await.unwrap();
 
     let expires_at = initial_time + TimeDelta::seconds(1000);
@@ -269,7 +321,11 @@ async fn test_postgres_token_with_long_values() {
     let (pool, _container) = setup_postgres_container().await;
     let initial_time = Utc::now();
     let clock = Arc::new(MockClock::new(initial_time));
-    let store = PostgresTokenStore::builder().pool(pool).clock(clock).build();
+    let store = PostgresTokenStore::builder()
+        .pool(pool)
+        .clock(clock)
+        .encryption_key(TEST_KEY.clone())
+        .build();
     store.initialize().await.unwrap();
 
     let expires_at = initial_time + TimeDelta::seconds(1000);
@@ -293,7 +349,11 @@ async fn test_postgres_save_get_update_remove_flow() {
     let (pool, _container) = setup_postgres_container().await;
     let initial_time = Utc::now();
     let clock = Arc::new(MockClock::new(initial_time));
-    let store = PostgresTokenStore::builder().pool(pool).clock(clock).build();
+    let store = PostgresTokenStore::builder()
+        .pool(pool)
+        .clock(clock)
+        .encryption_key(TEST_KEY.clone())
+        .build();
     store.initialize().await.unwrap();
 
     let expires_at = initial_time + TimeDelta::seconds(1000);
@@ -335,6 +395,7 @@ async fn test_postgres_last_accessed_timestamp_recorded() {
     let store = PostgresTokenStore::builder()
         .pool(pool)
         .clock(mock_clock.clone() as Arc<dyn Clock>)
+        .encryption_key(TEST_KEY.clone())
         .build();
     store.initialize().await.unwrap();
 
@@ -362,7 +423,11 @@ async fn test_postgres_deterministic_timestamps() {
     let (pool, _container) = setup_postgres_container().await;
     let initial_time = Utc::now();
     let clock = Arc::new(MockClock::new(initial_time));
-    let store = PostgresTokenStore::builder().pool(pool).clock(clock.clone()).build();
+    let store = PostgresTokenStore::builder()
+        .pool(pool)
+        .clock(clock.clone())
+        .encryption_key(TEST_KEY.clone())
+        .build();
     store.initialize().await.unwrap();
 
     // Create multiple tokens with controlled time
@@ -395,4 +460,51 @@ async fn test_postgres_deterministic_timestamps() {
 
     assert_eq!(retrieved1.identifier, "user1");
     assert_eq!(retrieved2.identifier, "user2");
+}
+
+
+#[tokio::test]
+async fn test_postgres_tokens_are_encrypted_at_rest() {
+    let (pool, _container) = setup_postgres_container().await;
+    let initial_time = Utc::now();
+    let clock = Arc::new(MockClock::new(initial_time));
+    let store = PostgresTokenStore::builder()
+        .pool(pool.clone())
+        .clock(clock)
+        .encryption_key(TEST_KEY.clone())
+        .build();
+    store.initialize().await.unwrap();
+
+    let expires_at = initial_time + TimeDelta::seconds(3600);
+    let token_data = TokenData {
+        identifier: "user1".to_string(),
+        token: "plaintext_access_token".to_string(),
+        refresh_token: "plaintext_refresh_token".to_string(),
+        expires_at,
+        refresh_endpoint: "https://auth.example.com/refresh".to_string(),
+    };
+
+    store.save_token(token_data.clone()).await.unwrap();
+
+    // Query database directly to verify encryption
+    let raw_record: (Vec<u8>, Vec<u8>) = sqlx::query_as(
+        "SELECT token, refresh_token FROM tokens WHERE identifier = $1"
+    )
+        .bind("user1")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+    // Verify stored values are NOT plaintext
+    assert_ne!(raw_record.0, b"plaintext_access_token");
+    assert_ne!(raw_record.1, b"plaintext_refresh_token");
+
+    // Verify stored values are non-empty encrypted data
+    assert!(!raw_record.0.is_empty());
+    assert!(!raw_record.1.is_empty());
+
+    // Verify we can still retrieve and decrypt properly
+    let retrieved = store.get_token("user1").await.unwrap();
+    assert_eq!(retrieved.token, "plaintext_access_token");
+    assert_eq!(retrieved.refresh_token, "plaintext_refresh_token");
 }

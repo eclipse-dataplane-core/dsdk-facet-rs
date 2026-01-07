@@ -11,10 +11,11 @@
 //
 
 use crate::token::{TokenData, TokenError, TokenStore};
-use crate::util::{Clock, default_clock};
+use crate::util::{Clock, decrypt, default_clock};
 use async_trait::async_trait;
 use bon::Builder;
 use chrono::DateTime;
+use sodiumoxide::crypto::secretbox;
 use sqlx::PgPool;
 use std::sync::Arc;
 
@@ -36,6 +37,7 @@ pub struct PostgresTokenStore {
     pool: PgPool,
     #[builder(default = default_clock())]
     clock: Arc<dyn Clock>,
+    encryption_key: secretbox::Key,
 }
 
 impl PostgresTokenStore {
@@ -56,8 +58,10 @@ impl PostgresTokenStore {
         sqlx::query(
             "CREATE TABLE IF NOT EXISTS tokens (
                 identifier VARCHAR(255) PRIMARY KEY,
-                token TEXT NOT NULL,
-                refresh_token TEXT NOT NULL,
+                token BYTEA NOT NULL,
+                token_nonce BYTEA NOT NULL,
+                refresh_token BYTEA NOT NULL,
+                refresh_token_nonce BYTEA NOT NULL,
                 expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
                 refresh_endpoint VARCHAR(2048) NOT NULL,
                 last_accessed TIMESTAMP WITH TIME ZONE NOT NULL
@@ -82,8 +86,9 @@ impl PostgresTokenStore {
 #[async_trait]
 impl TokenStore for PostgresTokenStore {
     async fn get_token(&self, identifier: &str) -> Result<TokenData, TokenError> {
-        let record: (String, String, String, DateTime<chrono::Utc>, String) = sqlx::query_as(
-            "SELECT identifier, token, refresh_token, expires_at, refresh_endpoint
+
+        let record: TokenRecord = sqlx::query_as(
+            "SELECT identifier, token, token_nonce, refresh_token, refresh_token_nonce, expires_at, refresh_endpoint
              FROM tokens WHERE identifier = $1",
         )
         .bind(identifier)
@@ -91,6 +96,22 @@ impl TokenStore for PostgresTokenStore {
         .await
         .map_err(|e| TokenError::database_error(format!("Failed to fetch token: {}", e)))?
         .ok_or_else(|| TokenError::token_not_found(identifier))?;
+
+        // Decrypt token
+        let token_nonce = secretbox::Nonce::from_slice(&record.token_nonce)
+            .ok_or_else(|| TokenError::database_error("Invalid token nonce".to_string()))?;
+        let decrypted_token =
+            decrypt(&self.encryption_key, &record.token, &token_nonce).map_err(|e| TokenError::database_error(e.0))?;
+        let token = String::from_utf8(decrypted_token)
+            .map_err(|e| TokenError::database_error(format!("Invalid UTF-8 in token: {}", e)))?;
+
+        // Decrypt refresh_token
+        let refresh_nonce = secretbox::Nonce::from_slice(&record.refresh_token_nonce)
+            .ok_or_else(|| TokenError::database_error("Invalid refresh_token nonce".to_string()))?;
+        let decrypted_refresh = decrypt(&self.encryption_key, &record.refresh_token, &refresh_nonce)
+            .map_err(|e| TokenError::database_error(e.0))?;
+        let refresh_token = String::from_utf8(decrypted_refresh)
+            .map_err(|e| TokenError::database_error(format!("Invalid UTF-8 in refresh_token: {}", e)))?;
 
         let now = self.clock.now();
 
@@ -102,62 +123,76 @@ impl TokenStore for PostgresTokenStore {
             .map_err(|e| TokenError::database_error(format!("Failed to update last_accessed: {}", e)))?;
 
         Ok(TokenData {
-            identifier: record.0,
-            token: record.1,
-            refresh_token: record.2,
-            expires_at: record.3,
-            refresh_endpoint: record.4,
+            identifier: record.identifier,
+            token,
+            refresh_token,
+            expires_at: record.expires_at,
+            refresh_endpoint: record.refresh_endpoint,
         })
     }
 
     async fn save_token(&self, data: TokenData) -> Result<(), TokenError> {
+        // Encrypt token
+        let (encrypted_token, token_nonce) = crate::util::encrypt(&self.encryption_key, data.token.as_bytes());
+
+        // Encrypt refresh_token
+        let (encrypted_refresh_token, refresh_nonce) =
+            crate::util::encrypt(&self.encryption_key, data.refresh_token.as_bytes());
+
         let now = self.clock.now();
 
         sqlx::query(
-            "INSERT INTO tokens (identifier, token, refresh_token, expires_at, refresh_endpoint, last_accessed)
-             VALUES ($1, $2, $3, $4, $5, $6)
-             ON CONFLICT (identifier) DO UPDATE SET
-                token = EXCLUDED.token,
-                refresh_token = EXCLUDED.refresh_token,
-                expires_at = EXCLUDED.expires_at,
-                refresh_endpoint = EXCLUDED.refresh_endpoint,
-                last_accessed = EXCLUDED.last_accessed",
+            "INSERT INTO tokens (identifier, token, token_nonce, refresh_token, refresh_token_nonce, expires_at, refresh_endpoint, last_accessed)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
         )
-        .bind(&data.identifier)
-        .bind(&data.token)
-        .bind(&data.refresh_token)
-        .bind(data.expires_at)
-        .bind(&data.refresh_endpoint)
-        .bind(now)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| TokenError::database_error(format!("Failed to save token: {}", e)))?;
+            .bind(&data.identifier)
+            .bind(encrypted_token)
+            .bind(token_nonce.as_ref())
+            .bind(encrypted_refresh_token)
+            .bind(refresh_nonce.as_ref())
+            .bind(data.expires_at)
+            .bind(&data.refresh_endpoint)
+            .bind(now)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| TokenError::database_error(format!("Failed to save token: {}", e)))?;
 
         Ok(())
     }
-
+    
     async fn update_token(&self, data: TokenData) -> Result<(), TokenError> {
+        // Encrypt token
+        let (encrypted_token, token_nonce) = crate::util::encrypt(&self.encryption_key, data.token.as_bytes());
+
+        // Encrypt refresh_token
+        let (encrypted_refresh_token, refresh_nonce) =
+            crate::util::encrypt(&self.encryption_key, data.refresh_token.as_bytes());
+
         let now = self.clock.now();
 
         let rows_affected = sqlx::query(
             "UPDATE tokens SET
                 token = $2,
-                refresh_token = $3,
-                expires_at = $4,
-                refresh_endpoint = $5,
-                last_accessed = $6
+                token_nonce = $3,
+                refresh_token = $4,
+                refresh_token_nonce = $5,
+                expires_at = $6,
+                refresh_endpoint = $7,
+                last_accessed = $8
              WHERE identifier = $1",
         )
-        .bind(&data.identifier)
-        .bind(&data.token)
-        .bind(&data.refresh_token)
-        .bind(data.expires_at)
-        .bind(&data.refresh_endpoint)
-        .bind(now)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| TokenError::database_error(format!("Failed to update token: {}", e)))?
-        .rows_affected();
+            .bind(&data.identifier)
+            .bind(encrypted_token)
+            .bind(token_nonce.as_ref())
+            .bind(encrypted_refresh_token)
+            .bind(refresh_nonce.as_ref())
+            .bind(data.expires_at)
+            .bind(&data.refresh_endpoint)
+            .bind(now)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| TokenError::database_error(format!("Failed to update token: {}", e)))?
+            .rows_affected();
 
         if rows_affected == 0 {
             return Err(TokenError::cannot_update_non_existent(&data.identifier));
@@ -179,4 +214,16 @@ impl TokenStore for PostgresTokenStore {
     async fn close(&self) {
         self.pool.close().await;
     }
+}
+
+
+#[derive(sqlx::FromRow)]
+struct TokenRecord {
+    identifier: String,
+    token: Vec<u8>,
+    token_nonce: Vec<u8>,
+    refresh_token: Vec<u8>,
+    refresh_token_nonce: Vec<u8>,
+    expires_at: DateTime<chrono::Utc>,
+    refresh_endpoint: String,
 }
