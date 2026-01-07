@@ -280,7 +280,21 @@ impl LockManager for PostgresLockManager {
         .rows_affected();
 
         if rows_affected == 0 {
-            return Err(LockError::lock_not_found(identifier, owner));
+            // Check if lock exists with a different owner to provide better error message
+            let existing_owner: Option<(String,)> = sqlx::query_as(
+                "SELECT owner FROM distributed_locks WHERE identifier = $1",
+            )
+            .bind(identifier)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(|e| LockError::database_error(format!("Failed to query lock: {}", e)))?;
+
+            return match existing_owner {
+                Some((other_owner,)) if other_owner != owner => {
+                    Err(LockError::wrong_owner(identifier, &other_owner, owner))
+                }
+                _ => Err(LockError::lock_not_found(identifier, owner)),
+            };
         }
 
         // Delete the lock if count reaches 0

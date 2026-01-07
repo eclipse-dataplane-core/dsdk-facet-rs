@@ -15,7 +15,7 @@ mod common;
 use std::sync::Arc;
 use crate::common::setup_postgres_container;
 use facet_client::lock::postgres::PostgresLockManager;
-use facet_client::lock::LockManager;
+use facet_client::lock::{LockError, LockManager};
 use facet_client::util::{Clock, MockClock};
 use uuid::Uuid;
 use facet_client::lock::LockError::{LockAlreadyHeld, LockNotFound};
@@ -182,6 +182,7 @@ async fn test_postgres_unlock_success() {
     assert!(result.is_ok());
 }
 
+
 #[tokio::test]
 async fn test_postgres_unlock_wrong_owner() {
     let (pool, _container) = setup_postgres_container().await;
@@ -199,11 +200,12 @@ async fn test_postgres_unlock_wrong_owner() {
     let result = manager.unlock(&identifier, owner2).await;
     assert!(result.is_err());
 
-    if let Err(LockNotFound { identifier: error_identifier, owner: error_owner }) = result {
+    if let Err(LockError::WrongOwner { identifier: error_identifier, existing_owner, owner: error_owner }) = result {
         assert_eq!(error_identifier, identifier);
+        assert_eq!(existing_owner, "owner1");
         assert_eq!(error_owner, "owner2");
     } else {
-        panic!("Expected LockNotFound error");
+        panic!("Expected WrongOwner error, got: {:?}", result);
     }
 
     // Verify lock is still held by owner1
