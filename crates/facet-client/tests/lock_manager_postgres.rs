@@ -63,6 +63,35 @@ async fn test_postgres_lock_reentrant() {
 }
 
 #[tokio::test]
+async fn test_postgres_lock_reentrant_unlock() {
+    let (pool, _container) = setup_postgres_container().await;
+    let manager = PostgresLockManager::builder().pool(pool).build();
+    manager.initialize().await.unwrap();
+
+    let identifier = Uuid::new_v4().to_string();
+    let owner1 = "owner1";
+    let owner2 = "owner2";
+
+    // Owner1 acquires lock twice (reentrant)
+    manager.lock(&identifier, owner1).await.unwrap();
+    manager.lock(&identifier, owner1).await.unwrap();
+
+    // First unlock should NOT release the lock completely
+    manager.unlock(&identifier, owner1).await.unwrap();
+
+    // Owner2 should still not be able to acquire (lock still held by owner1)
+    let result = manager.lock(&identifier, owner2).await;
+    assert!(result.is_err(), "Lock should still be held by owner1 after first unlock");
+
+    // Second unlock should release the lock
+    manager.unlock(&identifier, owner1).await.unwrap();
+
+    // Now owner2 should be able to acquire
+    let result = manager.lock(&identifier, owner2).await;
+    assert!(result.is_ok(), "Lock should be available after second unlock");
+}
+
+#[tokio::test]
 async fn test_postgres_unlock_success() {
     let (pool, _container) = setup_postgres_container().await;
     let manager = PostgresLockManager::builder().pool(pool).build();

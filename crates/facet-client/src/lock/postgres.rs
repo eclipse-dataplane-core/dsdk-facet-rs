@@ -33,21 +33,24 @@ use std::sync::Arc;
 ///
 /// # How It Works
 ///
-/// Locks are stored in a `distributed_locks` table with three columns:
+/// Locks are stored in a `distributed_locks` table with four columns:
 /// - `identifier`: The resource name being locked (primary key)
 /// - `owner`: The identifier of the lock holder
 /// - `acquired_at`: Timestamp in UTC when the lock was acquired
+/// - `reentrant_count`: Number of times the lock has been acquired by the same owner
 ///
 /// When acquiring a lock:
 /// 1. Expired locks (older than the configured timeout) are automatically cleaned up
 /// 2. An insert is attempted; if the identifier already exists, it returns `NOTHING`
-/// 3. If the insert succeeds, the lock is acquired
+/// 3. If the insert succeeds, the lock is acquired with `reentrant_count = 1`
 /// 4. If the insert fails, ownership is checked:
-///    - Same owner: reentrant lock (allowed, returns `Ok`)
+///    - Same owner: reentrant lock (increments `reentrant_count`, refreshes timestamp)
 ///    - Different owner: lock held by another owner (returns error)
 ///
-/// When releasing a lock, ownership is verified before deletion to prevent
-/// unauthorized lock release.
+/// When releasing a lock:
+/// 1. The `reentrant_count` is decremented
+/// 2. If the count reaches 0, the lock is deleted
+/// 3. Ownership is verified before any modification to prevent unauthorized lock release
 ///
 /// # Examples
 ///
@@ -127,7 +130,8 @@ impl PostgresLockManager {
             "CREATE TABLE IF NOT EXISTS distributed_locks (
                 identifier VARCHAR(255) PRIMARY KEY,
                 owner VARCHAR(255) NOT NULL,
-                acquired_at TIMESTAMP WITH TIME ZONE NOT NULL
+                acquired_at TIMESTAMP WITH TIME ZONE NOT NULL,
+                reentrant_count INTEGER NOT NULL DEFAULT 1
             )",
         )
         .execute(&mut *tx)
@@ -169,10 +173,10 @@ impl PostgresLockManager {
             .await
             .map_err(|e| LockError::database_error(format!("Failed to cleanup expired locks: {}", e)))?;
 
-        // Try to insert the lock with the acquired timestamp
+        // Try to insert the lock with the acquired timestamp and initial count of 1
         let result = sqlx::query(
-            "INSERT INTO distributed_locks (identifier, owner, acquired_at)
-             VALUES ($1, $2, $3)
+            "INSERT INTO distributed_locks (identifier, owner, acquired_at, reentrant_count)
+             VALUES ($1, $2, $3, 1)
              ON CONFLICT (identifier) DO NOTHING",
         )
         .bind(identifier)
@@ -192,10 +196,10 @@ impl PostgresLockManager {
         }
 
         // Lock already exists due to conflict
-        // Try to update the timestamp if we own it (handles the reentrant case)
+        // Try to update the timestamp and increment count if we own it (handles the reentrant case)
         let update_result = sqlx::query(
             "UPDATE distributed_locks
-             SET acquired_at = $1
+             SET acquired_at = $1, reentrant_count = reentrant_count + 1
              WHERE identifier = $2 AND owner = $3",
         )
         .bind(now)
@@ -206,15 +210,15 @@ impl PostgresLockManager {
         .map_err(|e| LockError::database_error(format!("Failed to update lock: {}", e)))?;
 
         if update_result.rows_affected() > 0 {
-            // Successfully updated timestamp - reentrant lock by same owner
+            // Successfully updated timestamp and count - reentrant lock by same owner
             tx.commit()
                 .await
                 .map_err(|e| LockError::database_error(format!("Failed to commit transaction: {}", e)))?;
             return Ok(());
         }
 
-        // Update failed - lock is held by different owner, or was just released
-        // Fetch the actual owner for error message (may be None if lock was released)
+        // Update failed - lock is held by a different owner, or was just released
+        // Fetch the actual owner forthe  error message (may be None if lock was released)
         let existing_owner: Option<(String,)> = sqlx::query_as(
             "SELECT owner FROM distributed_locks WHERE identifier = $1",
         )
@@ -255,17 +259,33 @@ impl LockManager for PostgresLockManager {
     }
 
     async fn unlock(&self, identifier: &str, owner: &str) -> Result<(), LockError> {
-        let rows_deleted = sqlx::query("DELETE FROM distributed_locks WHERE identifier = $1 AND owner = $2")
-            .bind(identifier)
-            .bind(owner)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| LockError::database_error(format!("Failed to delete lock: {}", e)))?
-            .rows_affected();
+        // Decrement the reentrant count and only delete if it reaches 0
+        let rows_affected = sqlx::query(
+            "UPDATE distributed_locks
+             SET reentrant_count = reentrant_count - 1
+             WHERE identifier = $1 AND owner = $2",
+        )
+        .bind(identifier)
+        .bind(owner)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| LockError::database_error(format!("Failed to update lock count: {}", e)))?
+        .rows_affected();
 
-        if rows_deleted == 0 {
+        if rows_affected == 0 {
             return Err(LockError::lock_not_found(identifier, owner));
         }
+
+        // Delete the lock if count reaches 0
+        sqlx::query(
+            "DELETE FROM distributed_locks
+             WHERE identifier = $1 AND owner = $2 AND reentrant_count <= 0",
+        )
+        .bind(identifier)
+        .bind(owner)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| LockError::database_error(format!("Failed to delete lock: {}", e)))?;
 
         Ok(())
     }
