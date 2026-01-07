@@ -29,37 +29,6 @@ use chrono::{DateTime, TimeDelta, Utc};
 use std::sync::Arc;
 use thiserror::Error;
 
-/// Errors that can occur during token operations.
-#[derive(Debug, Error)]
-pub enum TokenError {
-    #[error("Token not found for identifier: {identifier}")]
-    TokenNotFound { identifier: String },
-
-    #[error("Cannot update non-existent token '{identifier}'")]
-    CannotUpdateNonExistent { identifier: String },
-
-    #[error("Database error: {0}")]
-    DatabaseError(String),
-}
-
-impl TokenError {
-    pub fn token_not_found(identifier: impl Into<String>) -> Self {
-        TokenError::TokenNotFound {
-            identifier: identifier.into(),
-        }
-    }
-
-    pub fn cannot_update_non_existent(identifier: impl Into<String>) -> Self {
-        TokenError::CannotUpdateNonExistent {
-            identifier: identifier.into(),
-        }
-    }
-
-    pub fn database_error(message: impl Into<String>) -> Self {
-        TokenError::DatabaseError(message.into())
-    }
-}
-
 /// Manages token lifecycle with automatic refresh and distributed coordination.
 ///
 /// Coordinates retrieval and refresh of tokens from a remote authorization server,
@@ -179,3 +148,35 @@ pub trait TokenStore: Send + Sync {
     async fn remove_token(&self, participant_context: &str, identifier: &str) -> Result<(), TokenError>;
     async fn close(&self);
 }
+
+/// Errors that can occur during token operations.
+#[derive(Debug, Error)]
+pub enum TokenError {
+    #[error("Token not found for identifier: {identifier}")]
+    TokenNotFound { identifier: String },
+
+    #[error("Cannot update non-existent token '{identifier}'")]
+    CannotUpdateNonExistent { identifier: String },
+
+    #[error("Database error: {0}")]
+    DatabaseError(String),
+}
+
+impl TokenError {
+    pub fn token_not_found(identifier: impl Into<String>) -> Self {
+        TokenError::TokenNotFound {
+            identifier: identifier.into(),
+        }
+    }
+
+    pub fn cannot_update_non_existent(identifier: impl Into<String>) -> Self {
+        TokenError::CannotUpdateNonExistent {
+            identifier: identifier.into(),
+        }
+    }
+
+    pub fn database_error(message: impl Into<String>) -> Self {
+        TokenError::DatabaseError(message.into())
+    }
+}
+
