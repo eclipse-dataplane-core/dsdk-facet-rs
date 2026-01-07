@@ -182,7 +182,6 @@ async fn test_postgres_unlock_success() {
     assert!(result.is_ok());
 }
 
-
 #[tokio::test]
 async fn test_postgres_unlock_wrong_owner() {
     let (pool, _container) = setup_postgres_container().await;
