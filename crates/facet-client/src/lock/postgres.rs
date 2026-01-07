@@ -188,24 +188,43 @@ impl LockManager for PostgresLockManager {
             return Ok(());
         }
 
-        // Lock already exists, verify ownership within the current transaction to avoid race conditions
-        let (existing_owner,): (String,) = sqlx::query_as("SELECT owner FROM distributed_locks WHERE identifier = $1")
-            .bind(identifier)
-            .fetch_one(&mut *tx)
-            .await
-            .map_err(|e| LockError::database_error(format!("Failed to fetch lock owner: {}", e)))?;
+        // Lock already exists due to conflict
+        // Try to update the timestamp if we own it (handles the reentrant case)
+        let update_result = sqlx::query(
+            "UPDATE distributed_locks
+             SET acquired_at = $1
+             WHERE identifier = $2 AND owner = $3",
+        )
+        .bind(now)
+        .bind(identifier)
+        .bind(owner)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| LockError::database_error(format!("Failed to update lock: {}", e)))?;
+
+        if update_result.rows_affected() > 0 {
+            // Successfully updated timestamp - reentrant lock by same owner
+            tx.commit()
+                .await
+                .map_err(|e| LockError::database_error(format!("Failed to commit transaction: {}", e)))?;
+            return Ok(());
+        }
+
+        // Update failed - lock is held by different owner
+        // Fetch the actual owner for error message
+        let (existing_owner,): (String,) = sqlx::query_as(
+            "SELECT owner FROM distributed_locks WHERE identifier = $1",
+        )
+        .bind(identifier)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|e| LockError::database_error(format!("Failed to fetch lock owner: {}", e)))?;
 
         tx.commit()
             .await
             .map_err(|e| LockError::database_error(format!("Failed to commit transaction: {}", e)))?;
 
-        if existing_owner == owner {
-            // Same owner - reentrant lock allowed
-            Ok(())
-        } else {
-            // Different owner holds the lock
-            Err(LockError::lock_already_held(identifier, &existing_owner))
-        }
+        Err(LockError::lock_already_held(identifier, &existing_owner))
     }
 
     async fn unlock(&self, identifier: &str, owner: &str) -> Result<(), LockError> {

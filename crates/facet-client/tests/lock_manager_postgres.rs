@@ -327,3 +327,87 @@ async fn test_postgres_lock_state_after_error() {
     let result = manager.lock(&identifier, owner2).await;
     assert!(result.is_err());
 }
+
+#[tokio::test]
+async fn test_postgres_lock_reentrant_refreshes_timestamp() {
+    let (pool, _container) = setup_postgres_container().await;
+
+    let initial_time = Utc::now();
+    let mock_clock = Arc::new(MockClock::new(initial_time));
+    let manager = PostgresLockManager::builder()
+        .pool(pool.clone())
+        .timeout(TimeDelta::seconds(30))
+        .clock(mock_clock.clone() as Arc<dyn Clock>)
+        .build();
+    manager.initialize().await.unwrap();
+
+    let identifier = Uuid::new_v4().to_string();
+    let owner1 = "owner1";
+    let owner2 = "owner2";
+
+    // T=0: Owner1 acquires lock
+    manager.lock(&identifier, owner1).await.unwrap();
+
+    // T=25: Advance time by 25 seconds (within 30s timeout)
+    mock_clock.advance(TimeDelta::seconds(25));
+
+    // T=25: Owner1 re-acquires lock (reentrant) - should refresh timestamp
+    manager.lock(&identifier, owner1).await.unwrap();
+
+    // T=60: Advance time by another 35 seconds (total 60 seconds from T=0)
+    // This is past the original 30s timeout from T=0, BUT within 30s of the refreshed timestamp at T=25
+    mock_clock.advance(TimeDelta::seconds(35));
+
+    // T=60: Owner2 tries to acquire the lock
+    // Should FAIL because the timestamp was refreshed at T=25, so lock expires at T=55
+    // Current time is T=60, so lock should have expired
+    let result = manager.lock(&identifier, owner2).await;
+
+    // With the fix, the reentrant acquisition at T=25 refreshed the timestamp
+    // So at T=60, the lock expired at T=55 (25 + 30), making it available
+    assert!(result.is_ok(), "Lock should be available after expiration from refreshed timestamp");
+}
+
+#[tokio::test]
+async fn test_postgres_lock_reentrant_keeps_lock_alive() {
+    let (pool, _container) = setup_postgres_container().await;
+
+    let initial_time = Utc::now();
+    let mock_clock = Arc::new(MockClock::new(initial_time));
+    let manager = PostgresLockManager::builder()
+        .pool(pool.clone())
+        .timeout(TimeDelta::seconds(30))
+        .clock(mock_clock.clone() as Arc<dyn Clock>)
+        .build();
+    manager.initialize().await.unwrap();
+
+    let identifier = Uuid::new_v4().to_string();
+    let owner1 = "owner1";
+    let owner2 = "owner2";
+
+    // T=0: Owner1 acquires lock
+    manager.lock(&identifier, owner1).await.unwrap();
+
+    // T=25: Advance time by 25 seconds (within 30s timeout)
+    mock_clock.advance(TimeDelta::seconds(25));
+
+    // T=25: Owner1 re-acquires lock (reentrant) - refreshes timestamp to T=25
+    manager.lock(&identifier, owner1).await.unwrap();
+
+    // T=45: Advance time by another 20 seconds (total 45 seconds from T=0, but only 20 from T=25)
+    mock_clock.advance(TimeDelta::seconds(20));
+
+    // T=45: Owner2 tries to acquire the lock
+    // Should FAIL because timestamp was refreshed at T=25, lock won't expire until T=55
+    let result = manager.lock(&identifier, owner2).await;
+    assert!(result.is_err(), "Lock should still be held by owner1 due to refreshed timestamp");
+
+    if let Err(LockAlreadyHeld { identifier: _, owner }) = result {
+        assert_eq!(owner, "owner1");
+    } else {
+        panic!("Expected LockAlreadyHeld error");
+    }
+
+    // Verify owner1 can still re-acquire (still owns it)
+    assert!(manager.lock(&identifier, owner1).await.is_ok());
+}
