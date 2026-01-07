@@ -47,6 +47,7 @@ async fn test_create_token_success() {
     let expires_at = Utc::now() + TimeDelta::hours(1);
     let result = token_api
         .create_token(
+            "participant1",
             "test_identifier",
             "test_token",
             "test_refresh_token",
@@ -89,6 +90,7 @@ async fn test_create_token_saves_correct_data() {
 
     let result = token_api
         .create_token(
+            "participant1",
             "service_a",
             "access_token_123",
             "refresh_token_456",
@@ -123,6 +125,7 @@ async fn test_create_token_acquires_lock() {
 
     let result = token_api
         .create_token(
+            "participant1",
             "critical_token",
             "token",
             "refresh",
@@ -157,6 +160,7 @@ async fn test_create_token_lock_failure() {
 
     let result = token_api
         .create_token(
+            "participant1",
             "test",
             "token",
             "refresh",
@@ -196,6 +200,7 @@ async fn test_create_token_store_failure() {
 
     let result = token_api
         .create_token(
+            "participant1",
             "test",
             "token",
             "refresh",
@@ -248,6 +253,7 @@ async fn test_create_token_with_different_owners() {
 
     let result1 = token_api
         .create_token(
+            "participant1",
             "token1",
             "token_a",
             "refresh_a",
@@ -259,6 +265,7 @@ async fn test_create_token_with_different_owners() {
 
     let result2 = token_api
         .create_token(
+            "participant1",
             "token1",
             "token_b",
             "refresh_b",
@@ -291,6 +298,7 @@ async fn test_create_token_with_various_expiry_times() {
     // Token expiring in 1 hour
     let result1 = token_api
         .create_token(
+            "participant1",
             "token1",
             "t1",
             "r1",
@@ -303,6 +311,7 @@ async fn test_create_token_with_various_expiry_times() {
     // Token expiring in 24 hours
     let result2 = token_api
         .create_token(
+            "participant1",
             "token2",
             "t2",
             "r2",
@@ -315,6 +324,7 @@ async fn test_create_token_with_various_expiry_times() {
     // Token expiring in 30 days
     let result3 = token_api
         .create_token(
+            "participant1",
             "token3",
             "t3",
             "r3",
@@ -357,6 +367,7 @@ async fn test_create_token_with_special_characters() {
 
     let result = token_api
         .create_token(
+            "participant1",
             "service:prod:api",
             jwt_like_token,
             jwt_like_token,
@@ -388,6 +399,7 @@ async fn test_create_token_does_not_call_token_client() {
 
     let result = token_api
         .create_token(
+            "participant1",
             "test",
             "token",
             "refresh",
@@ -428,6 +440,7 @@ async fn test_create_multiple_tokens_same_identifier() {
 
     let result1 = token_api
         .create_token(
+            "participant1",
             "same_id",
             "token_v1",
             "refresh_v1",
@@ -439,6 +452,7 @@ async fn test_create_multiple_tokens_same_identifier() {
 
     let result2 = token_api
         .create_token(
+            "participant1",
             "same_id",
             "token_v2",
             "refresh_v2",
@@ -474,6 +488,7 @@ async fn test_create_token_with_empty_refresh_endpoint() {
 
     let result = token_api
         .create_token(
+            "participant1",
             "test",
             "token",
             "refresh",
@@ -514,6 +529,7 @@ async fn test_create_token_with_long_identifier() {
 
     let result = token_api
         .create_token(
+            "participant1",
             long_identifier,
             "token",
             "refresh",
@@ -557,6 +573,7 @@ async fn test_create_token_preserves_all_parameters() {
 
     let result = token_api
         .create_token(
+            "participant1",
             "api_key_123",
             "access_super_secret_123",
             "refresh_super_secret_456",
@@ -590,6 +607,7 @@ async fn test_create_token_lock_error_variations() {
 
     let result = token_api
         .create_token(
+            "participant1",
             "test",
             "token",
             "refresh",

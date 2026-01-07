@@ -24,6 +24,7 @@ async fn test_api_end_to_end() {
     let token_client = Arc::new(MockTokenClient {});
 
     let data = TokenData {
+        participant_context: "participant1".to_string(),
         identifier: "test".to_string(),
         token: "token".to_string(),
         refresh_token: "refresh".to_string(),
@@ -39,7 +40,7 @@ async fn test_api_end_to_end() {
         .clock(default_clock())
         .build();
 
-    let _ = token_api.get_token("test", "owner1").await.unwrap();
+    let _ = token_api.get_token("participant1", "test", "owner1").await.unwrap();
 }
 
 #[tokio::test]
@@ -54,6 +55,7 @@ async fn test_token_expiration_triggers_refresh() {
     let clock = Arc::new(MockClock::new(initial_time));
 
     let data = TokenData {
+        participant_context: "participant1".to_string(),
         identifier: "test".to_string(),
         token: "token".to_string(),
         refresh_token: "refresh".to_string(),
@@ -72,7 +74,7 @@ async fn test_token_expiration_triggers_refresh() {
     // Advance time so the token is about to expire
     clock.advance(TimeDelta::seconds(6)); // Now + 6s, token expires at +10s, refresh threshold is 5s
 
-    let result = token_api.get_token("test", "owner1").await;
+    let result = token_api.get_token("participant1", "test", "owner1").await;
     // Should trigger refresh since (now + 5s refresh buffer) > expires_at
     assert!(result.is_ok());
 }
@@ -83,6 +85,7 @@ struct MockTokenClient {}
 impl facet_client::token::TokenClient for MockTokenClient {
     async fn refresh_token(&self, _refresh_token: &str, _refresh_endpoint: &str) -> Result<TokenData, TokenError> {
         Ok(TokenData {
+            participant_context: "participant1".to_string(),
             identifier: "test".to_string(),
             token: "refreshed_token".to_string(),
             refresh_token: "test".to_string(),

@@ -32,6 +32,7 @@ use std::sync::Arc;
 /// - **Automatic Expiration Tracking**: Tracks token expiration times and supports automatic cleanup
 ///   of stale tokens.
 /// - **Token Encryption**: Tokens are encrypted at rest. However, encryptio key rotation is not supported.
+/// - **Multitenancy Support**: Tokens are isolated by participant context, ensuring tenant data separation.
 /// - **Concurrent Access**: Thread-safe operations via connection pooling.
 ///
 /// # Setup
@@ -82,14 +83,16 @@ impl PostgresTokenStore {
 
         sqlx::query(
             "CREATE TABLE IF NOT EXISTS tokens (
-                identifier VARCHAR(255) PRIMARY KEY,
+                participant_context VARCHAR(255) NOT NULL,
+                identifier VARCHAR(255) NOT NULL,
                 token BYTEA NOT NULL,
                 token_nonce BYTEA NOT NULL,
                 refresh_token BYTEA NOT NULL,
                 refresh_token_nonce BYTEA NOT NULL,
                 expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
                 refresh_endpoint VARCHAR(2048) NOT NULL,
-                last_accessed TIMESTAMP WITH TIME ZONE NOT NULL
+                last_accessed TIMESTAMP WITH TIME ZONE NOT NULL,
+                PRIMARY KEY (participant_context, identifier)
             )",
         )
         .execute(&mut *tx)
@@ -101,6 +104,11 @@ impl PostgresTokenStore {
             .await
             .map_err(|e| TokenError::database_error(format!("Failed to create expires_at index: {}", e)))?;
 
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_tokens_participant_context ON tokens(participant_context)")
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| TokenError::database_error(format!("Failed to create participant_context index: {}", e)))?;
+
         tx.commit()
             .await
             .map_err(|e| TokenError::database_error(format!("Failed to commit transaction: {}", e)))?;
@@ -110,16 +118,22 @@ impl PostgresTokenStore {
 
 #[async_trait]
 impl TokenStore for PostgresTokenStore {
-    async fn get_token(&self, identifier: &str) -> Result<TokenData, TokenError> {
+    async fn get_token(&self, participant_context: &str, identifier: &str) -> Result<TokenData, TokenError> {
         let record: TokenRecord = sqlx::query_as(
-            "SELECT identifier, token, token_nonce, refresh_token, refresh_token_nonce, expires_at, refresh_endpoint
-             FROM tokens WHERE identifier = $1",
+            "SELECT participant_context, identifier, token, token_nonce, refresh_token, refresh_token_nonce, expires_at, refresh_endpoint
+             FROM tokens WHERE participant_context = $1 AND identifier = $2",
         )
-        .bind(identifier)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| TokenError::database_error(format!("Failed to fetch token: {}", e)))?
-        .ok_or_else(|| TokenError::token_not_found(identifier))?;
+            .bind(participant_context)
+            .bind(identifier)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|e| TokenError::database_error(format!("Failed to fetch token: {}", e)))?
+            .ok_or_else(|| TokenError::token_not_found(identifier))?;
+
+        // Verify the participant context matches (defense in depth)
+        if record.participant_context != participant_context {
+            return Err(TokenError::token_not_found(identifier));
+        }
 
         // Decrypt token
         let token_nonce = secretbox::Nonce::from_slice(&record.token_nonce)
@@ -139,7 +153,8 @@ impl TokenStore for PostgresTokenStore {
 
         let now = self.clock.now();
 
-        sqlx::query("UPDATE tokens SET last_accessed = $2 WHERE identifier = $1")
+        sqlx::query("UPDATE tokens SET last_accessed = $3 WHERE participant_context = $1 AND identifier = $2")
+            .bind(participant_context)
             .bind(identifier)
             .bind(now)
             .execute(&self.pool)
@@ -147,6 +162,7 @@ impl TokenStore for PostgresTokenStore {
             .map_err(|e| TokenError::database_error(format!("Failed to update last_accessed: {}", e)))?;
 
         Ok(TokenData {
+            participant_context: record.participant_context,
             identifier: record.identifier,
             token,
             refresh_token,
@@ -166,9 +182,10 @@ impl TokenStore for PostgresTokenStore {
         let now = self.clock.now();
 
         sqlx::query(
-            "INSERT INTO tokens (identifier, token, token_nonce, refresh_token, refresh_token_nonce, expires_at, refresh_endpoint, last_accessed)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+            "INSERT INTO tokens (participant_context, identifier, token, token_nonce, refresh_token, refresh_token_nonce, expires_at, refresh_endpoint, last_accessed)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
         )
+            .bind(&data.participant_context)
             .bind(&data.identifier)
             .bind(encrypted_token)
             .bind(token_nonce.as_ref())
@@ -196,15 +213,16 @@ impl TokenStore for PostgresTokenStore {
 
         let rows_affected = sqlx::query(
             "UPDATE tokens SET
-                token = $2,
-                token_nonce = $3,
-                refresh_token = $4,
-                refresh_token_nonce = $5,
-                expires_at = $6,
-                refresh_endpoint = $7,
-                last_accessed = $8
-             WHERE identifier = $1",
+                token = $3,
+                token_nonce = $4,
+                refresh_token = $5,
+                refresh_token_nonce = $6,
+                expires_at = $7,
+                refresh_endpoint = $8,
+                last_accessed = $9
+             WHERE participant_context = $1 AND identifier = $2",
         )
+        .bind(&data.participant_context)
         .bind(&data.identifier)
         .bind(encrypted_token)
         .bind(token_nonce.as_ref())
@@ -225,8 +243,9 @@ impl TokenStore for PostgresTokenStore {
         Ok(())
     }
 
-    async fn remove_token(&self, identifier: &str) -> Result<(), TokenError> {
-        sqlx::query("DELETE FROM tokens WHERE identifier = $1")
+    async fn remove_token(&self, participant_context: &str, identifier: &str) -> Result<(), TokenError> {
+        sqlx::query("DELETE FROM tokens WHERE participant_context = $1 AND identifier = $2")
+            .bind(participant_context)
             .bind(identifier)
             .execute(&self.pool)
             .await
@@ -242,6 +261,7 @@ impl TokenStore for PostgresTokenStore {
 
 #[derive(sqlx::FromRow)]
 struct TokenRecord {
+    participant_context: String,
     identifier: String,
     token: Vec<u8>,
     token_nonce: Vec<u8>,

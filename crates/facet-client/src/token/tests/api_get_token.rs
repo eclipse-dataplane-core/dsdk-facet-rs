@@ -26,15 +26,20 @@ async fn test_get_token_not_expiring_does_not_refresh() {
     lock_manager.expect_lock().never();
 
     let mut token_store = MockTokenStore::new();
-    token_store.expect_get_token().once().with(eq("test")).returning(|_| {
-        Ok(TokenData {
-            identifier: "test".to_string(),
-            token: "active_token".to_string(),
-            refresh_token: "refresh".to_string(),
-            expires_at: Utc::now() + TimeDelta::seconds(60),
-            refresh_endpoint: "https://example.com/refresh".to_string(),
-        })
-    });
+    token_store
+        .expect_get_token()
+        .once()
+        .with(eq("participant1"), eq("test"))
+        .returning(|_, _| {
+            Ok(TokenData {
+                participant_context: "participant1".to_string(),
+                identifier: "test".to_string(),
+                token: "active_token".to_string(),
+                refresh_token: "refresh".to_string(),
+                expires_at: Utc::now() + TimeDelta::seconds(60),
+                refresh_endpoint: "https://example.com/refresh".to_string(),
+            })
+        });
 
     let mut token_client = MockTokenClient::new();
     token_client.expect_refresh_token().never();
@@ -47,7 +52,7 @@ async fn test_get_token_not_expiring_does_not_refresh() {
         .refresh_before_expiry_ms(5_000)
         .build();
 
-    let result = token_api.get_token("test", "owner1").await.unwrap();
+    let result = token_api.get_token("participant1", "test", "owner1").await.unwrap();
     assert_eq!(result, "active_token");
 }
 
@@ -70,9 +75,10 @@ async fn test_get_token_expiring_soon_triggers_refresh() {
         .expect_get_token()
         .once()
         .in_sequence(&mut seq)
-        .with(eq("test"))
-        .returning(|_| {
+        .with(eq("participant1"), eq("test"))
+        .returning(|_, _| {
             Ok(TokenData {
+                participant_context: "participant1".to_string(),
                 identifier: "test".to_string(),
                 token: "old_token".to_string(),
                 refresh_token: "old_refresh".to_string(),
@@ -94,6 +100,7 @@ async fn test_get_token_expiring_soon_triggers_refresh() {
         .with(eq("old_refresh"), eq("https://example.com/refresh"))
         .returning(|_, _| {
             Ok(TokenData {
+                participant_context: "participant1".to_string(),
                 identifier: "test".to_string(),
                 token: "new_token".to_string(),
                 refresh_token: "new_refresh".to_string(),
@@ -113,7 +120,7 @@ async fn test_get_token_expiring_soon_triggers_refresh() {
     // Advance time so the token is within the 5s refresh threshold
     clock.advance(TimeDelta::seconds(6));
 
-    let result = token_api.get_token("test", "owner1").await.unwrap();
+    let result = token_api.get_token("participant1", "test", "owner1").await.unwrap();
     assert_eq!(result, "new_token");
 }
 
@@ -136,9 +143,10 @@ async fn test_get_token_expired_triggers_refresh() {
         .expect_get_token()
         .once()
         .in_sequence(&mut seq)
-        .with(eq("test"))
-        .returning(|_| {
+        .with(eq("participant1"), eq("test"))
+        .returning(|_, _| {
             Ok(TokenData {
+                participant_context: "participant1".to_string(),
                 identifier: "test".to_string(),
                 token: "expired_token".to_string(),
                 refresh_token: "refresh".to_string(),
@@ -156,6 +164,7 @@ async fn test_get_token_expired_triggers_refresh() {
     let mut token_client = MockTokenClient::new();
     token_client.expect_refresh_token().once().returning(|_, _| {
         Ok(TokenData {
+            participant_context: "participant1".to_string(),
             identifier: "test".to_string(),
             token: "refreshed_token".to_string(),
             refresh_token: "new_refresh".to_string(),
@@ -171,7 +180,7 @@ async fn test_get_token_expired_triggers_refresh() {
         .clock(clock)
         .build();
 
-    let result = token_api.get_token("test", "owner1").await.unwrap();
+    let result = token_api.get_token("participant1", "test", "owner1").await.unwrap();
     assert_eq!(result, "refreshed_token");
 }
 
@@ -194,9 +203,10 @@ async fn test_refresh_updates_stored_token() {
         .expect_get_token()
         .once()
         .in_sequence(&mut seq)
-        .with(eq("test"))
-        .returning(|_| {
+        .with(eq("participant1"), eq("test"))
+        .returning(|_, _| {
             Ok(TokenData {
+                participant_context: "participant1".to_string(),
                 identifier: "test".to_string(),
                 token: "old_token".to_string(),
                 refresh_token: "old_refresh".to_string(),
@@ -215,6 +225,7 @@ async fn test_refresh_updates_stored_token() {
     let mut token_client = MockTokenClient::new();
     token_client.expect_refresh_token().once().returning(|_, _| {
         Ok(TokenData {
+            participant_context: "participant1".to_string(),
             identifier: "test".to_string(),
             token: "refreshed_token".to_string(),
             refresh_token: "new_refresh_token".to_string(),
@@ -232,7 +243,7 @@ async fn test_refresh_updates_stored_token() {
         .build();
 
     clock.advance(TimeDelta::seconds(4));
-    let _ = token_api.get_token("test", "owner1").await.unwrap();
+    let _ = token_api.get_token("participant1", "test", "owner1").await.unwrap();
 }
 
 #[tokio::test]
@@ -248,15 +259,20 @@ async fn test_refresh_failure_returns_error() {
         .returning(|_, _| Ok(()));
 
     let mut token_store = MockTokenStore::new();
-    token_store.expect_get_token().once().with(eq("test")).returning(|_| {
-        Ok(TokenData {
-            identifier: "test".to_string(),
-            token: "token".to_string(),
-            refresh_token: "refresh".to_string(),
-            expires_at: Utc::now() + TimeDelta::seconds(3),
-            refresh_endpoint: "https://example.com/refresh".to_string(),
-        })
-    });
+    token_store
+        .expect_get_token()
+        .once()
+        .with(eq("participant1"), eq("test"))
+        .returning(|_, _| {
+            Ok(TokenData {
+                participant_context: "participant1".to_string(),
+                identifier: "test".to_string(),
+                token: "token".to_string(),
+                refresh_token: "refresh".to_string(),
+                expires_at: Utc::now() + TimeDelta::seconds(3),
+                refresh_endpoint: "https://example.com/refresh".to_string(),
+            })
+        });
 
     let mut token_client = MockTokenClient::new();
     token_client
@@ -273,7 +289,7 @@ async fn test_refresh_failure_returns_error() {
         .build();
 
     clock.advance(TimeDelta::seconds(4));
-    let result = token_api.get_token("test", "owner1").await;
+    let result = token_api.get_token("participant1", "test", "owner1").await;
     assert!(result.is_err());
 }
 
@@ -296,9 +312,10 @@ async fn test_lock_acquired_during_refresh() {
         .expect_get_token()
         .once()
         .in_sequence(&mut seq)
-        .with(eq("test"))
-        .returning(|_| {
+        .with(eq("participant1"), eq("test"))
+        .returning(|_, _| {
             Ok(TokenData {
+                participant_context: "participant1".to_string(),
                 identifier: "test".to_string(),
                 token: "token".to_string(),
                 refresh_token: "refresh".to_string(),
@@ -316,6 +333,7 @@ async fn test_lock_acquired_during_refresh() {
     let mut token_client = MockTokenClient::new();
     token_client.expect_refresh_token().once().returning(|_, _| {
         Ok(TokenData {
+            participant_context: "participant1".to_string(),
             identifier: "test".to_string(),
             token: "refreshed".to_string(),
             refresh_token: "new_refresh".to_string(),
@@ -335,7 +353,7 @@ async fn test_lock_acquired_during_refresh() {
     clock.advance(TimeDelta::seconds(4));
 
     // Trigger refresh which should acquire the lock
-    let _ = token_api.get_token("test", "owner1").await.unwrap();
+    let _ = token_api.get_token("participant1", "test", "owner1").await.unwrap();
 
     // Verify that lock was called (it was expected above)
 }
@@ -356,9 +374,10 @@ async fn test_lock_prevents_concurrent_refresh() {
     token_store
         .expect_get_token()
         .once()
-        .with(eq("test"))
-        .returning(move |_| {
+        .with(eq("participant1"), eq("test"))
+        .returning(move |_, _| {
             Ok(TokenData {
+                participant_context: "participant1".to_string(),
                 identifier: "test".to_string(),
                 token: "token".to_string(),
                 refresh_token: "refresh".to_string(),
@@ -381,7 +400,7 @@ async fn test_lock_prevents_concurrent_refresh() {
     clock.advance(TimeDelta::seconds(4));
 
     // Attempt to get token should fail (cannot acquire lock)
-    let result = token_api.get_token("test", "owner1").await;
+    let result = token_api.get_token("participant1", "test", "owner1").await;
     assert!(result.is_err(), "Should fail when lock is held by another owner");
 }
 
@@ -394,8 +413,8 @@ async fn test_token_not_found_error() {
     token_store
         .expect_get_token()
         .once()
-        .with(eq("nonexistent"))
-        .returning(|id| Err(TokenError::token_not_found(id)));
+        .with(eq("participant1"), eq("nonexistent"))
+        .returning(|_, id| Err(TokenError::token_not_found(id)));
 
     let mut token_client = MockTokenClient::new();
     token_client.expect_refresh_token().never();
@@ -406,7 +425,7 @@ async fn test_token_not_found_error() {
         .token_client(Arc::new(token_client))
         .build();
 
-    let result = token_api.get_token("nonexistent", "owner1").await;
+    let result = token_api.get_token("participant1", "nonexistent", "owner1").await;
     assert!(result.is_err());
 
     match result.unwrap_err() {
@@ -436,9 +455,10 @@ async fn test_refresh_with_custom_refresh_threshold() {
         .expect_get_token()
         .once()
         .in_sequence(&mut seq)
-        .with(eq("test"))
-        .returning(|_| {
+        .with(eq("participant1"), eq("test"))
+        .returning(|_, _| {
             Ok(TokenData {
+                participant_context: "participant1".to_string(),
                 identifier: "test".to_string(),
                 token: "token".to_string(),
                 refresh_token: "refresh".to_string(),
@@ -456,6 +476,7 @@ async fn test_refresh_with_custom_refresh_threshold() {
     let mut token_client = MockTokenClient::new();
     token_client.expect_refresh_token().once().returning(|_, _| {
         Ok(TokenData {
+            participant_context: "participant1".to_string(),
             identifier: "test".to_string(),
             token: "refreshed".to_string(),
             refresh_token: "new_refresh".to_string(),
@@ -474,7 +495,7 @@ async fn test_refresh_with_custom_refresh_threshold() {
 
     clock.advance(TimeDelta::seconds(11));
 
-    let result = token_api.get_token("test", "owner1").await.unwrap();
+    let result = token_api.get_token("participant1", "test", "owner1").await.unwrap();
     assert_eq!(result, "refreshed");
 }
 
@@ -495,10 +516,11 @@ async fn test_multiple_tokens_independent_refresh() {
 
     token_store
         .expect_get_token()
-        .with(eq("token1"))
+        .with(eq("participant1"), eq("token1"))
         .times(1)
-        .returning(|_| {
+        .returning(|_, _| {
             Ok(TokenData {
+                participant_context: "participant1".to_string(),
                 identifier: "token1".to_string(),
                 token: "token1".to_string(),
                 refresh_token: "refresh1".to_string(),
@@ -509,10 +531,11 @@ async fn test_multiple_tokens_independent_refresh() {
 
     token_store
         .expect_get_token()
-        .with(eq("token2"))
+        .with(eq("participant1"), eq("token2"))
         .times(1)
-        .returning(|_| {
+        .returning(|_, _| {
             Ok(TokenData {
+                participant_context: "participant1".to_string(),
                 identifier: "token2".to_string(),
                 token: "token2".to_string(),
                 refresh_token: "refresh2".to_string(),
@@ -534,6 +557,7 @@ async fn test_multiple_tokens_independent_refresh() {
         .with(eq("refresh1"), eq("https://example.com/refresh"))
         .returning(|_, _| {
             Ok(TokenData {
+                participant_context: "participant1".to_string(),
                 identifier: "token1".to_string(),
                 token: "refreshed1".to_string(),
                 refresh_token: "new_refresh1".to_string(),
@@ -553,10 +577,10 @@ async fn test_multiple_tokens_independent_refresh() {
     clock.advance(TimeDelta::seconds(4));
 
     // token1 should trigger refresh
-    let result1 = token_api.get_token("token1", "owner1").await.unwrap();
+    let result1 = token_api.get_token("participant1", "token1", "owner1").await.unwrap();
     assert_eq!(result1, "refreshed1");
 
     // token2 should not refresh
-    let result2 = token_api.get_token("token2", "owner1").await.unwrap();
+    let result2 = token_api.get_token("participant1", "token2", "owner1").await.unwrap();
     assert_eq!(result2, "token2");
 }

@@ -77,8 +77,13 @@ pub struct TokenClientApi {
 }
 
 impl TokenClientApi {
-    pub async fn get_token(&self, identifier: &str, owner: &str) -> Result<String, TokenError> {
-        let data = self.token_store.get_token(identifier).await?;
+    pub async fn get_token(
+        &self,
+        participant_context: &str,
+        identifier: &str,
+        owner: &str,
+    ) -> Result<String, TokenError> {
+        let data = self.token_store.get_token(participant_context, identifier).await?;
 
         let token = if self.clock.now() >= (data.expires_at - TimeDelta::milliseconds(self.refresh_before_expiry_ms)) {
             // Token is expiring, refresh it
@@ -109,6 +114,7 @@ impl TokenClientApi {
 
     pub async fn create_token(
         &self,
+        participant_context: &str,
         identifier: &str,
         token: &str,
         refresh_token: &str,
@@ -128,6 +134,7 @@ impl TokenClientApi {
         };
 
         let data = TokenData {
+            participant_context: participant_context.to_string(),
             identifier: identifier.to_string(),
             token: token.to_string(),
             refresh_token: refresh_token.to_string(),
@@ -153,6 +160,7 @@ pub trait TokenClient: Send + Sync {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TokenData {
     pub identifier: String,
+    pub participant_context: String,
     pub token: String,
     pub refresh_token: String,
     pub expires_at: DateTime<Utc>,
@@ -161,13 +169,13 @@ pub struct TokenData {
 
 /// Persists and retrieves tokens with optional expiration tracking.
 ///
-/// Implementations provide storage and retrieval of token data, typically including access tokens, refresh tokens, and
+/// Implementations provide storage and retrieval of token data, including access tokens, refresh tokens, and
 /// expiration times. The storage backend (in-memory, database, etc.) is implementation-dependent.
 #[async_trait]
 pub trait TokenStore: Send + Sync {
-    async fn get_token(&self, identifier: &str) -> Result<TokenData, TokenError>;
+    async fn get_token(&self, participant_context: &str, identifier: &str) -> Result<TokenData, TokenError>;
     async fn save_token(&self, data: TokenData) -> Result<(), TokenError>;
     async fn update_token(&self, data: TokenData) -> Result<(), TokenError>;
-    async fn remove_token(&self, identifier: &str) -> Result<(), TokenError>;
+    async fn remove_token(&self, participant_context: &str, identifier: &str) -> Result<(), TokenError>;
     async fn close(&self);
 }

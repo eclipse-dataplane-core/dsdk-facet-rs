@@ -39,10 +39,10 @@ mock! {
 
     #[async_trait::async_trait]
     impl TokenStore for TokenStore {
-        async fn get_token(&self, identifier: &str) -> Result<TokenData, TokenError>;
+        async fn get_token(&self, participant_context: &str, identifier: &str) -> Result<TokenData, TokenError>;
         async fn save_token(&self, data: TokenData) -> Result<(), TokenError>;
         async fn update_token(&self, data: TokenData) -> Result<(), TokenError>;
-        async fn remove_token(&self, identifier: &str) -> Result<(), TokenError>;
+        async fn remove_token(&self, participant_context: &str, identifier: &str) -> Result<(), TokenError>;
         async fn close(&self);
     }
 }
