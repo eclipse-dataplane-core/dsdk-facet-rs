@@ -119,13 +119,19 @@ impl PostgresTokenStore {
 #[async_trait]
 impl TokenStore for PostgresTokenStore {
     async fn get_token(&self, participant_context: &str, identifier: &str) -> Result<TokenData, TokenError> {
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| TokenError::database_error(format!("Failed to begin transaction: {}", e)))?;
+
         let record: TokenRecord = sqlx::query_as(
             "SELECT participant_context, identifier, token, token_nonce, refresh_token, refresh_token_nonce, expires_at, refresh_endpoint
-             FROM tokens WHERE participant_context = $1 AND identifier = $2",
+         FROM tokens WHERE participant_context = $1 AND identifier = $2",
         )
             .bind(participant_context)
             .bind(identifier)
-            .fetch_optional(&self.pool)
+            .fetch_optional(&mut *tx)
             .await
             .map_err(|e| TokenError::database_error(format!("Failed to fetch token: {}", e)))?
             .ok_or_else(|| TokenError::token_not_found(identifier))?;
@@ -153,13 +159,18 @@ impl TokenStore for PostgresTokenStore {
 
         let now = self.clock.now();
 
+        // Update last_accessed within the transaction for atomicity
         sqlx::query("UPDATE tokens SET last_accessed = $3 WHERE participant_context = $1 AND identifier = $2")
             .bind(participant_context)
             .bind(identifier)
             .bind(now)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await
             .map_err(|e| TokenError::database_error(format!("Failed to update last_accessed: {}", e)))?;
+
+        tx.commit()
+            .await
+            .map_err(|e| TokenError::database_error(format!("Failed to commit transaction: {}", e)))?;
 
         Ok(TokenData {
             participant_context: record.participant_context,
