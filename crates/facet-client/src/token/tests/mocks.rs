@@ -22,6 +22,7 @@ mock! {
     impl LockManager for LockManager {
         async fn lock(&self, identifier: &str, owner: &str) -> Result<(), crate::lock::LockError>;
         async fn unlock(&self, identifier: &str, owner: &str) -> Result<(), crate::lock::LockError>;
+        async fn release_locks(&self, owner: &str) -> Result<(), crate::lock::LockError>;
     }
 }
 

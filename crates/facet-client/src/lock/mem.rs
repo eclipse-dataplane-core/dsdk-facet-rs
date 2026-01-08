@@ -135,6 +135,14 @@ impl LockManager for MemoryLockManager {
 
         Err(LockError::lock_not_found(identifier, owner))
     }
+
+    async fn release_locks(&self, owner: &str) -> Result<(), LockError> {
+        let mut locks = self.locks.lock().await;
+
+        locks.retain(|_, lock| lock.owner != owner);
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -385,5 +393,97 @@ mod tests {
         } else {
             panic!("Expected LockAlreadyHeld error");
         }
+    }
+
+    #[tokio::test]
+    async fn test_release_locks_single_lock() {
+        let manager = MemoryLockManager::new();
+        manager.lock("resource1", "owner1").await.expect("Lock failed");
+
+        let result = manager.release_locks("owner1").await;
+        assert!(result.is_ok());
+
+        // Verify lock was released by trying to acquire it with a different owner
+        let result = manager.lock("resource1", "owner2").await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_release_locks_multiple_locks() {
+        let manager = MemoryLockManager::new();
+        manager.lock("resource1", "owner1").await.expect("Lock 1 failed");
+        manager.lock("resource2", "owner1").await.expect("Lock 2 failed");
+        manager.lock("resource3", "owner1").await.expect("Lock 3 failed");
+
+        let result = manager.release_locks("owner1").await;
+        assert!(result.is_ok());
+
+        // Verify all locks were released
+        assert!(manager.lock("resource1", "owner2").await.is_ok());
+        assert!(manager.lock("resource2", "owner2").await.is_ok());
+        assert!(manager.lock("resource3", "owner2").await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_release_locks_does_not_affect_other_owners() {
+        let manager = MemoryLockManager::new();
+        manager.lock("resource1", "owner1").await.expect("Lock 1 failed");
+        manager.lock("resource2", "owner2").await.expect("Lock 2 failed");
+        manager.lock("resource3", "owner1").await.expect("Lock 3 failed");
+
+        let result = manager.release_locks("owner1").await;
+        assert!(result.is_ok());
+
+        // owner1's locks should be released
+        assert!(manager.lock("resource1", "owner3").await.is_ok());
+        assert!(manager.lock("resource3", "owner3").await.is_ok());
+
+        // owner2's lock should still be held
+        let result = manager.lock("resource2", "owner3").await;
+        assert!(result.is_err());
+        if let Err(LockError::LockAlreadyHeld { identifier, owner }) = result {
+            assert_eq!(identifier, "resource2");
+            assert_eq!(owner, "owner2");
+        } else {
+            panic!("Expected LockAlreadyHeld error");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_release_locks_with_reentrant_locks() {
+        let manager = MemoryLockManager::new();
+        manager.lock("resource1", "owner1").await.expect("First lock failed");
+        manager.lock("resource1", "owner1").await.expect("Second lock failed");
+        manager.lock("resource1", "owner1").await.expect("Third lock failed");
+
+        let result = manager.release_locks("owner1").await;
+        assert!(result.is_ok());
+
+        // Lock should be completely released regardless of reentrant count
+        let result = manager.lock("resource1", "owner2").await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_release_locks_nonexistent_owner() {
+        let manager = MemoryLockManager::new();
+        manager.lock("resource1", "owner1").await.expect("Lock failed");
+
+        // Releasing locks for non-existent owner should succeed (no-op)
+        let result = manager.release_locks("owner2").await;
+        assert!(result.is_ok());
+
+        // Original lock should still be held
+        let result = manager.lock("resource1", "owner3").await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_release_locks_empty_manager() {
+        let manager = MemoryLockManager::new();
+
+        // Releasing locks when no locks exist should succeed (no-op)
+        let result = manager.release_locks("owner1").await;
+        assert!(result.is_ok());
     }
 }

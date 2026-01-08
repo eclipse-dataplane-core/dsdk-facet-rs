@@ -28,8 +28,32 @@ pub use postgres::PostgresLockManager;
 /// one owner may hold a lock for a given identifier at any time.
 #[async_trait]
 pub trait LockManager: Send + Sync {
+    /// Locks a resource on behalf of the owner.
+    ///
+    /// # Arguments
+    /// * `identifier` - Resource identifier    
+    /// * `owner` - Owner identifier
+    ///
+    /// # Errors
+    /// Returns LockAlreadyHeld if the lock is held by another owner.
     async fn lock(&self, identifier: &str, owner: &str) -> Result<(), LockError>;
+
+    /// Unlocks a resource for the owner.
+    ///
+    /// # Arguments
+    /// * `identifier` - Resource identifier
+    /// * `owner` - Owner identifier
+    ///
+    /// # Errors
+    /// Returns WrongOwner if the lock is held by another owner or LockNotFound if the resource is not locked by
+    /// the owner, i.e. it has been released or expired
     async fn unlock(&self, identifier: &str, owner: &str) -> Result<(), LockError>;
+
+    /// Releases all locks held by the owner.
+    ///
+    /// # Arguments
+    /// * `owner` - Owner identifier
+    async fn release_locks(&self, owner: &str) -> Result<(), LockError>;
 }
 
 /// Guard that releases a lock when dropped.
@@ -179,6 +203,7 @@ mod tests {
         impl LockManager for LockManagerImpl {
             async fn lock(&self, identifier: &str, owner: &str) -> Result<(), LockError>;
             async fn unlock(&self, identifier: &str, owner: &str) -> Result<(), LockError>;
+            async fn release_locks(&self, owner: &str) -> Result<(), LockError>;
         }
     }
 

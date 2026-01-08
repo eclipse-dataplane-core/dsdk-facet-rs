@@ -314,4 +314,14 @@ impl LockManager for PostgresLockManager {
 
         Ok(())
     }
+
+    async fn release_locks(&self, owner: &str) -> Result<(), LockError> {
+        sqlx::query("DELETE FROM distributed_locks WHERE owner = $1")
+            .bind(owner)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| LockError::database_error(format!("Failed to release locks: {}", e)))?;
+
+        Ok(())
+    }
 }

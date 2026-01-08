@@ -628,3 +628,162 @@ async fn test_postgres_lock_heavy_contention() {
         );
     }
 }
+
+#[tokio::test]
+async fn test_postgres_release_locks_single_lock() {
+    let (pool, _container) = setup_postgres_container().await;
+    let manager = PostgresLockManager::builder().pool(pool).build();
+    manager.initialize().await.unwrap();
+
+    let identifier = Uuid::new_v4().to_string();
+    let owner1 = "owner1";
+
+    manager.lock(&identifier, owner1).await.unwrap();
+
+    let result = manager.release_locks(owner1).await;
+    assert!(result.is_ok());
+
+    // Verify lock was released by trying to acquire it with a different owner
+    let result = manager.lock(&identifier, "owner2").await;
+    assert!(result.is_ok());
+}
+
+#[tokio::test]
+async fn test_postgres_release_locks_multiple_locks() {
+    let (pool, _container) = setup_postgres_container().await;
+    let manager = PostgresLockManager::builder().pool(pool).build();
+    manager.initialize().await.unwrap();
+
+    let id1 = Uuid::new_v4().to_string();
+    let id2 = Uuid::new_v4().to_string();
+    let id3 = Uuid::new_v4().to_string();
+    let owner1 = "owner1";
+
+    manager.lock(&id1, owner1).await.unwrap();
+    manager.lock(&id2, owner1).await.unwrap();
+    manager.lock(&id3, owner1).await.unwrap();
+
+    let result = manager.release_locks(owner1).await;
+    assert!(result.is_ok());
+
+    // Verify all locks were released
+    assert!(manager.lock(&id1, "owner2").await.is_ok());
+    assert!(manager.lock(&id2, "owner2").await.is_ok());
+    assert!(manager.lock(&id3, "owner2").await.is_ok());
+}
+
+#[tokio::test]
+async fn test_postgres_release_locks_does_not_affect_other_owners() {
+    let (pool, _container) = setup_postgres_container().await;
+    let manager = PostgresLockManager::builder().pool(pool).build();
+    manager.initialize().await.unwrap();
+
+    let id1 = Uuid::new_v4().to_string();
+    let id2 = Uuid::new_v4().to_string();
+    let id3 = Uuid::new_v4().to_string();
+    let owner1 = "owner1";
+    let owner2 = "owner2";
+
+    manager.lock(&id1, owner1).await.unwrap();
+    manager.lock(&id2, owner2).await.unwrap();
+    manager.lock(&id3, owner1).await.unwrap();
+
+    let result = manager.release_locks(owner1).await;
+    assert!(result.is_ok());
+
+    // owner1's locks should be released
+    assert!(manager.lock(&id1, "owner3").await.is_ok());
+    assert!(manager.lock(&id3, "owner3").await.is_ok());
+
+    // owner2's lock should still be held
+    let result = manager.lock(&id2, "owner3").await;
+    assert!(result.is_err());
+    if let Err(LockAlreadyHeld { identifier, owner }) = result {
+        assert_eq!(identifier, id2);
+        assert_eq!(owner, "owner2");
+    } else {
+        panic!("Expected LockAlreadyHeld error");
+    }
+}
+
+#[tokio::test]
+async fn test_postgres_release_locks_with_reentrant_locks() {
+    let (pool, _container) = setup_postgres_container().await;
+    let manager = PostgresLockManager::builder().pool(pool).build();
+    manager.initialize().await.unwrap();
+
+    let identifier = Uuid::new_v4().to_string();
+    let owner1 = "owner1";
+
+    manager.lock(&identifier, owner1).await.unwrap();
+    manager.lock(&identifier, owner1).await.unwrap();
+    manager.lock(&identifier, owner1).await.unwrap();
+
+    let result = manager.release_locks(owner1).await;
+    assert!(result.is_ok());
+
+    // Lock should be completely released regardless of reentrant count
+    let result = manager.lock(&identifier, "owner2").await;
+    assert!(result.is_ok());
+}
+
+#[tokio::test]
+async fn test_postgres_release_locks_nonexistent_owner() {
+    let (pool, _container) = setup_postgres_container().await;
+    let manager = PostgresLockManager::builder().pool(pool).build();
+    manager.initialize().await.unwrap();
+
+    let identifier = Uuid::new_v4().to_string();
+    manager.lock(&identifier, "owner1").await.unwrap();
+
+    // Releasing locks for non-existent owner should succeed (no-op)
+    let result = manager.release_locks("owner2").await;
+    assert!(result.is_ok());
+
+    // Original lock should still be held
+    let result = manager.lock(&identifier, "owner3").await;
+    assert!(result.is_err());
+}
+
+#[tokio::test]
+async fn test_postgres_release_locks_empty_database() {
+    let (pool, _container) = setup_postgres_container().await;
+    let manager = PostgresLockManager::builder().pool(pool).build();
+    manager.initialize().await.unwrap();
+
+    // Releasing locks when no locks exist should succeed (no-op)
+    let result = manager.release_locks("owner1").await;
+    assert!(result.is_ok());
+}
+
+#[tokio::test]
+async fn test_postgres_release_locks_concurrent() {
+    let (pool, _container) = setup_postgres_container().await;
+    let manager = Arc::new(PostgresLockManager::builder().pool(pool).build());
+    manager.initialize().await.unwrap();
+
+    let id1 = Uuid::new_v4().to_string();
+    let id2 = Uuid::new_v4().to_string();
+    let owner1 = "owner1";
+    let owner2 = "owner2";
+
+    manager.lock(&id1, owner1).await.unwrap();
+    manager.lock(&id2, owner2).await.unwrap();
+
+    // Concurrently release locks for different owners
+    let manager1 = manager.clone();
+    let manager2 = manager.clone();
+
+    let handle1 = tokio::spawn(async move { manager1.release_locks(owner1).await });
+    let handle2 = tokio::spawn(async move { manager2.release_locks(owner2).await });
+
+    let result1 = handle1.await.unwrap();
+    let result2 = handle2.await.unwrap();
+
+    assert!(result1.is_ok());
+    assert!(result2.is_ok());
+
+    // Both locks should be released
+    assert!(manager.lock(&id1, "owner3").await.is_ok());
+    assert!(manager.lock(&id2, "owner3").await.is_ok());
+}
