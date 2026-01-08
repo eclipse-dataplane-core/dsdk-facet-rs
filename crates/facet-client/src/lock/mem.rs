@@ -469,7 +469,7 @@ mod tests {
         let manager = MemoryLockManager::new();
         manager.lock("resource1", "owner1").await.expect("Lock failed");
 
-        // Releasing locks for non-existent owner should succeed (no-op)
+        // Releasing locks for a non-existent owner should succeed (no-op)
         let result = manager.release_locks("owner2").await;
         assert!(result.is_ok());
 
