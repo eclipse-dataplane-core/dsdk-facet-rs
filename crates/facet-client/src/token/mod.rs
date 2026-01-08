@@ -91,7 +91,7 @@ impl TokenClientApi {
         Ok(token)
     }
 
-    pub async fn create_token(
+    pub async fn save_token(
         &self,
         participant_context: &str,
         identifier: &str,
