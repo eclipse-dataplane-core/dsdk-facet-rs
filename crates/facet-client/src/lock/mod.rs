@@ -80,7 +80,7 @@ pub trait LockManager: Send + Sync {
 /// # }
 /// ```
 pub struct LockGuard {
-    pub lock_manager: Arc<dyn LockManager + 'static>,
+    pub lock_manager: Arc<dyn LockManager>,
     pub identifier: String,
     pub owner: String,
 }
@@ -168,9 +168,7 @@ impl LockError {
     pub fn internal_error(message: impl Into<String>) -> Self {
         LockError::InternalError(message.into())
     }
-}
 
-impl LockError {
     pub fn is_retriable(&self) -> bool {
         matches!(self, Self::LockAlreadyHeld { .. } | Self::StoreError(_))
     }
