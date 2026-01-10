@@ -41,11 +41,11 @@ use std::sync::Arc;
 ///
 /// When acquiring a lock:
 /// 1. Expired locks (older than the configured timeout) are automatically cleaned up
-/// 2. An insert is attempted; if the identifier already exists, it returns `NOTHING`
-/// 3. If the insert succeeds, the lock is acquired with `reentrant_count = 1`
-/// 4. If the insert fails, ownership is checked:
-///    - Same owner: reentrant lock (increments `reentrant_count`, refreshes timestamp)
-///    - Different owner: lock held by another owner (returns error)
+/// 2. A single `INSERT ... ON CONFLICT DO UPDATE` query is executed:
+///    - If no conflict: Lock is acquired with `reentrant_count = 1`
+///    - If conflict AND same owner: Reentrant lock (increments `reentrant_count`, refreshes timestamp)
+///    - If conflict AND different owner: Query returns no rows, then ownership is checked
+/// 3. If another owner holds the lock returns an error
 ///
 /// When releasing a lock:
 /// 1. The `reentrant_count` is decremented
@@ -137,7 +137,7 @@ impl PostgresLockManager {
 
     /// Internal lock acquisition with retry support for race conditions.
     ///
-    /// When a lock is released during acquisition (between UPDATE and SELECT),
+    /// When a lock is released during acquisition (between INSERT/UPDATE and SELECT),
     /// this method automatically retries up to MAX_RETRIES times.
     async fn lock_internal(&self, identifier: &str, owner: &str, retry_count: u32) -> Result<(), LockError> {
         const MAX_RETRIES: u32 = 5;
@@ -159,52 +159,36 @@ impl PostgresLockManager {
             .await
             .map_err(|e| LockError::store_error(format!("Failed to cleanup expired locks: {}", e)))?;
 
-        // Try to insert the lock with the acquired timestamp and initial count of 1
-        let result = sqlx::query(
+        // Try to insert or update the lock in a single operation
+        // - If no conflict: INSERT succeeds, returns the new row with reentrant_count=1
+        // - If conflict AND owner match: UPDATE succeeds, returns the updated row with incremented count
+        // - If conflict AND owner do not match: WHERE clause fails, returns no rows
+        let result: Option<(i32,)> = sqlx::query_as(
             "INSERT INTO distributed_locks (identifier, owner, acquired_at, reentrant_count)
              VALUES ($1, $2, $3, 1)
-             ON CONFLICT (identifier) DO NOTHING",
+             ON CONFLICT (identifier) DO UPDATE
+             SET acquired_at = EXCLUDED.acquired_at,
+                 reentrant_count = distributed_locks.reentrant_count + 1
+             WHERE distributed_locks.owner = EXCLUDED.owner
+             RETURNING reentrant_count",
         )
         .bind(identifier)
         .bind(owner)
         .bind(now)
-        .execute(&mut *tx)
+        .fetch_optional(&mut *tx)
         .await
-        .map_err(|e| LockError::store_error(format!("Failed to insert lock: {}", e)))?;
+        .map_err(|e| LockError::store_error(format!("Failed to acquire lock: {}", e)))?;
 
-        // Check if insert succeeded
-        if result.rows_affected() > 0 {
-            // Lock acquired successfully
+        if result.is_some() {
+            // Lock acquired successfully (either new lock or reentrant)
             tx.commit()
                 .await
                 .map_err(|e| LockError::store_error(format!("Failed to commit transaction: {}", e)))?;
             return Ok(());
         }
 
-        // Lock already exists due to conflict
-        // Try to update the timestamp and increment count if we own it (handles the reentrant case)
-        let update_result = sqlx::query(
-            "UPDATE distributed_locks
-             SET acquired_at = $1, reentrant_count = reentrant_count + 1
-             WHERE identifier = $2 AND owner = $3",
-        )
-        .bind(now)
-        .bind(identifier)
-        .bind(owner)
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| LockError::store_error(format!("Failed to update lock: {}", e)))?;
-
-        if update_result.rows_affected() > 0 {
-            // Successfully updated timestamp and count - reentrant lock by the same owner
-            tx.commit()
-                .await
-                .map_err(|e| LockError::store_error(format!("Failed to commit transaction: {}", e)))?;
-            return Ok(());
-        }
-
-        // Update failed - lock is held by a different owner, or was just released
-        // Fetch the actual owner for the error message (which may be None if lock was released)
+        // No row returned - conflict exists, but the owner does not match, or lock was just released
+        // Query to determine which case we're in
         let existing_owner: Option<(String,)> =
             sqlx::query_as("SELECT owner FROM distributed_locks WHERE identifier = $1")
                 .bind(identifier)
@@ -219,10 +203,10 @@ impl PostgresLockManager {
         match existing_owner {
             Some((owner_name,)) => {
                 // Lock exists and is held by a different owner
-                Err(LockError::lock_already_held(identifier, &owner_name, &owner_name))
+                Err(LockError::lock_already_held(identifier, &owner_name, owner))
             }
             None => {
-                // Lock was released between UPDATE and SELECT - this is a rare race condition
+                // Lock was released between INSERT and SELECT - this is a rare race condition
                 // Retry the acquisition if we haven't exceeded the retry limit
                 if retry_count >= MAX_RETRIES {
                     Err(LockError::internal_error(
