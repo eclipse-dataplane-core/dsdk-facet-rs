@@ -263,7 +263,7 @@ async fn test_reentrant_lock_refreshes_timestamp() {
 
 #[tokio::test]
 async fn test_reentrant_lock_should_keep_lock_alive() {
-    // This test shows the expected behavior: reentrant locks should refresh timestamp
+    // This test shows the expected behavior: reentrant locks should refresh the timestamp
     let initial_time = Utc::now();
     let clock = Arc::new(MockClock::new(initial_time));
     let manager = Arc::new(MemoryLockManager::with_timeout_and_clock(
@@ -387,7 +387,7 @@ async fn test_release_locks_nonexistent_owner() {
     let result = manager.release_locks("owner2").await;
     assert!(result.is_ok());
 
-    // Original lock should still be held
+    // The original lock should still be held
     let result = manager.lock("resource1", "owner3").await;
     assert!(result.is_err());
 }

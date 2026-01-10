@@ -21,7 +21,7 @@ use tokio::sync::RwLock;
 /// In-memory token store for testing and development.
 ///
 /// Maintains tokens in a thread-safe hashmap with multitenancy support.
-/// Tokens are isolated by participant context. Not suitable for production use.
+/// Tokens are isolated by the participant context. Not suitable for production use.
 pub struct MemoryTokenStore {
     tokens: RwLock<HashMap<(String, String), TokenRecord>>,
     clock: Arc<dyn Clock>,

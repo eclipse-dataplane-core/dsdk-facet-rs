@@ -49,7 +49,7 @@ pub trait LockManager: Send + Sync {
     ///
     /// # Errors
     /// Returns LockAlreadyHeld if the lock is held by another owner or LockNotFound if the resource is not locked by
-    /// the owner, i.e. it has been released or expired
+    /// the owner, i.e., it has been released or expired
     async fn unlock(&self, identifier: &str, owner: &str) -> Result<(), LockError>;
 
     /// Blocking version of unlock, used internally by LockGuard's Drop implementation.

@@ -141,7 +141,7 @@ async fn test_save_token_upserts_on_duplicate() {
     // First save succeeds
     store.save_token(token_data1).await.unwrap();
 
-    // Second save with same identifier should succeed and update
+    // Second save with the same identifier should succeed and update
     store.save_token(token_data2).await.unwrap();
 
     // Verify the token was updated to new values

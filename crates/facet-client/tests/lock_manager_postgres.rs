@@ -14,9 +14,9 @@ mod common;
 
 use crate::common::setup_postgres_container;
 use chrono::{TimeDelta, Utc};
-use facet_client::lock::LockError::{LockAlreadyHeld, LockNotFound};
 use facet_client::lock::postgres::PostgresLockManager;
-use facet_client::lock::{LockError, LockManager};
+use facet_client::lock::LockError::{LockAlreadyHeld, LockNotFound};
+use facet_client::lock::LockManager;
 use facet_client::util::{Clock, MockClock};
 use std::sync::Arc;
 use uuid::Uuid;
@@ -80,7 +80,7 @@ async fn test_postgres_lock_reentrant_unlock() {
     let _guard = manager.lock(&identifier, owner1).await.unwrap();
     let _guard = manager.lock(&identifier, owner1).await.unwrap();
 
-    // First unlock should NOT release the lock completely
+    // The first unlock should NOT release the lock completely
     drop(_guard);
     manager.unlock(&identifier, owner1).await.unwrap();
 
@@ -91,7 +91,7 @@ async fn test_postgres_lock_reentrant_unlock() {
         "Lock should still be held by owner1 after first unlock"
     );
 
-    // Second unlock should release the lock
+    // The second unlock should release the lock
     manager.unlock(&identifier, owner1).await.unwrap();
 
     // Now owner2 should be able to acquire
@@ -110,7 +110,7 @@ async fn test_postgres_lock_concurrent_unlock_race() {
     let identifier = Uuid::new_v4().to_string();
     let owner = "owner1";
 
-    // Run many iterations to increase probability of hitting the race
+    // Run many iterations to increase the probability of hitting the race
     for iteration in 0..50 {
         let id = format!("{}-{}", identifier, iteration);
 
@@ -129,7 +129,7 @@ async fn test_postgres_lock_concurrent_unlock_race() {
         let result1 = handle1.await.unwrap();
         let result2 = handle2.await.unwrap();
 
-        // BUG: Both unlocks might succeed even though lock was only acquired once
+        // BUG: Both unlocks might succeed even though the lock was only acquired once
         // Expected: One should succeed, the other should fail with LockNotFound
         if result1.is_ok() && result2.is_ok() {
             panic!(
@@ -214,7 +214,7 @@ async fn test_postgres_unlock_wrong_owner() {
     let result = manager.unlock(&identifier, owner2).await;
     assert!(result.is_err());
 
-    if let Err(LockError::LockAlreadyHeld {
+    if let Err(LockAlreadyHeld {
         identifier: error_identifier,
         owner: error_owner,
         attempted_owner,
@@ -269,7 +269,7 @@ async fn test_postgres_multiple_locks_different_identifiers() {
 #[tokio::test]
 async fn test_postgres_concurrent_lock_attempts() {
     let (pool, _container) = setup_postgres_container().await;
-    let manager = std::sync::Arc::new(PostgresLockManager::builder().pool(pool).build());
+    let manager = Arc::new(PostgresLockManager::builder().pool(pool).build());
     manager.initialize().await.unwrap();
 
     let identifier = Uuid::new_v4().to_string();
@@ -397,7 +397,7 @@ async fn test_postgres_lock_with_long_identifiers() {
 #[tokio::test]
 async fn test_postgres_concurrent_lock_and_unlock() {
     let (pool, _container) = setup_postgres_container().await;
-    let manager = std::sync::Arc::new(PostgresLockManager::builder().pool(pool).build());
+    let manager = Arc::new(PostgresLockManager::builder().pool(pool).build());
     manager.initialize().await.unwrap();
 
     let identifier = Uuid::new_v4().to_string();
@@ -486,8 +486,8 @@ async fn test_postgres_lock_reentrant_refreshes_timestamp() {
     mock_clock.advance(TimeDelta::seconds(35));
 
     // T=60: Owner2 tries to acquire the lock
-    // Should FAIL because the timestamp was refreshed at T=25, so lock expires at T=55
-    // Current time is T=60, so lock should have expired
+    // Should FAIL because the timestamp was refreshed at T=25, so the lock expires at T=55
+    // Current time is T=60, so the lock should have expired
     let result = manager.lock(&identifier, owner2).await;
 
     // With the fix, the reentrant acquisition at T=25 refreshed the timestamp
@@ -567,7 +567,7 @@ async fn test_postgres_lock_race_condition_on_concurrent_release() {
 
     let identifier = Uuid::new_v4().to_string();
 
-    // Run multiple iterations to increase chances of hitting the race
+    // Run multiple iterations to increase the chances of hitting the race
     for iteration in 0..100 {
         let id = format!("{}-{}", identifier, iteration);
 
@@ -602,7 +602,7 @@ async fn test_postgres_lock_race_condition_on_concurrent_release() {
             // Other errors are acceptable (LockAlreadyHeld is expected)
         }
 
-        // Clean up - only cleanup what was actually acquired, ignore errors
+        // Clean up - only clean up what was actually acquired, ignore errors
         let _ = manager.unlock(&id, "owner1").await;
         let _ = manager.unlock(&id, "owner2").await;
     }
@@ -781,11 +781,11 @@ async fn test_postgres_release_locks_nonexistent_owner() {
     let identifier = Uuid::new_v4().to_string();
     let _guard = manager.lock(&identifier, "owner1").await.unwrap();
 
-    // Releasing locks for non-existent owner should succeed (no-op)
+    // Releasing locks for the non-existent owner should succeed (no-op)
     let result = manager.release_locks("owner2").await;
     assert!(result.is_ok());
 
-    // Original lock should still be held
+    // The original lock should still be held
     let result = manager.lock(&identifier, "owner3").await;
     assert!(result.is_err());
 }
