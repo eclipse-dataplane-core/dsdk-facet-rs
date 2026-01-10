@@ -18,6 +18,8 @@ use chrono::TimeDelta;
 use sqlx::PgPool;
 use std::sync::Arc;
 
+const MAX_RETRIES: u32 = 5;
+
 /// Postgres-backed distributed lock manager using SQLx connection pooling.
 ///
 /// `PostgresLockManager` provides thread-safe, distributed locking backed by a Postgres database.
@@ -95,6 +97,9 @@ pub struct PostgresLockManager {
     /// Clock for time operations. Defaults to the system clock.
     #[builder(default = default_clock())]
     clock: Arc<dyn Clock>,
+
+    #[builder(default = MAX_RETRIES)]
+    retries: u32,
 }
 
 impl PostgresLockManager {
@@ -132,10 +137,12 @@ impl PostgresLockManager {
             .await
             .map_err(|e| LockError::store_error(format!("Failed to create index: {}", e)))?;
 
-        sqlx::query("CREATE INDEX IF NOT EXISTS idx_distributed_locks_identifier_owner ON distributed_locks(identifier, owner)")
-            .execute(&mut *tx)
-            .await
-            .map_err(|e| LockError::store_error(format!("Failed to create composite index: {}", e)))?;
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_distributed_locks_identifier_owner ON distributed_locks(identifier, owner)",
+        )
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| LockError::store_error(format!("Failed to create composite index: {}", e)))?;
 
         tx.commit()
             .await
@@ -147,92 +154,95 @@ impl PostgresLockManager {
     ///
     /// When a lock is released during acquisition (between INSERT/UPDATE and SELECT),
     /// this method automatically retries up to MAX_RETRIES times.
-    async fn lock_internal(&self, identifier: &str, owner: &str, retry_count: u32) -> Result<(), LockError> {
-        const MAX_RETRIES: u32 = 5;
+    async fn lock_internal(&self, identifier: &str, owner: &str) -> Result<(), LockError> {
+        for attempt in 0..=self.retries {
+            // Wrap entire lock acquisition logic in a transaction
+            let mut tx = self
+                .pool
+                .begin()
+                .await
+                .map_err(|e| LockError::store_error(format!("Failed to begin transaction: {}", e)))?;
 
-        // Wrap entire lock acquisition logic in a transaction
-        let mut tx = self
-            .pool
-            .begin()
+            let now = self.clock.now();
+            let cutoff_time = now - self.timeout;
+
+            // Clean up expired locks
+            sqlx::query("DELETE FROM distributed_locks WHERE acquired_at < $1")
+                .bind(cutoff_time)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| LockError::store_error(format!("Failed to cleanup expired locks: {}", e)))?;
+
+            // Try to insert or update the lock
+            // - If no conflict: INSERT succeeds, returns the new row with reentrant_count=1
+            // - If conflict AND owner match: UPDATE succeeds, returns the updated row with incremented count
+            // - If conflict AND owner do not match: WHERE clause fails, returns no rows
+            let result: Option<(i32,)> = sqlx::query_as(
+                "INSERT INTO distributed_locks (identifier, owner, acquired_at, reentrant_count)
+                 VALUES ($1, $2, $3, 1)
+                 ON CONFLICT (identifier) DO UPDATE
+                 SET acquired_at = EXCLUDED.acquired_at,
+                     reentrant_count = distributed_locks.reentrant_count + 1
+                 WHERE distributed_locks.owner = EXCLUDED.owner
+                 RETURNING reentrant_count",
+            )
+            .bind(identifier)
+            .bind(owner)
+            .bind(now)
+            .fetch_optional(&mut *tx)
             .await
-            .map_err(|e| LockError::store_error(format!("Failed to begin transaction: {}", e)))?;
+            .map_err(|e| LockError::store_error(format!("Failed to acquire lock: {}", e)))?;
 
-        let now = self.clock.now();
-        let cutoff_time = now - self.timeout;
+            if result.is_some() {
+                // Lock acquired successfully (either new lock or reentrant)
+                tx.commit()
+                    .await
+                    .map_err(|e| LockError::store_error(format!("Failed to commit transaction: {}", e)))?;
+                return Ok(());
+            }
 
-        // Clean up expired locks
-        sqlx::query("DELETE FROM distributed_locks WHERE acquired_at < $1")
-            .bind(cutoff_time)
-            .execute(&mut *tx)
-            .await
-            .map_err(|e| LockError::store_error(format!("Failed to cleanup expired locks: {}", e)))?;
+            // No row returned - conflict exists, but the owner does not match, or lock was just released
+            // Query to determine which case we're in
+            let existing_owner: Option<(String,)> =
+                sqlx::query_as("SELECT owner FROM distributed_locks WHERE identifier = $1")
+                    .bind(identifier)
+                    .fetch_optional(&mut *tx)
+                    .await
+                    .map_err(|e| LockError::store_error(format!("Failed to query lock: {}", e)))?;
 
-        // Try to insert or update the lock in a single operation
-        // - If no conflict: INSERT succeeds, returns the new row with reentrant_count=1
-        // - If conflict AND owner match: UPDATE succeeds, returns the updated row with incremented count
-        // - If conflict AND owner do not match: WHERE clause fails, returns no rows
-        let result: Option<(i32,)> = sqlx::query_as(
-            "INSERT INTO distributed_locks (identifier, owner, acquired_at, reentrant_count)
-             VALUES ($1, $2, $3, 1)
-             ON CONFLICT (identifier) DO UPDATE
-             SET acquired_at = EXCLUDED.acquired_at,
-                 reentrant_count = distributed_locks.reentrant_count + 1
-             WHERE distributed_locks.owner = EXCLUDED.owner
-             RETURNING reentrant_count",
-        )
-        .bind(identifier)
-        .bind(owner)
-        .bind(now)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(|e| LockError::store_error(format!("Failed to acquire lock: {}", e)))?;
-
-        if result.is_some() {
-            // Lock acquired successfully (either new lock or reentrant)
             tx.commit()
                 .await
                 .map_err(|e| LockError::store_error(format!("Failed to commit transaction: {}", e)))?;
-            return Ok(());
-        }
 
-        // No row returned - conflict exists, but the owner does not match, or lock was just released
-        // Query to determine which case we're in
-        let existing_owner: Option<(String,)> =
-            sqlx::query_as("SELECT owner FROM distributed_locks WHERE identifier = $1")
-                .bind(identifier)
-                .fetch_optional(&mut *tx)
-                .await
-                .map_err(|e| LockError::store_error(format!("Failed to query lock: {}", e)))?;
-
-        tx.commit()
-            .await
-            .map_err(|e| LockError::store_error(format!("Failed to commit transaction: {}", e)))?;
-
-        match existing_owner {
-            Some((owner_name,)) => {
-                // Lock exists and is held by a different owner
-                Err(LockError::lock_already_held(identifier, &owner_name, owner))
-            }
-            None => {
-                // Lock was released between INSERT and SELECT - this is a rare race condition
-                // Retry the acquisition if we haven't exceeded the retry limit
-                if retry_count >= MAX_RETRIES {
-                    Err(LockError::internal_error(
-                        "Lock acquisition failed: exceeded retry limit due to concurrent releases",
-                    ))
-                } else {
-                    // Recursively retry (box the future to avoid infinite size)
-                    Box::pin(self.lock_internal(identifier, owner, retry_count + 1)).await
+            match existing_owner {
+                Some((owner_name,)) => {
+                    // Lock exists and is held by a different owner - no retry needed
+                    return Err(LockError::lock_already_held(identifier, &owner_name, owner));
+                }
+                None => {
+                    // Lock was released between INSERT and SELECT - this is a rare race condition
+                    // Continue to retry if we haven't exceeded the limit
+                    if attempt >= MAX_RETRIES {
+                        return Err(LockError::internal_error(
+                            "Lock acquisition failed: exceeded retry limit due to concurrent releases",
+                        ));
+                    }
+                    // Loop will continue for another attempt
                 }
             }
         }
+
+        // Should never reach here due to the loop logic, but added for completeness
+        Err(LockError::internal_error(
+            "Lock acquisition failed: unexpected end of retry loop",
+        ))
     }
 }
 
 #[async_trait]
 impl LockManager for PostgresLockManager {
     async fn lock(&self, identifier: &str, owner: &str) -> Result<LockGuard, LockError> {
-        self.lock_internal(identifier, owner, 0).await?;
+        self.lock_internal(identifier, owner).await?;
         Ok(LockGuard::new(Arc::new(self.clone()), identifier, owner))
     }
 
