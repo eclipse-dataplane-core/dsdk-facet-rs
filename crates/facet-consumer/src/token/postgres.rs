@@ -41,7 +41,7 @@ use std::sync::Arc;
 /// must be consistent across instances and restarts and should be stored securely:
 ///
 /// ```no_run
-/// # use facet_client::token::PostgresTokenStore;
+/// # use facet_consumer::token::PostgresTokenStore;
 /// # use sqlx::PgPool;
 ///
 /// # async fn launch() -> Result<(), Box<dyn std::error::Error>> {

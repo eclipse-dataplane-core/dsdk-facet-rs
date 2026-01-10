@@ -12,10 +12,10 @@
 
 use async_trait::async_trait;
 use chrono::{TimeDelta, Utc};
-use facet_client::lock::mem::MemoryLockManager;
-use facet_client::token::mem::MemoryTokenStore;
-use facet_client::token::{TokenClientApi, TokenData, TokenError, TokenStore};
 use facet_common::util::{default_clock, Clock, MockClock};
+use facet_consumer::lock::mem::MemoryLockManager;
+use facet_consumer::token::mem::MemoryTokenStore;
+use facet_consumer::token::{TokenClientApi, TokenData, TokenError, TokenStore};
 use std::sync::Arc;
 
 #[tokio::test]
@@ -81,7 +81,7 @@ async fn test_token_expiration_triggers_refresh() {
 struct MockTokenClient {}
 
 #[async_trait]
-impl facet_client::token::TokenClient for MockTokenClient {
+impl facet_consumer::token::TokenClient for MockTokenClient {
     async fn refresh_token(
         &self,
         _participant_context: &str,

@@ -79,7 +79,7 @@ pub trait LockManager: Send + Sync {
 ///
 /// ```no_run
 /// # use std::sync::Arc;
-/// # use facet_client::lock::{LockManager, MemoryLockManager};
+/// # use facet_consumer::lock::{LockManager, MemoryLockManager};
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// let manager = Arc::new(MemoryLockManager::new());
 /// let _guard = manager.lock("resource", "owner").await?;

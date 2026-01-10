@@ -14,12 +14,12 @@ mod common;
 
 use crate::common::setup_postgres_container;
 use chrono::{TimeDelta, Utc};
-use facet_client::lock::postgres::PostgresLockManager;
-use facet_client::lock::LockError::{LockAlreadyHeld, LockNotFound};
-use facet_client::lock::LockManager;
+use facet_common::util::{Clock, MockClock};
+use facet_consumer::lock::postgres::PostgresLockManager;
+use facet_consumer::lock::LockError::{LockAlreadyHeld, LockNotFound};
+use facet_consumer::lock::LockManager;
 use std::sync::Arc;
 use uuid::Uuid;
-use facet_common::util::{Clock, MockClock};
 
 #[tokio::test]
 async fn test_postgres_lock_exclusive_lock() {

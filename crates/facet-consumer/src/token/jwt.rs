@@ -13,7 +13,7 @@
 use crate::token::{JwtGenerationError, JwtGenerator, JwtVerificationError, JwtVerifier, TokenClaims};
 use bon::Builder;
 use jsonwebtoken::errors::ErrorKind;
-use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode};
+use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use std::sync::Arc;
 
 /// Signing algorithms supported by the JWT generator.

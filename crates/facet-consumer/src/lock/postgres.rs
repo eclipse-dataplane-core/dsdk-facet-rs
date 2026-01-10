@@ -73,8 +73,8 @@ pub const CLEANUP_MINIMAL: f64 = 0.01;
 ///
 /// ```ignore
 /// use sqlx::PgPool;
-/// use facet_client::lock::postgres::PostgresLockManager;
-/// use facet_client::lock::LockManager;
+/// use facet_consumer::lock::postgres::PostgresLockManager;
+/// use facet_consumer::lock::LockManager;
 ///
 /// // Create a connection pool
 /// let pool = PgPool::connect("postgres://user:pass@localhost/db").await?;
@@ -87,8 +87,8 @@ pub const CLEANUP_MINIMAL: f64 = 0.01;
 ///
 /// ```ignore
 /// # use std::sync::Arc;
-/// # use facet_client::lock::LockManager;
-/// # use facet_client::lock::postgres::PostgresLockManager;
+/// # use facet_consumer::lock::LockManager;
+/// # use facet_consumer::lock::postgres::PostgresLockManager;
 /// # async fn example(manager: Arc<PostgresLockManager>) -> Result<(), Box<dyn std::error::Error>> {
 /// let _guard = manager.lock("resource1", "service-a").await?;
 /// // Lock is automatically released when `guard` is dropped
@@ -134,7 +134,7 @@ pub struct PostgresLockManager {
     /// # Examples
     ///
     /// ```ignore
-    /// use facet_client::lock::postgres::{PostgresLockManager, CLEANUP_LOW};
+    /// use facet_consumer::lock::postgres::{PostgresLockManager, CLEANUP_LOW};
     ///
     /// // High-traffic system with reduced cleanup overhead
     /// let manager = PostgresLockManager::builder()

@@ -13,9 +13,9 @@
 use crate::lock::{LockError, LockGuard, LockManager};
 use async_trait::async_trait;
 use chrono::{DateTime, TimeDelta, Utc};
+use facet_common::util::{default_clock, Clock};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use facet_common::util::{default_clock, Clock};
 
 struct LockRecord {
     owner: String,
@@ -39,7 +39,7 @@ struct MemoryLockManagerInner {
 /// # Example
 ///
 /// ```
-/// # use facet_client::lock::{LockManager, MemoryLockManager};
+/// # use facet_consumer::lock::{LockManager, MemoryLockManager};
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// let manager = MemoryLockManager::new();
 /// let _guard = manager.lock("resource", "owner").await?;

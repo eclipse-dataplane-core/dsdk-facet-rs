@@ -1,5 +1,5 @@
 [package]
-name = "facet-client"
+name = "facet-consumer"
 version.workspace = true
 edition.workspace = true
 
