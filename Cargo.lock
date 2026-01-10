@@ -825,30 +825,19 @@ dependencies = [
 name = "facet-common"
 version = "0.0.1"
 dependencies = [
- "async-trait",
  "bon",
  "chrono",
  "ed25519-dalek",
  "hex",
  "jsonwebtoken",
- "log",
- "mockall",
- "once_cell",
  "pkcs8",
  "rand 0.9.2",
- "reqwest",
  "rsa",
  "rstest",
  "serde",
  "serde_json",
  "sodiumoxide",
- "sqlx",
- "testcontainers",
- "testcontainers-modules",
  "thiserror 1.0.69",
- "tokio",
- "uuid",
- "wiremock",
 ]
 
 [[package]]

@@ -22,9 +22,4 @@ mod api_create_token;
 mod mem;
 
 #[cfg(test)]
-mod jwt;
-
-mod jwt_fixtures;
-
-#[cfg(test)]
 mod oauth;

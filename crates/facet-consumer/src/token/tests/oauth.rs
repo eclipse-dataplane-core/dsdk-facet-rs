@@ -10,10 +10,10 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
-use crate::token::jwt::LocalJwtGenerator;
 use crate::token::oauth::OAuth2TokenClient;
-use crate::token::tests::jwt_fixtures::generate_ed25519_keypair_pem;
 use crate::token::TokenClient;
+use facet_common::jwt::jwtutils::generate_ed25519_keypair_pem;
+use facet_common::jwt::LocalJwtGenerator;
 use std::sync::Arc;
 use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};

@@ -10,11 +10,64 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
-use crate::token::{JwtGenerationError, JwtGenerator, JwtVerificationError, JwtVerifier, TokenClaims};
+#[cfg(test)]
+mod tests;
+
+pub mod jwtutils;
+
 use bon::Builder;
 use jsonwebtoken::errors::ErrorKind;
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
+use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 use std::sync::Arc;
+use thiserror::Error;
+
+#[derive(Debug, Clone, Builder, Serialize, Deserialize)]
+pub struct TokenClaims {
+    #[builder(into)]
+    pub sub: String,
+    #[builder(into)]
+    pub iss: String,
+    #[builder(into)]
+    pub aud: String,
+    pub iat: i64,
+    pub exp: i64,
+    #[builder(default)]
+    #[serde(flatten)]
+    pub custom: Map<String, Value>,
+}
+
+pub trait JwtGenerator: Send + Sync {
+    fn generate_token(&self, participant_context: &str, claims: TokenClaims) -> Result<String, JwtGenerationError>;
+}
+
+#[derive(Debug, Error)]
+pub enum JwtGenerationError {
+    #[error("Failed to generate token: {0}")]
+    GenerationError(String),
+}
+
+/// Verifies JWT tokens and validates claims.
+pub trait JwtVerifier: Send + Sync {
+    fn verify_token(&self, participant_context: &str, token: &str) -> Result<TokenClaims, JwtVerificationError>;
+}
+
+/// Errors that can occur during JWT verification.
+#[derive(Debug, Error)]
+pub enum JwtVerificationError {
+    #[error("Invalid token signature")]
+    InvalidSignature,
+
+    #[error("Token has expired")]
+    TokenExpired,
+
+    #[error("Invalid token format")]
+    InvalidFormat,
+
+    #[error("Verification error: {0}")]
+    VerificationFailed(String),
+}
 
 /// Signing algorithms supported by the JWT generator.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

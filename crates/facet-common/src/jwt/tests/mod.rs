@@ -10,11 +10,11 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
-use crate::token::jwt::{KeyFormat, LocalJwtGenerator, LocalJwtVerifier, SigningAlgorithm, VerificationKeyResolver};
-use crate::token::tests::jwt_fixtures::{
+use crate::jwt::{KeyFormat, LocalJwtGenerator, LocalJwtVerifier, SigningAlgorithm, VerificationKeyResolver};
+use crate::jwt::jwtutils::{
     generate_ed25519_keypair_der, generate_ed25519_keypair_pem, generate_rsa_keypair_pem,
 };
-use crate::token::{JwtGenerator, JwtVerificationError, JwtVerifier, TokenClaims};
+use crate::jwt::{JwtGenerator, JwtVerificationError, JwtVerifier, TokenClaims};
 use chrono::Utc;
 use rstest::rstest;
 use std::sync::Arc;

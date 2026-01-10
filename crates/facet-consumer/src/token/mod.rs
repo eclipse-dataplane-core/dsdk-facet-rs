@@ -10,7 +10,6 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
-pub mod jwt;
 pub mod mem;
 pub mod oauth;
 pub mod postgres;
@@ -27,9 +26,8 @@ use crate::lock::LockManager;
 use async_trait::async_trait;
 use bon::Builder;
 use chrono::{DateTime, TimeDelta, Utc};
+use facet_common::jwt::JwtGenerationError;
 use facet_common::util::{default_clock, Clock};
-use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
 use std::sync::Arc;
 use thiserror::Error;
 
@@ -234,50 +232,4 @@ impl TokenError {
     pub fn general_error(message: impl Into<String>) -> Self {
         TokenError::GeneralError(message.into())
     }
-}
-
-#[derive(Debug, Clone, Builder, Serialize, Deserialize)]
-pub struct TokenClaims {
-    #[builder(into)]
-    pub sub: String,
-    #[builder(into)]
-    pub iss: String,
-    #[builder(into)]
-    pub aud: String,
-    pub iat: i64,
-    pub exp: i64,
-    #[builder(default)]
-    #[serde(flatten)]
-    pub custom: Map<String, Value>,
-}
-
-pub trait JwtGenerator: Send + Sync {
-    fn generate_token(&self, participant_context: &str, claims: TokenClaims) -> Result<String, JwtGenerationError>;
-}
-
-#[derive(Debug, Error)]
-pub enum JwtGenerationError {
-    #[error("Failed to generate token: {0}")]
-    GenerationError(String),
-}
-
-/// Verifies JWT tokens and validates claims.
-pub trait JwtVerifier: Send + Sync {
-    fn verify_token(&self, participant_context: &str, token: &str) -> Result<TokenClaims, JwtVerificationError>;
-}
-
-/// Errors that can occur during JWT verification.
-#[derive(Debug, Error)]
-pub enum JwtVerificationError {
-    #[error("Invalid token signature")]
-    InvalidSignature,
-
-    #[error("Token has expired")]
-    TokenExpired,
-
-    #[error("Invalid token format")]
-    InvalidFormat,
-
-    #[error("Verification error: {0}")]
-    VerificationFailed(String),
 }

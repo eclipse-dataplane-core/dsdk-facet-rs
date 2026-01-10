@@ -10,13 +10,12 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
-use crate::token::JwtGenerationError;
+use crate::jwt::JwtGenerationError;
 use ed25519_dalek::SigningKey;
 use pkcs8::{EncodePrivateKey, EncodePublicKey, LineEnding};
 use rand::Rng;
 use rsa::rand_core::OsRng as RsaOsRng;
 use rsa::{RsaPrivateKey, RsaPublicKey};
-
 
 #[derive(Debug, Clone)]
 pub struct Ed25519Keypair {
@@ -29,7 +28,6 @@ pub struct RsaKeypair {
     pub private_key: Vec<u8>,
     pub public_key: Vec<u8>,
 }
-
 
 /// Generates an RSA keypair and returns both private and public keys in PKCS#8 PEM format.
 pub fn generate_rsa_keypair_pem() -> Result<RsaKeypair, JwtGenerationError> {
