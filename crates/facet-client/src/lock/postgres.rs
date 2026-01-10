@@ -21,6 +21,18 @@ use std::sync::Arc;
 
 const MAX_RETRIES: u32 = 5;
 
+// Recommended cleanup probability values for different traffic patterns
+/// Always clean up expired locks (default, safest option)
+pub const CLEANUP_ALWAYS: f64 = 1.0;
+/// High cleanup frequency - suitable for moderate traffic
+pub const CLEANUP_HIGH: f64 = 0.5;
+/// Medium cleanup frequency - suitable for high traffic
+pub const CLEANUP_MEDIUM: f64 = 0.25;
+/// Low cleanup frequency - suitable for very high traffic
+pub const CLEANUP_LOW: f64 = 0.1;
+/// Minimal cleanup frequency - only for extreme traffic with external cleanup
+pub const CLEANUP_MINIMAL: f64 = 0.01;
+
 /// Postgres-backed distributed lock manager using SQLx connection pooling.
 ///
 /// `PostgresLockManager` provides thread-safe, distributed locking backed by a Postgres database.
@@ -104,11 +116,32 @@ pub struct PostgresLockManager {
 
     /// Probability (0.0-1.0) of cleaning up expired locks on lock acquisition.
     ///
-    /// A value of 1.0 means cleanup happens on every lock attempt (default).
-    /// A value of 0.1 means cleanup happens ~10% of the time.
-    /// This reduces overhead in high-traffic systems while ensuring eventual cleanup.
+    /// **Tuning Guidelines:**
+    ///
+    /// - **Low traffic (< 10 locks/sec)**: Use `CLEANUP_ALWAYS` (1.0) - Default, safest option
+    /// - **Moderate traffic (10-100 locks/sec)**: Use `CLEANUP_HIGH` (0.5) - 50% overhead reduction
+    /// - **High traffic (100-1000 locks/sec)**: Use `CLEANUP_MEDIUM` (0.25) - 75% overhead reduction
+    /// - **Very high traffic (> 1000 locks/sec)**: Use `CLEANUP_LOW` (0.1) - 90% overhead reduction
+    /// - **Extreme traffic with external cleanup**: Use `CLEANUP_MINIMAL` (0.01) - 99% overhead reduction
+    ///
+    /// **Important:** Lower values reduce cleanup overhead but increase the time before expired
+    /// locks are removed. Ensure your timeout is appropriately configured for your cleanup frequency.
+    ///
+    /// Must be between 0.0 and 1.0 (inclusive). Values outside this range will panic during build.
     ///
     /// Defaults to 1.0 (always cleanup).
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// use facet_client::lock::postgres::{PostgresLockManager, CLEANUP_LOW};
+    ///
+    /// // High-traffic system with reduced cleanup overhead
+    /// let manager = PostgresLockManager::builder()
+    ///     .pool(pool)
+    ///     .cleanup_probability(CLEANUP_LOW)  // 10% cleanup rate
+    ///     .build();
+    /// ```
     #[builder(default = 1.0)]
     cleanup_probability: f64,
 }
