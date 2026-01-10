@@ -10,7 +10,7 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
-use crate::token::tests::mocks::{MockLockManager, MockTokenClient, MockTokenStore};
+use crate::token::tests::mocks::{MockLockManager, MockTokenClient, MockTokenStore, create_dummy_lock_guard};
 use crate::token::{TokenClientApi, TokenData, TokenError};
 use crate::util::MockClock;
 use chrono::{TimeDelta, Utc};
@@ -52,7 +52,10 @@ async fn test_get_token_not_expiring_does_not_refresh() {
         .refresh_before_expiry_ms(5_000)
         .build();
 
-    let result = token_api.get_token("participant1", "identifier1", "owner1").await.unwrap();
+    let result = token_api
+        .get_token("participant1", "identifier1", "owner1")
+        .await
+        .unwrap();
     assert_eq!(result, "active_token");
 }
 
@@ -66,7 +69,7 @@ async fn test_get_token_expiring_soon_triggers_refresh() {
         .expect_lock()
         .once()
         .with(eq("identifier1"), eq("owner1"))
-        .returning(|_, _| Ok(()));
+        .returning(|identifier, owner| Ok(create_dummy_lock_guard(identifier, owner)));
 
     let mut token_store = MockTokenStore::new();
     let mut seq = mockall::Sequence::new();
@@ -125,7 +128,10 @@ async fn test_get_token_expiring_soon_triggers_refresh() {
     // Advance time so the token is within the 5s refresh threshold
     clock.advance(TimeDelta::seconds(6));
 
-    let result = token_api.get_token("participant1", "identifier1", "owner1").await.unwrap();
+    let result = token_api
+        .get_token("participant1", "identifier1", "owner1")
+        .await
+        .unwrap();
     assert_eq!(result, "new_token");
 }
 
@@ -139,7 +145,7 @@ async fn test_get_token_expired_triggers_refresh() {
         .expect_lock()
         .once()
         .with(eq("identifier1"), eq("owner1"))
-        .returning(|_, _| Ok(()));
+        .returning(|identifier, owner| Ok(create_dummy_lock_guard(identifier, owner)));
 
     let mut token_store = MockTokenStore::new();
     let mut seq = mockall::Sequence::new();
@@ -185,7 +191,10 @@ async fn test_get_token_expired_triggers_refresh() {
         .clock(clock)
         .build();
 
-    let result = token_api.get_token("participant1", "identifier1", "owner1").await.unwrap();
+    let result = token_api
+        .get_token("participant1", "identifier1", "owner1")
+        .await
+        .unwrap();
     assert_eq!(result, "refreshed_token");
 }
 
@@ -199,7 +208,7 @@ async fn test_refresh_updates_stored_token() {
         .expect_lock()
         .once()
         .with(eq("identifier1"), eq("owner1"))
-        .returning(|_, _| Ok(()));
+        .returning(|identifier, owner| Ok(create_dummy_lock_guard(identifier, owner)));
 
     let mut token_store = MockTokenStore::new();
     let mut seq = mockall::Sequence::new();
@@ -248,7 +257,10 @@ async fn test_refresh_updates_stored_token() {
         .build();
 
     clock.advance(TimeDelta::seconds(4));
-    let _ = token_api.get_token("participant1", "identifier1", "owner1").await.unwrap();
+    let _ = token_api
+        .get_token("participant1", "identifier1", "owner1")
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -261,7 +273,7 @@ async fn test_refresh_failure_returns_error() {
         .expect_lock()
         .once()
         .with(eq("identifier1"), eq("owner1"))
-        .returning(|_, _| Ok(()));
+        .returning(|identifier, owner| Ok(create_dummy_lock_guard(identifier, owner)));
 
     let mut token_store = MockTokenStore::new();
     token_store
@@ -308,7 +320,7 @@ async fn test_lock_acquired_during_refresh() {
         .expect_lock()
         .once()
         .with(eq("identifier1"), eq("owner1"))
-        .returning(|_, _| Ok(()));
+        .returning(|identifier, owner| Ok(create_dummy_lock_guard(identifier, owner)));
 
     let mut token_store = MockTokenStore::new();
     let mut seq = mockall::Sequence::new();
@@ -358,7 +370,10 @@ async fn test_lock_acquired_during_refresh() {
     clock.advance(TimeDelta::seconds(4));
 
     // Trigger refresh which should acquire the lock
-    let _ = token_api.get_token("participant1", "identifier1", "owner1").await.unwrap();
+    let _ = token_api
+        .get_token("participant1", "identifier1", "owner1")
+        .await
+        .unwrap();
 
     // Verify that lock was called (it was expected above)
 }
@@ -373,7 +388,13 @@ async fn test_lock_prevents_concurrent_refresh() {
         .expect_lock()
         .once()
         .with(eq("identifier1"), eq("owner1"))
-        .returning(|_, _| Err(crate::lock::LockError::lock_already_held("identifier1", "other_owner")));
+        .returning(|_, _| {
+            Err(crate::lock::LockError::lock_already_held(
+                "identifier1",
+                "other_owner",
+                "owner1",
+            ))
+        });
 
     let mut token_store = MockTokenStore::new();
     token_store
@@ -451,7 +472,7 @@ async fn test_refresh_with_custom_refresh_threshold() {
         .expect_lock()
         .once()
         .with(eq("identifier1"), eq("owner1"))
-        .returning(|_, _| Ok(()));
+        .returning(|identifier, owner| Ok(create_dummy_lock_guard(identifier, owner)));
 
     let mut token_store = MockTokenStore::new();
     let mut seq = mockall::Sequence::new();
@@ -500,10 +521,12 @@ async fn test_refresh_with_custom_refresh_threshold() {
 
     clock.advance(TimeDelta::seconds(11));
 
-    let result = token_api.get_token("participant1", "identifier1", "owner1").await.unwrap();
+    let result = token_api
+        .get_token("participant1", "identifier1", "owner1")
+        .await
+        .unwrap();
     assert_eq!(result, "refreshed");
 }
-
 
 #[tokio::test]
 async fn test_multiple_tokens_independent_refresh() {
@@ -515,7 +538,7 @@ async fn test_multiple_tokens_independent_refresh() {
         .expect_lock()
         .once()
         .with(eq("token1"), eq("owner1"))
-        .returning(|_, _| Ok(()));
+        .returning(|identifier, owner| Ok(create_dummy_lock_guard(identifier, owner)));
 
     let mut token_store = MockTokenStore::new();
     let mut seq = mockall::Sequence::new();

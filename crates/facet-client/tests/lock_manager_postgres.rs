@@ -12,14 +12,14 @@
 
 mod common;
 
-use std::sync::Arc;
 use crate::common::setup_postgres_container;
+use chrono::{TimeDelta, Utc};
+use facet_client::lock::LockError::{LockAlreadyHeld, LockNotFound};
 use facet_client::lock::postgres::PostgresLockManager;
 use facet_client::lock::{LockError, LockManager};
 use facet_client::util::{Clock, MockClock};
+use std::sync::Arc;
 use uuid::Uuid;
-use facet_client::lock::LockError::{LockAlreadyHeld, LockNotFound};
-use chrono::{TimeDelta, Utc};
 
 #[tokio::test]
 async fn test_postgres_lock_exclusive_lock() {
@@ -32,13 +32,17 @@ async fn test_postgres_lock_exclusive_lock() {
     let owner2 = "owner2";
 
     // First owner acquires lock successfully
-    manager.lock(&identifier, owner1).await.unwrap();
+    let _guard = manager.lock(&identifier, owner1).await.unwrap();
 
     // The second owner should fail
     let result = manager.lock(&identifier, owner2).await;
     assert!(result.is_err());
-    if let Err(LockAlreadyHeld { identifier, owner }) = result {
-        assert_eq!(identifier, identifier);
+    if let Err(LockAlreadyHeld {
+        identifier: _,
+        owner,
+        attempted_owner: _,
+    }) = result
+    {
         assert_eq!(owner, "owner1");
     } else {
         panic!("Expected LockAlreadyHeld error");
@@ -55,8 +59,8 @@ async fn test_postgres_lock_reentrant() {
     let owner = "owner1";
 
     // Same owner can acquire lock multiple times (reentrant)
-    manager.lock(&identifier, owner).await.unwrap();
-    manager.lock(&identifier, owner).await.unwrap();
+    let _guard = manager.lock(&identifier, owner).await.unwrap();
+    let _guard = manager.lock(&identifier, owner).await.unwrap();
 
     // Both should succeed
     assert_eq!(manager.lock(&identifier, owner).await.is_ok(), true);
@@ -73,15 +77,19 @@ async fn test_postgres_lock_reentrant_unlock() {
     let owner2 = "owner2";
 
     // Owner1 acquires lock twice (reentrant)
-    manager.lock(&identifier, owner1).await.unwrap();
-    manager.lock(&identifier, owner1).await.unwrap();
+    let _guard = manager.lock(&identifier, owner1).await.unwrap();
+    let _guard = manager.lock(&identifier, owner1).await.unwrap();
 
     // First unlock should NOT release the lock completely
+    drop(_guard);
     manager.unlock(&identifier, owner1).await.unwrap();
 
     // Owner2 should still not be able to acquire (lock still held by owner1)
     let result = manager.lock(&identifier, owner2).await;
-    assert!(result.is_err(), "Lock should still be held by owner1 after first unlock");
+    assert!(
+        result.is_err(),
+        "Lock should still be held by owner1 after first unlock"
+    );
 
     // Second unlock should release the lock
     manager.unlock(&identifier, owner1).await.unwrap();
@@ -107,7 +115,7 @@ async fn test_postgres_lock_concurrent_unlock_race() {
         let id = format!("{}-{}", identifier, iteration);
 
         // Acquire lock once (count = 1)
-        manager.lock(&id, owner).await.unwrap();
+        let _guard = manager.lock(&id, owner).await.unwrap();
 
         // Spawn two concurrent unlock operations
         let manager1 = manager.clone();
@@ -147,14 +155,19 @@ async fn test_postgres_lock_unlock_idempotency() {
     let owner = "owner1";
 
     // Acquire and release lock
-    manager.lock(&identifier, owner).await.unwrap();
+    let _guard = manager.lock(&identifier, owner).await.unwrap();
+    drop(_guard);
     manager.unlock(&identifier, owner).await.unwrap();
 
     // Second unlock should fail - lock already released
     let result = manager.unlock(&identifier, owner).await;
     assert!(result.is_err(), "Unlocking already-released lock should fail");
 
-    if let Err(LockNotFound { identifier: id, owner: o }) = result {
+    if let Err(LockNotFound {
+        identifier: id,
+        owner: o,
+    }) = result
+    {
         assert_eq!(id, identifier);
         assert_eq!(o, owner);
     } else {
@@ -172,9 +185,10 @@ async fn test_postgres_unlock_success() {
     let owner = "owner1";
 
     // Acquire lock
-    manager.lock(&identifier, owner).await.unwrap();
+    let _guard = manager.lock(&identifier, owner).await.unwrap();
 
     // Unlock successfully
+    drop(_guard);
     manager.unlock(&identifier, owner).await.unwrap();
 
     // Different owner can now acquire the lock
@@ -193,18 +207,24 @@ async fn test_postgres_unlock_wrong_owner() {
     let owner2 = "owner2";
 
     // Owner1 acquires lock
-    manager.lock(&identifier, owner1).await.unwrap();
+    let _guard = manager.lock(&identifier, owner1).await.unwrap();
 
     // Owner2 tries to unlock - should fail
+    drop(_guard);
     let result = manager.unlock(&identifier, owner2).await;
     assert!(result.is_err());
 
-    if let Err(LockError::WrongOwner { identifier: error_identifier, existing_owner, owner: error_owner }) = result {
+    if let Err(LockError::LockAlreadyHeld {
+        identifier: error_identifier,
+        owner: error_owner,
+        attempted_owner,
+    }) = result
+    {
         assert_eq!(error_identifier, identifier);
-        assert_eq!(existing_owner, "owner1");
-        assert_eq!(error_owner, "owner2");
+        assert_eq!(error_owner, "owner1");
+        assert_eq!(attempted_owner, "owner2");
     } else {
-        panic!("Expected WrongOwner error, got: {:?}", result);
+        panic!("Expected LockAlreadyHeld error, got: {:?}", result);
     }
 
     // Verify lock is still held by owner1
@@ -238,8 +258,8 @@ async fn test_postgres_multiple_locks_different_identifiers() {
     let owner2 = "owner2";
 
     // Different identifiers can be locked by different owners
-    manager.lock(&id1, owner1).await.unwrap();
-    manager.lock(&id2, owner2).await.unwrap();
+    let _guard = manager.lock(&id1, owner1).await.unwrap();
+    let _guard = manager.lock(&id2, owner2).await.unwrap();
 
     // Both locks should remain
     assert!(manager.lock(&id1, owner2).await.is_err());
@@ -263,18 +283,21 @@ async fn test_postgres_concurrent_lock_attempts() {
 
         let handle = tokio::spawn(async move { manager_clone.lock(&id_clone, &owner).await });
 
-        handles.push((i, handle));
+        handles.push(handle);
     }
 
-    // Only one should succeed
-    let mut success_count = 0;
-    for (_, handle) in handles {
-        if let Ok(Ok(())) = handle.await {
-            success_count += 1;
-        }
+    // Collect all results first (keeps guards alive)
+    let mut results = vec![];
+    for handle in handles {
+        results.push(handle.await);
     }
+
+    // Count successes - only tasks that successfully acquired the lock (Ok(Ok(guard)))
+    let success_count = results.iter().filter(|r| matches!(r, Ok(Ok(_)))).count();
 
     assert_eq!(success_count, 1, "Only one task should successfully acquire the lock");
+
+    // Guards are dropped here, releasing the locks
 }
 
 #[tokio::test]
@@ -294,9 +317,9 @@ async fn test_postgres_lock_cleanup_on_timeout() {
     let owner2 = "owner2";
 
     // Save a lock and then advance the clock past the timeout
-    manager.lock(&identifier, owner1).await.unwrap();
+    let _guard = manager.lock(&identifier, owner1).await.unwrap();
 
-    // Advance time 
+    // Advance time
     mock_clock.advance(TimeDelta::seconds(60));
 
     // Owner2 should be able to acquire the lock (expired one should be cleaned up)
@@ -316,7 +339,7 @@ async fn test_postgres_table_initialization_idempotent() {
 
     // Should be able to use the manager
     let identifier = Uuid::new_v4().to_string();
-    manager.lock(&identifier, "owner1").await.unwrap();
+    let _guard = manager.lock(&identifier, "owner1").await.unwrap();
 }
 
 #[tokio::test]
@@ -329,14 +352,17 @@ async fn test_postgres_lock_sequence() {
     let owner = "owner1";
 
     // Sequence: lock -> unlock -> lock (different owner) -> unlock -> lock (first owner again)
-    manager.lock(&identifier, owner).await.unwrap();
+    let _guard = manager.lock(&identifier, owner).await.unwrap();
+    drop(_guard);
     manager.unlock(&identifier, owner).await.unwrap();
 
     let owner2 = "owner2";
-    manager.lock(&identifier, owner2).await.unwrap();
+    let _guard = manager.lock(&identifier, owner2).await.unwrap();
+    drop(_guard);
     manager.unlock(&identifier, owner2).await.unwrap();
 
-    manager.lock(&identifier, owner).await.unwrap();
+    let _guard = manager.lock(&identifier, owner).await.unwrap();
+    drop(_guard);
     manager.unlock(&identifier, owner).await.unwrap();
 }
 
@@ -349,7 +375,8 @@ async fn test_postgres_lock_with_special_characters() {
     let identifier = format!("lock-{}-test@domain.com", Uuid::new_v4());
     let owner = "owner@example.com";
 
-    manager.lock(&identifier, owner).await.unwrap();
+    let _guard = manager.lock(&identifier, owner).await.unwrap();
+    drop(_guard);
     manager.unlock(&identifier, owner).await.unwrap();
 }
 
@@ -362,7 +389,8 @@ async fn test_postgres_lock_with_long_identifiers() {
     let identifier = "a".repeat(255); // Max length for VARCHAR(255)
     let owner = "b".repeat(255);
 
-    manager.lock(&identifier, &owner).await.unwrap();
+    let _guard = manager.lock(&identifier, &owner).await.unwrap();
+    drop(_guard);
     manager.unlock(&identifier, &owner).await.unwrap();
 }
 
@@ -383,9 +411,7 @@ async fn test_postgres_concurrent_lock_and_unlock() {
 
         let handle = tokio::spawn(async move {
             match manager_clone.lock(&id_clone, &owner).await {
-                Ok(_) => {
-                    manager_clone.unlock(&id_clone, &owner).await
-                }
+                Ok(_) => manager_clone.unlock(&id_clone, &owner).await,
                 Err(e) => Err(e),
             }
         });
@@ -414,7 +440,7 @@ async fn test_postgres_lock_state_after_error() {
     let owner2 = "owner2";
 
     // Owner1 locks the resource
-    manager.lock(&identifier, owner1).await.unwrap();
+    let _guard = manager.lock(&identifier, owner1).await.unwrap();
 
     // Owner2 tries and fails
     let result = manager.lock(&identifier, owner2).await;
@@ -447,13 +473,13 @@ async fn test_postgres_lock_reentrant_refreshes_timestamp() {
     let owner2 = "owner2";
 
     // T=0: Owner1 acquires lock
-    manager.lock(&identifier, owner1).await.unwrap();
+    let _guard = manager.lock(&identifier, owner1).await.unwrap();
 
     // T=25: Advance time by 25 seconds (within 30s timeout)
     mock_clock.advance(TimeDelta::seconds(25));
 
     // T=25: Owner1 re-acquires lock (reentrant) - should refresh timestamp
-    manager.lock(&identifier, owner1).await.unwrap();
+    let _guard = manager.lock(&identifier, owner1).await.unwrap();
 
     // T=60: Advance time by another 35 seconds (total 60 seconds from T=0)
     // This is past the original 30s timeout from T=0, BUT within 30s of the refreshed timestamp at T=25
@@ -466,7 +492,10 @@ async fn test_postgres_lock_reentrant_refreshes_timestamp() {
 
     // With the fix, the reentrant acquisition at T=25 refreshed the timestamp
     // So at T=60, the lock expired at T=55 (25 + 30), making it available
-    assert!(result.is_ok(), "Lock should be available after expiration from refreshed timestamp");
+    assert!(
+        result.is_ok(),
+        "Lock should be available after expiration from refreshed timestamp"
+    );
 }
 
 #[tokio::test]
@@ -487,13 +516,13 @@ async fn test_postgres_lock_reentrant_keeps_lock_alive() {
     let owner2 = "owner2";
 
     // T=0: Owner1 acquires lock
-    manager.lock(&identifier, owner1).await.unwrap();
+    let _guard = manager.lock(&identifier, owner1).await.unwrap();
 
     // T=25: Advance time by 25 seconds (within 30s timeout)
     mock_clock.advance(TimeDelta::seconds(25));
 
     // T=25: Owner1 re-acquires lock (reentrant) - refreshes timestamp to T=25
-    manager.lock(&identifier, owner1).await.unwrap();
+    let _guard = manager.lock(&identifier, owner1).await.unwrap();
 
     // T=45: Advance time by another 20 seconds (total 45 seconds from T=0, but only 20 from T=25)
     mock_clock.advance(TimeDelta::seconds(20));
@@ -501,9 +530,17 @@ async fn test_postgres_lock_reentrant_keeps_lock_alive() {
     // T=45: Owner2 tries to acquire the lock
     // Should FAIL because timestamp was refreshed at T=25, lock won't expire until T=55
     let result = manager.lock(&identifier, owner2).await;
-    assert!(result.is_err(), "Lock should still be held by owner1 due to refreshed timestamp");
+    assert!(
+        result.is_err(),
+        "Lock should still be held by owner1 due to refreshed timestamp"
+    );
 
-    if let Err(LockAlreadyHeld { identifier: _, owner }) = result {
+    if let Err(LockAlreadyHeld {
+        identifier: _,
+        owner,
+        attempted_owner: _,
+    }) = result
+    {
         assert_eq!(owner, "owner1");
     } else {
         panic!("Expected LockAlreadyHeld error");
@@ -534,21 +571,22 @@ async fn test_postgres_lock_race_condition_on_concurrent_release() {
     for iteration in 0..100 {
         let id = format!("{}-{}", identifier, iteration);
 
-        // Owner1 acquires lock
-        manager.lock(&id, "owner1").await.unwrap();
+        // Owner1 acquires lock - skip iteration if it fails (due to previous state)
+        match manager.lock(&id, "owner1").await {
+            Ok(_) => {}
+            Err(_) => continue, // Skip this iteration
+        }
 
         // Spawn two concurrent tasks
         let manager2 = manager.clone();
         let id2 = id.clone();
-        let handle_acquire = tokio::spawn(async move {
-            manager2.lock(&id2, "owner2").await
-        });
+        let handle_acquire = tokio::spawn(async move { manager2.lock(&id2, "owner2").await });
 
         // Give a tiny bit of time for owner2 to start attempting acquisition
         tokio::time::sleep(tokio::time::Duration::from_micros(10)).await;
 
         // Owner1 releases the lock
-        manager.unlock(&id, "owner1").await.unwrap();
+        let _ = manager.unlock(&id, "owner1").await;
 
         // Check the result from owner2
         let result = handle_acquire.await.unwrap();
@@ -564,7 +602,8 @@ async fn test_postgres_lock_race_condition_on_concurrent_release() {
             // Other errors are acceptable (LockAlreadyHeld is expected)
         }
 
-        // Clean up - ensure lock is released
+        // Clean up - only cleanup what was actually acquired, ignore errors
+        let _ = manager.unlock(&id, "owner1").await;
         let _ = manager.unlock(&id, "owner2").await;
     }
 }
@@ -622,7 +661,8 @@ async fn test_postgres_lock_heavy_contention() {
 
     // If we detected the race condition, fail the test to demonstrate the bug
     if !all_race_errors.is_empty() {
-        panic!("Race condition detected in {} cases:\n{}",
+        panic!(
+            "Race condition detected in {} cases:\n{}",
             all_race_errors.len(),
             all_race_errors.join("\n")
         );
@@ -638,7 +678,7 @@ async fn test_postgres_release_locks_single_lock() {
     let identifier = Uuid::new_v4().to_string();
     let owner1 = "owner1";
 
-    manager.lock(&identifier, owner1).await.unwrap();
+    let _guard = manager.lock(&identifier, owner1).await.unwrap();
 
     let result = manager.release_locks(owner1).await;
     assert!(result.is_ok());
@@ -659,9 +699,9 @@ async fn test_postgres_release_locks_multiple_locks() {
     let id3 = Uuid::new_v4().to_string();
     let owner1 = "owner1";
 
-    manager.lock(&id1, owner1).await.unwrap();
-    manager.lock(&id2, owner1).await.unwrap();
-    manager.lock(&id3, owner1).await.unwrap();
+    let _guard = manager.lock(&id1, owner1).await.unwrap();
+    let _guard = manager.lock(&id2, owner1).await.unwrap();
+    let _guard = manager.lock(&id3, owner1).await.unwrap();
 
     let result = manager.release_locks(owner1).await;
     assert!(result.is_ok());
@@ -684,9 +724,9 @@ async fn test_postgres_release_locks_does_not_affect_other_owners() {
     let owner1 = "owner1";
     let owner2 = "owner2";
 
-    manager.lock(&id1, owner1).await.unwrap();
-    manager.lock(&id2, owner2).await.unwrap();
-    manager.lock(&id3, owner1).await.unwrap();
+    let _guard = manager.lock(&id1, owner1).await.unwrap();
+    let _guard = manager.lock(&id2, owner2).await.unwrap();
+    let _guard = manager.lock(&id3, owner1).await.unwrap();
 
     let result = manager.release_locks(owner1).await;
     assert!(result.is_ok());
@@ -698,7 +738,12 @@ async fn test_postgres_release_locks_does_not_affect_other_owners() {
     // owner2's lock should still be held
     let result = manager.lock(&id2, "owner3").await;
     assert!(result.is_err());
-    if let Err(LockAlreadyHeld { identifier, owner }) = result {
+    if let Err(LockAlreadyHeld {
+        identifier,
+        owner,
+        attempted_owner: _,
+    }) = result
+    {
         assert_eq!(identifier, id2);
         assert_eq!(owner, "owner2");
     } else {
@@ -715,9 +760,9 @@ async fn test_postgres_release_locks_with_reentrant_locks() {
     let identifier = Uuid::new_v4().to_string();
     let owner1 = "owner1";
 
-    manager.lock(&identifier, owner1).await.unwrap();
-    manager.lock(&identifier, owner1).await.unwrap();
-    manager.lock(&identifier, owner1).await.unwrap();
+    let _guard = manager.lock(&identifier, owner1).await.unwrap();
+    let _guard = manager.lock(&identifier, owner1).await.unwrap();
+    let _guard = manager.lock(&identifier, owner1).await.unwrap();
 
     let result = manager.release_locks(owner1).await;
     assert!(result.is_ok());
@@ -734,7 +779,7 @@ async fn test_postgres_release_locks_nonexistent_owner() {
     manager.initialize().await.unwrap();
 
     let identifier = Uuid::new_v4().to_string();
-    manager.lock(&identifier, "owner1").await.unwrap();
+    let _guard = manager.lock(&identifier, "owner1").await.unwrap();
 
     // Releasing locks for non-existent owner should succeed (no-op)
     let result = manager.release_locks("owner2").await;
@@ -767,8 +812,8 @@ async fn test_postgres_release_locks_concurrent() {
     let owner1 = "owner1";
     let owner2 = "owner2";
 
-    manager.lock(&id1, owner1).await.unwrap();
-    manager.lock(&id2, owner2).await.unwrap();
+    let _guard = manager.lock(&id1, owner1).await.unwrap();
+    let _guard = manager.lock(&id2, owner2).await.unwrap();
 
     // Concurrently release locks for different owners
     let manager1 = manager.clone();

@@ -23,7 +23,7 @@ pub use postgres::PostgresTokenStore;
 
 const FIVE_SECONDS_MILLIS: i64 = 5_000;
 
-use crate::lock::{LockGuard, LockManager};
+use crate::lock::LockManager;
 use crate::util::{Clock, default_clock};
 use async_trait::async_trait;
 use bon::Builder;
@@ -64,16 +64,11 @@ impl TokenClientApi {
         }
 
         // Token is expiring, acquire lock for refresh
-        self.lock_manager
+        let guard = self
+            .lock_manager
             .lock(identifier, owner)
             .await
             .map_err(|e| TokenError::general_error(format!("Failed to acquire lock: {}", e)))?;
-
-        let guard = LockGuard {
-            lock_manager: self.lock_manager.clone(),
-            identifier: identifier.to_string(),
-            owner: owner.to_string(),
-        };
 
         // Re-fetch token after acquiring lock (another thread may have already refreshed)
         let data = self.token_store.get_token(participant_context, identifier).await?;
@@ -110,16 +105,11 @@ impl TokenClientApi {
         expires_at: DateTime<Utc>,
         owner: &str,
     ) -> Result<(), TokenError> {
-        self.lock_manager
+        let guard = self
+            .lock_manager
             .lock(identifier, owner)
             .await
             .map_err(|e| TokenError::general_error(format!("Failed to acquire lock: {}", e)))?;
-
-        let guard = LockGuard {
-            lock_manager: self.lock_manager.clone(),
-            identifier: identifier.to_string(),
-            owner: owner.to_string(),
-        };
 
         let data = TokenData {
             participant_context: participant_context.to_string(),

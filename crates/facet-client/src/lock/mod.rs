@@ -29,15 +29,17 @@ pub use postgres::PostgresLockManager;
 /// one owner may hold a lock for a given identifier at any time.
 #[async_trait]
 pub trait LockManager: Send + Sync {
-    /// Locks a resource on behalf of the owner.
+    /// Locks a resource on behalf of the owner and returns a guard.
+    ///
+    /// The returned guard will automatically unlock the resource when dropped.
     ///
     /// # Arguments
-    /// * `identifier` - Resource identifier    
+    /// * `identifier` - Resource identifier
     /// * `owner` - Owner identifier
     ///
     /// # Errors
     /// Returns LockAlreadyHeld if the lock is held by another owner.
-    async fn lock(&self, identifier: &str, owner: &str) -> Result<(), LockError>;
+    async fn lock(&self, identifier: &str, owner: &str) -> Result<LockGuard, LockError>;
 
     /// Unlocks a resource held by the owner.
     ///
@@ -46,9 +48,19 @@ pub trait LockManager: Send + Sync {
     /// * `owner` - Owner identifier
     ///
     /// # Errors
-    /// Returns WrongOwner if the lock is held by another owner or LockNotFound if the resource is not locked by
+    /// Returns LockAlreadyHeld if the lock is held by another owner or LockNotFound if the resource is not locked by
     /// the owner, i.e. it has been released or expired
     async fn unlock(&self, identifier: &str, owner: &str) -> Result<(), LockError>;
+
+    /// Blocking version of unlock, used internally by LockGuard's Drop implementation.
+    ///
+    /// This method blocks the current thread until the unlock completes.
+    /// Implementations should use appropriate blocking mechanisms for their backend.
+    ///
+    /// # Arguments
+    /// * `identifier` - Resource identifier
+    /// * `owner` - Owner identifier
+    fn unlock_blocking(&self, identifier: &str, owner: &str) -> Result<(), LockError>;
 
     /// Releases all locks held by the owner. Returns normally if no locks are held.
     ///
@@ -67,46 +79,41 @@ pub trait LockManager: Send + Sync {
 ///
 /// ```no_run
 /// # use std::sync::Arc;
-/// # use facet_client::lock::{LockManager, LockGuard};
-/// # async fn example(manager: Arc<dyn LockManager>) -> Result<(), Box<dyn std::error::Error>> {
-/// manager.lock("resource", "owner").await?;
-/// let guard = LockGuard {
-///     lock_manager: manager,
-///     identifier: "resource".into(),
-///     owner: "owner".into(),
-/// };
+/// # use facet_client::lock::{LockManager, MemoryLockManager};
+/// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+/// let manager = Arc::new(MemoryLockManager::new());
+/// let _guard = manager.lock("resource", "owner").await?;
 /// // Lock is automatically released when guard is dropped
 /// # Ok(())
 /// # }
 /// ```
 pub struct LockGuard {
-    pub lock_manager: Arc<dyn LockManager>,
-    pub identifier: String,
-    pub owner: String,
+    lock_manager: Arc<dyn LockManager>,
+    identifier: String,
+    owner: String,
+}
+
+impl LockGuard {
+    pub(crate) fn new(
+        lock_manager: Arc<dyn LockManager>,
+        identifier: impl Into<String>,
+        owner: impl Into<String>,
+    ) -> Self {
+        Self {
+            lock_manager,
+            identifier: identifier.into(),
+            owner: owner.into(),
+        }
+    }
 }
 
 impl Drop for LockGuard {
     fn drop(&mut self) {
-        let lock_manager = self.lock_manager.clone();
-        let identifier = self.identifier.clone();
-        let owner = self.owner.clone();
-
-        // Try to get the current runtime handle
-        match tokio::runtime::Handle::try_current() {
-            Ok(handle) => {
-                // We're in a Tokio runtime, spawn the cleanup task
-                handle.spawn(async move {
-                    if let Err(e) = lock_manager.unlock(&identifier, &owner).await {
-                        warn!(
-                            "Failed to release lock for identifier '{}' owned by '{}': {}",
-                            identifier, owner, e
-                        );
-                    }
-                });
-            }
-            Err(_) => {
-                // No Tokio runtime available - ignore and the lock will time out
-            }
+        if let Err(e) = self.lock_manager.unlock_blocking(&self.identifier, &self.owner) {
+            warn!(
+                "Failed to release lock for identifier '{}' owned by '{}': {}",
+                self.identifier, self.owner, e
+            );
         }
     }
 }
@@ -114,18 +121,15 @@ impl Drop for LockGuard {
 /// Errors that can occur during lock operations.
 #[derive(Debug, Error)]
 pub enum LockError {
-    #[error("Lock for identifier '{identifier}' is already held by '{owner}'")]
-    LockAlreadyHeld { identifier: String, owner: String },
+    #[error("Lock conflict for '{identifier}': owned by '{owner}', but operation requested by '{attempted_owner}'")]
+    LockAlreadyHeld {
+        identifier: String,
+        owner: String,
+        attempted_owner: String,
+    },
 
     #[error("No lock found for identifier '{identifier}' owned by '{owner}'")]
     LockNotFound { identifier: String, owner: String },
-
-    #[error("Lock for identifier '{identifier}' is held by '{existing_owner}', not '{owner}'")]
-    WrongOwner {
-        identifier: String,
-        existing_owner: String,
-        owner: String,
-    },
 
     #[error("Store error: {0}")]
     StoreError(String),
@@ -135,28 +139,21 @@ pub enum LockError {
 }
 
 impl LockError {
-    pub fn lock_already_held(identifier: impl Into<String>, owner: impl Into<String>) -> Self {
+    pub fn lock_already_held(
+        identifier: impl Into<String>,
+        owner: impl Into<String>,
+        attempted_owner: impl Into<String>,
+    ) -> Self {
         LockError::LockAlreadyHeld {
             identifier: identifier.into(),
             owner: owner.into(),
+            attempted_owner: attempted_owner.into(),
         }
     }
 
     pub fn lock_not_found(identifier: impl Into<String>, owner: impl Into<String>) -> Self {
         LockError::LockNotFound {
             identifier: identifier.into(),
-            owner: owner.into(),
-        }
-    }
-
-    pub fn wrong_owner(
-        identifier: impl Into<String>,
-        existing_owner: impl Into<String>,
-        owner: impl Into<String>,
-    ) -> Self {
-        LockError::WrongOwner {
-            identifier: identifier.into(),
-            existing_owner: existing_owner.into(),
             owner: owner.into(),
         }
     }

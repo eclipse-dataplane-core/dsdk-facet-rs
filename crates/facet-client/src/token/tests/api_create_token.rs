@@ -10,7 +10,7 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
-use crate::token::tests::mocks::{MockLockManager, MockTokenClient, MockTokenStore};
+use crate::token::tests::mocks::{MockLockManager, MockTokenClient, MockTokenStore, create_dummy_lock_guard};
 use crate::token::{TokenClientApi, TokenError};
 use chrono::{TimeDelta, Utc};
 use mockall::predicate::eq;
@@ -23,7 +23,7 @@ async fn test_create_token_success() {
         .expect_lock()
         .once()
         .with(eq("test_identifier"), eq("owner1"))
-        .returning(|_, _| Ok(()));
+        .returning(|identifier, owner| Ok(create_dummy_lock_guard(identifier, owner)));
 
     let mut token_store = MockTokenStore::new();
     token_store
@@ -63,7 +63,10 @@ async fn test_create_token_success() {
 #[tokio::test]
 async fn test_create_token_saves_correct_data() {
     let mut lock_manager = MockLockManager::new();
-    lock_manager.expect_lock().once().returning(|_, _| Ok(()));
+    lock_manager
+        .expect_lock()
+        .once()
+        .returning(|identifier, owner| Ok(create_dummy_lock_guard(identifier, owner)));
 
     let mut token_store = MockTokenStore::new();
     let expected_expires_at = Utc::now() + TimeDelta::hours(2);
@@ -110,7 +113,7 @@ async fn test_create_token_acquires_lock() {
         .expect_lock()
         .once()
         .with(eq("critical_token"), eq("service_owner"))
-        .returning(|_, _| Ok(()));
+        .returning(|identifier, owner| Ok(create_dummy_lock_guard(identifier, owner)));
 
     let mut token_store = MockTokenStore::new();
     token_store.expect_save_token().once().returning(|_| Ok(()));
@@ -145,7 +148,13 @@ async fn test_create_token_lock_failure() {
         .expect_lock()
         .once()
         .with(eq("test"), eq("owner1"))
-        .returning(|_, _| Err(crate::lock::LockError::lock_already_held("test", "other_owner")));
+        .returning(|_, _| {
+            Err(crate::lock::LockError::lock_already_held(
+                "test",
+                "other_owner",
+                "owner1",
+            ))
+        });
 
     let mut token_store = MockTokenStore::new();
     token_store.expect_save_token().never();
@@ -182,7 +191,10 @@ async fn test_create_token_lock_failure() {
 #[tokio::test]
 async fn test_create_token_store_failure() {
     let mut lock_manager = MockLockManager::new();
-    lock_manager.expect_lock().once().returning(|_, _| Ok(()));
+    lock_manager
+        .expect_lock()
+        .once()
+        .returning(|identifier, owner| Ok(create_dummy_lock_guard(identifier, owner)));
 
     let mut token_store = MockTokenStore::new();
     token_store
@@ -229,14 +241,14 @@ async fn test_create_token_with_different_owners() {
         .once()
         .in_sequence(&mut seq)
         .with(eq("token1"), eq("owner_a"))
-        .returning(|_, _| Ok(()));
+        .returning(|identifier, owner| Ok(create_dummy_lock_guard(identifier, owner)));
 
     lock_manager
         .expect_lock()
         .once()
         .in_sequence(&mut seq)
         .with(eq("token1"), eq("owner_b"))
-        .returning(|_, _| Ok(()));
+        .returning(|identifier, owner| Ok(create_dummy_lock_guard(identifier, owner)));
 
     let mut token_store = MockTokenStore::new();
     token_store.expect_save_token().times(2).returning(|_| Ok(()));
@@ -282,7 +294,10 @@ async fn test_create_token_with_different_owners() {
 #[tokio::test]
 async fn test_create_token_with_various_expiry_times() {
     let mut lock_manager = MockLockManager::new();
-    lock_manager.expect_lock().times(3).returning(|_, _| Ok(()));
+    lock_manager
+        .expect_lock()
+        .times(3)
+        .returning(|identifier, owner| Ok(create_dummy_lock_guard(identifier, owner)));
 
     let mut token_store = MockTokenStore::new();
     token_store.expect_save_token().times(3).returning(|_| Ok(()));
@@ -342,7 +357,10 @@ async fn test_create_token_with_various_expiry_times() {
 #[tokio::test]
 async fn test_create_token_with_special_characters() {
     let mut lock_manager = MockLockManager::new();
-    lock_manager.expect_lock().once().returning(|_, _| Ok(()));
+    lock_manager
+        .expect_lock()
+        .once()
+        .returning(|identifier, owner| Ok(create_dummy_lock_guard(identifier, owner)));
 
     let mut token_store = MockTokenStore::new();
     token_store
@@ -383,7 +401,10 @@ async fn test_create_token_with_special_characters() {
 #[tokio::test]
 async fn test_create_token_does_not_call_token_client() {
     let mut lock_manager = MockLockManager::new();
-    lock_manager.expect_lock().once().returning(|_, _| Ok(()));
+    lock_manager
+        .expect_lock()
+        .once()
+        .returning(|identifier, owner| Ok(create_dummy_lock_guard(identifier, owner)));
 
     let mut token_store = MockTokenStore::new();
     token_store.expect_save_token().once().returning(|_| Ok(()));
@@ -419,7 +440,7 @@ async fn test_create_multiple_tokens_same_identifier() {
         .expect_lock()
         .times(2)
         .with(eq("same_id"), eq("owner"))
-        .returning(|_, _| Ok(()));
+        .returning(|identifier, owner| Ok(create_dummy_lock_guard(identifier, owner)));
 
     let mut token_store = MockTokenStore::new();
     token_store
@@ -469,7 +490,10 @@ async fn test_create_multiple_tokens_same_identifier() {
 #[tokio::test]
 async fn test_create_token_with_empty_refresh_endpoint() {
     let mut lock_manager = MockLockManager::new();
-    lock_manager.expect_lock().once().returning(|_, _| Ok(()));
+    lock_manager
+        .expect_lock()
+        .once()
+        .returning(|identifier, owner| Ok(create_dummy_lock_guard(identifier, owner)));
 
     let mut token_store = MockTokenStore::new();
     token_store
@@ -510,7 +534,7 @@ async fn test_create_token_with_long_identifier() {
         .expect_lock()
         .once()
         .with(eq(long_identifier), eq("owner"))
-        .returning(|_, _| Ok(()));
+        .returning(|identifier, owner| Ok(create_dummy_lock_guard(identifier, owner)));
 
     let mut token_store = MockTokenStore::new();
     token_store
@@ -545,7 +569,10 @@ async fn test_create_token_with_long_identifier() {
 #[tokio::test]
 async fn test_create_token_preserves_all_parameters() {
     let mut lock_manager = MockLockManager::new();
-    lock_manager.expect_lock().once().returning(|_, _| Ok(()));
+    lock_manager
+        .expect_lock()
+        .once()
+        .returning(|identifier, owner| Ok(create_dummy_lock_guard(identifier, owner)));
 
     let mut token_store = MockTokenStore::new();
     let expected_expires_at = Utc::now() + TimeDelta::hours(3);

@@ -10,13 +10,12 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
-use crate::lock::{LockError, LockManager};
+use crate::lock::{LockError, LockGuard, LockManager};
 use crate::util::{Clock, default_clock};
 use async_trait::async_trait;
 use chrono::{DateTime, TimeDelta, Utc};
 use std::collections::HashMap;
-use std::sync::Arc;
-use tokio::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 struct LockRecord {
     owner: String,
@@ -24,50 +23,60 @@ struct LockRecord {
     reentrant_count: usize,
 }
 
-/// In-memory lock manager for testing and single-instance scenarios.
-///
-/// Stores locks in a thread-safe hashmap with automatic expiration.
-/// Not suitable for distributed coordination across multiple processes.
-///
-/// # Example
-///
-/// ```
-/// # use std::sync::Arc;
-/// # use facet_client::lock::{LockManager, MemoryLockManager};
-/// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-/// let manager = Arc::new(MemoryLockManager::new());
-/// manager.lock("resource", "owner").await?;
-/// // ... do work ...
-/// manager.unlock("resource", "owner").await?;
-/// # Ok(())
-/// # }
-/// ```
-pub struct MemoryLockManager {
+struct MemoryLockManagerInner {
     locks: Mutex<HashMap<String, LockRecord>>,
     timeout: TimeDelta,
     clock: Arc<dyn Clock>,
 }
 
+/// In-memory lock manager for testing and single-instance scenarios.
+///
+/// Stores locks in a thread-safe hashmap with automatic expiration.
+/// Not suitable for distributed coordination across multiple processes.
+///
+/// This type is cheaply cloneable - cloning only increments a reference count.
+///
+/// # Example
+///
+/// ```
+/// # use facet_client::lock::{LockManager, MemoryLockManager};
+/// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+/// let manager = MemoryLockManager::new();
+/// let _guard = manager.lock("resource", "owner").await?;
+/// // ... do work ...
+/// // Lock is automatically released when _guard is dropped
+/// # Ok(())
+/// # }
+/// ```
+#[derive(Clone)]
+pub struct MemoryLockManager {
+    inner: Arc<MemoryLockManagerInner>,
+}
+
 impl MemoryLockManager {
     pub fn new() -> Self {
         Self {
-            locks: Mutex::new(HashMap::new()),
-            timeout: TimeDelta::seconds(30),
-            clock: default_clock(),
+            inner: Arc::new(MemoryLockManagerInner {
+                locks: Mutex::new(HashMap::new()),
+                timeout: TimeDelta::seconds(30),
+                clock: default_clock(),
+            }),
         }
     }
 
     #[cfg(test)]
     pub fn with_timeout_and_clock(timeout: TimeDelta, clock: Arc<dyn Clock>) -> Self {
         Self {
-            locks: Mutex::new(HashMap::new()),
-            timeout,
-            clock,
+            inner: Arc::new(MemoryLockManagerInner {
+                locks: Mutex::new(HashMap::new()),
+                timeout,
+                clock,
+            }),
         }
     }
 
     fn is_expired(&self, lock: &LockRecord, timeout: TimeDelta) -> bool {
-        let now = self.clock.now();
+        let now = self.inner.clock.now();
         let elapsed = now.signed_duration_since(lock.acquired_at);
         elapsed > timeout
     }
@@ -89,39 +98,44 @@ impl Default for MemoryLockManager {
 
 #[async_trait]
 impl LockManager for MemoryLockManager {
-    async fn lock(&self, identifier: &str, owner: &str) -> Result<(), LockError> {
-        let mut locks = self.locks.lock().await;
+    async fn lock(&self, identifier: &str, owner: &str) -> Result<LockGuard, LockError> {
+        let mut locks = self.inner.locks.lock().unwrap();
 
-        self.cleanup_expired_lock(&mut locks, identifier, self.timeout);
+        self.cleanup_expired_lock(&mut locks, identifier, self.inner.timeout);
 
         if let Some(existing_lock) = locks.get_mut(identifier) {
             if existing_lock.owner == owner {
                 // Reentrant lock: increment count and refresh timestamp to keep lock alive
                 existing_lock.reentrant_count += 1;
-                existing_lock.acquired_at = self.clock.now();
-                return Ok(());
+                existing_lock.acquired_at = self.inner.clock.now();
+                return Ok(LockGuard::new(Arc::new(self.clone()), identifier, owner));
             }
 
-            return Err(LockError::lock_already_held(identifier, &existing_lock.owner));
+            return Err(LockError::lock_already_held(identifier, &existing_lock.owner, owner));
         }
 
         locks.insert(
             identifier.to_string(),
             LockRecord {
                 owner: owner.to_string(),
-                acquired_at: self.clock.now(),
+                acquired_at: self.inner.clock.now(),
                 reentrant_count: 1,
             },
         );
-        Ok(())
+
+        Ok(LockGuard::new(Arc::new(self.clone()), identifier, owner))
     }
 
     async fn unlock(&self, identifier: &str, owner: &str) -> Result<(), LockError> {
-        let mut locks = self.locks.lock().await;
+        self.unlock_blocking(identifier, owner)
+    }
+
+    fn unlock_blocking(&self, identifier: &str, owner: &str) -> Result<(), LockError> {
+        let mut locks = self.inner.locks.lock().unwrap();
 
         if let Some(lock) = locks.get_mut(identifier) {
             if lock.owner != owner {
-                return Err(LockError::wrong_owner(identifier, &lock.owner, owner));
+                return Err(LockError::lock_already_held(identifier, &lock.owner, owner));
             }
 
             lock.reentrant_count -= 1;
@@ -137,11 +151,10 @@ impl LockManager for MemoryLockManager {
     }
 
     async fn release_locks(&self, owner: &str) -> Result<(), LockError> {
-        let mut locks = self.locks.lock().await;
+        let mut locks = self.inner.locks.lock().unwrap();
 
         locks.retain(|_, lock| lock.owner != owner);
 
         Ok(())
     }
 }
-

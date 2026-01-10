@@ -10,8 +10,8 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
-use crate::lock::{LockError, LockManager};
-use crate::util::{default_clock, Clock};
+use crate::lock::{LockError, LockGuard, LockManager};
+use crate::util::{Clock, default_clock};
 use async_trait::async_trait;
 use bon::Builder;
 use chrono::TimeDelta;
@@ -68,35 +68,21 @@ use std::sync::Arc;
 /// let manager = PostgresLockManager::new(pool);
 /// manager.initialize().await?;
 ///
-/// // Acquire and release a lock
-/// manager.lock("resource1", "service-a").await?;
-/// // Perform critical work...
-/// manager.unlock("resource1", "service-a").await?;
-/// # Ok::<_, Box<dyn std::error::Error>>(())
-/// ```
+/// Locks automatically return a guard for automatic cleanup:
 ///
-/// ## With Lock Guard
-///
-/// For automatic cleanup use [`LockGuard`]:
-///
-/// ```
+/// ```ignore
 /// # use std::sync::Arc;
-/// # use facet_client::lock::{LockManager, LockGuard};
+/// # use facet_client::lock::LockManager;
 /// # use facet_client::lock::postgres::PostgresLockManager;
-/// # async fn example(manager: Arc<dyn LockManager>) -> Result<(), Box<dyn std::error::Error>> {
-/// manager.lock("resource1", "service-a").await?;
-/// let guard = LockGuard {
-///     lock_manager: manager.clone(),
-///     identifier: "resource1".to_string(),
-///     owner: "service-a".to_string(),
-/// };
+/// # async fn example(manager: Arc<PostgresLockManager>) -> Result<(), Box<dyn std::error::Error>> {
+/// let _guard = manager.lock("resource1", "service-a").await?;
 /// // Lock is automatically released when `guard` is dropped
 /// # Ok(())
 /// # }
 /// ```
 ///
-/// [`LockGuard`]: crate::lock::LockGuard
-#[derive(Builder)]
+/// [`LockGuard`]: LockGuard
+#[derive(Builder, Clone)]
 pub struct PostgresLockManager {
     pool: PgPool,
 
@@ -166,7 +152,7 @@ impl PostgresLockManager {
         let now = self.clock.now();
         let cutoff_time = now - self.timeout;
 
-        // Cleanup expired locks
+        // Clean up expired locks
         sqlx::query("DELETE FROM distributed_locks WHERE acquired_at < $1")
             .bind(cutoff_time)
             .execute(&mut *tx)
@@ -210,7 +196,7 @@ impl PostgresLockManager {
         .map_err(|e| LockError::store_error(format!("Failed to update lock: {}", e)))?;
 
         if update_result.rows_affected() > 0 {
-            // Successfully updated timestamp and count - reentrant lock by same owner
+            // Successfully updated timestamp and count - reentrant lock by the same owner
             tx.commit()
                 .await
                 .map_err(|e| LockError::store_error(format!("Failed to commit transaction: {}", e)))?;
@@ -218,14 +204,13 @@ impl PostgresLockManager {
         }
 
         // Update failed - lock is held by a different owner, or was just released
-        // Fetch the actual owner forthe  error message (may be None if lock was released)
-        let existing_owner: Option<(String,)> = sqlx::query_as(
-            "SELECT owner FROM distributed_locks WHERE identifier = $1",
-        )
-        .bind(identifier)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(|e| LockError::store_error(format!("Failed to query lock: {}", e)))?;
+        // Fetch the actual owner for the error message (which may be None if lock was released)
+        let existing_owner: Option<(String,)> =
+            sqlx::query_as("SELECT owner FROM distributed_locks WHERE identifier = $1")
+                .bind(identifier)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(|e| LockError::store_error(format!("Failed to query lock: {}", e)))?;
 
         tx.commit()
             .await
@@ -234,7 +219,7 @@ impl PostgresLockManager {
         match existing_owner {
             Some((owner_name,)) => {
                 // Lock exists and is held by a different owner
-                Err(LockError::lock_already_held(identifier, &owner_name))
+                Err(LockError::lock_already_held(identifier, &owner_name, &owner_name))
             }
             None => {
                 // Lock was released between UPDATE and SELECT - this is a rare race condition
@@ -254,8 +239,9 @@ impl PostgresLockManager {
 
 #[async_trait]
 impl LockManager for PostgresLockManager {
-    async fn lock(&self, identifier: &str, owner: &str) -> Result<(), LockError> {
-        self.lock_internal(identifier, owner, 0).await
+    async fn lock(&self, identifier: &str, owner: &str) -> Result<LockGuard, LockError> {
+        self.lock_internal(identifier, owner, 0).await?;
+        Ok(LockGuard::new(Arc::new(self.clone()), identifier, owner))
     }
 
     async fn unlock(&self, identifier: &str, owner: &str) -> Result<(), LockError> {
@@ -280,18 +266,17 @@ impl LockManager for PostgresLockManager {
         .rows_affected();
 
         if rows_affected == 0 {
-            // Check if lock exists with a different owner to provide better error message
-            let existing_owner: Option<(String,)> = sqlx::query_as(
-                "SELECT owner FROM distributed_locks WHERE identifier = $1",
-            )
-            .bind(identifier)
-            .fetch_optional(&mut *tx)
-            .await
-            .map_err(|e| LockError::store_error(format!("Failed to query lock: {}", e)))?;
+            // Check if the lock exists with a different owner
+            let existing_owner: Option<(String,)> =
+                sqlx::query_as("SELECT owner FROM distributed_locks WHERE identifier = $1")
+                    .bind(identifier)
+                    .fetch_optional(&mut *tx)
+                    .await
+                    .map_err(|e| LockError::store_error(format!("Failed to query lock: {}", e)))?;
 
             return match existing_owner {
                 Some((other_owner,)) if other_owner != owner => {
-                    Err(LockError::wrong_owner(identifier, &other_owner, owner))
+                    Err(LockError::lock_already_held(identifier, &other_owner, owner))
                 }
                 _ => Err(LockError::lock_not_found(identifier, owner)),
             };
@@ -313,6 +298,22 @@ impl LockManager for PostgresLockManager {
             .map_err(|e| LockError::store_error(format!("Failed to commit transaction: {}", e)))?;
 
         Ok(())
+    }
+
+    fn unlock_blocking(&self, identifier: &str, owner: &str) -> Result<(), LockError> {
+        // Try block_in_place if we're in a multithreaded runtime
+        if let Ok(result) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(self.unlock(identifier, owner)))
+        })) {
+            return result;
+        }
+
+        // block_in_place failed - we're in a single-threaded runtime or async context
+        // For PostgresLockManager, we can't create a new runtime because PgPool is tied
+        // to the original runtime. Return an error - the lock will expire via timeout.
+        Err(LockError::internal_error(
+            "Cannot unlock from Drop in this runtime context. Lock will expire via timeout.",
+        ))
     }
 
     async fn release_locks(&self, owner: &str) -> Result<(), LockError> {

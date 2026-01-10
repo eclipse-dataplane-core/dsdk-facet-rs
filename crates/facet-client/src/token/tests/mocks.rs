@@ -10,18 +10,29 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
-use crate::lock::LockManager;
+use crate::lock::{LockGuard, LockManager};
 use crate::token::{TokenClient, TokenData, TokenError, TokenStore};
 use mockall::mock;
 use mockall::predicate::*;
+use std::sync::Arc;
+
+/// Helper function to create a dummy LockGuard for tests
+pub(crate) fn create_dummy_lock_guard(identifier: &str, owner: &str) -> LockGuard {
+    let mut mock = MockLockManager::new();
+    mock.expect_unlock().returning(|_, _| Ok(()));
+    mock.expect_unlock_blocking().returning(|_, _| Ok(()));
+    mock.expect_release_locks().returning(|_| Ok(()));
+    LockGuard::new(Arc::new(mock), identifier, owner)
+}
 
 mock! {
    pub LockManager {}
 
     #[async_trait::async_trait]
     impl LockManager for LockManager {
-        async fn lock(&self, identifier: &str, owner: &str) -> Result<(), crate::lock::LockError>;
+        async fn lock(&self, identifier: &str, owner: &str) -> Result<LockGuard, crate::lock::LockError>;
         async fn unlock(&self, identifier: &str, owner: &str) -> Result<(), crate::lock::LockError>;
+        fn unlock_blocking(&self, identifier: &str, owner: &str) -> Result<(), crate::lock::LockError>;
         async fn release_locks(&self, owner: &str) -> Result<(), crate::lock::LockError>;
     }
 }

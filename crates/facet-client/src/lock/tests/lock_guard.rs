@@ -10,44 +10,30 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
-use crate::lock::{LockError, LockGuard, LockManager};
-use async_trait::async_trait;
-use mockall::mock;
-use mockall::predicate::eq;
+use crate::lock::{LockManager, MemoryLockManager};
 use std::sync::Arc;
-
-mock! {
-        LockManagerImpl {}
-
-        #[async_trait]
-        impl LockManager for LockManagerImpl {
-            async fn lock(&self, identifier: &str, owner: &str) -> Result<(), LockError>;
-            async fn unlock(&self, identifier: &str, owner: &str) -> Result<(), LockError>;
-            async fn release_locks(&self, owner: &str) -> Result<(), LockError>;
-        }
-    }
 
 #[tokio::test]
 async fn test_lock_guard_drop_calls_unlock() {
-    let mut mock = MockLockManagerImpl::new();
+    let manager = Arc::new(MemoryLockManager::new());
 
-    // When the guard is dropped, unlock should be called
-    mock.expect_unlock()
-        .with(eq("resource1"), eq("owner1"))
-        .times(1)
-        .returning(|_, _| Ok(()));
+    // Acquire a lock
+    let guard = manager.lock("resource1", "owner1").await.expect("Lock failed");
 
-    let manager: Arc<dyn LockManager> = Arc::new(mock);
+    // Verify the lock exists by trying to acquire it with a different owner
+    let result = manager.lock("resource1", "owner2").await;
+    assert!(
+        result.is_err(),
+        "Lock should be held by owner1, preventing owner2 from acquiring it"
+    );
 
-    let handle = tokio::spawn(async move {
-        let _guard = LockGuard {
-            lock_manager: manager,
-            identifier: "resource1".to_string(),
-            owner: "owner1".to_string(),
-        };
-        // Guard is dropped here when the block ends
-    });
+    // Drop the guard
+    drop(guard);
 
-    // Wait for the spawned task to complete
-    handle.await.expect("Task failed");
+    // Now owner2 should be able to acquire the lock
+    let result = manager.lock("resource1", "owner2").await;
+    assert!(
+        result.is_ok(),
+        "Lock should have been released after guard was dropped"
+    );
 }
