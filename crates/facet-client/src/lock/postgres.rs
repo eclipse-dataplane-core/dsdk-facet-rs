@@ -166,12 +166,14 @@ impl PostgresLockManager {
             let now = self.clock.now();
             let cutoff_time = now - self.timeout;
 
-            // Clean up expired locks
-            sqlx::query("DELETE FROM distributed_locks WHERE acquired_at < $1")
-                .bind(cutoff_time)
-                .execute(&mut *tx)
-                .await
-                .map_err(|e| LockError::store_error(format!("Failed to cleanup expired locks: {}", e)))?;
+            // Clean up expired locks only on the first attempt
+            if attempt == 0 {
+                sqlx::query("DELETE FROM distributed_locks WHERE acquired_at < $1")
+                    .bind(cutoff_time)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|e| LockError::store_error(format!("Failed to cleanup expired locks: {}", e)))?;
+            }
 
             // Try to insert or update the lock
             // - If no conflict: INSERT succeeds, returns the new row with reentrant_count=1
