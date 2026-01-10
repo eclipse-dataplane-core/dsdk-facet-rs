@@ -105,28 +105,7 @@ impl Drop for LockGuard {
                 });
             }
             Err(_) => {
-                // No Tokio runtime available - spawn a thread to do the cleanup
-                std::thread::spawn(move || {
-                    // Create a minimal runtime just for this to unlock
-                    match tokio::runtime::Runtime::new() {
-                        Ok(rt) => {
-                            rt.block_on(async {
-                                if let Err(e) = lock_manager.unlock(&identifier, &owner).await {
-                                    warn!(
-                                        "Failed to release lock for identifier '{}' owned by '{}': {}",
-                                        identifier, owner, e
-                                    );
-                                }
-                            });
-                        }
-                        Err(e) => {
-                            warn!(
-                                "Failed to create runtime for lock cleanup: identifier '{}' owned by '{}': {}",
-                                identifier, owner, e
-                            );
-                        }
-                    }
-                });
+                // No Tokio runtime available - ignore and the lock will time out
             }
         }
     }
