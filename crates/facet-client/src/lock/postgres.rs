@@ -15,6 +15,7 @@ use crate::util::{Clock, default_clock};
 use async_trait::async_trait;
 use bon::Builder;
 use chrono::TimeDelta;
+use rand::Rng;
 use sqlx::PgPool;
 use std::sync::Arc;
 
@@ -42,7 +43,7 @@ const MAX_RETRIES: u32 = 5;
 /// - `reentrant_count`: Number of times the lock has been acquired by the same owner
 ///
 /// When acquiring a lock:
-/// 1. Expired locks (older than the configured timeout) are automatically cleaned up
+/// 1. Expired locks may be cleaned up probabilistically (see `cleanup_probability`)
 /// 2. A single `INSERT ... ON CONFLICT DO UPDATE` query is executed:
 ///    - If no conflict: Lock is acquired with `reentrant_count = 1`
 ///    - If conflict AND same owner: Reentrant lock (increments `reentrant_count`, refreshes timestamp)
@@ -100,6 +101,16 @@ pub struct PostgresLockManager {
 
     #[builder(default = MAX_RETRIES)]
     retries: u32,
+
+    /// Probability (0.0-1.0) of cleaning up expired locks on lock acquisition.
+    ///
+    /// A value of 1.0 means cleanup happens on every lock attempt (default).
+    /// A value of 0.1 means cleanup happens ~10% of the time.
+    /// This reduces overhead in high-traffic systems while ensuring eventual cleanup.
+    ///
+    /// Defaults to 1.0 (always cleanup).
+    #[builder(default = 1.0)]
+    cleanup_probability: f64,
 }
 
 impl PostgresLockManager {
@@ -166,8 +177,9 @@ impl PostgresLockManager {
             let now = self.clock.now();
             let cutoff_time = now - self.timeout;
 
-            // Clean up expired locks only on the first attempt
-            if attempt == 0 {
+            // Clean up expired locks only on the first attempt, probabilistically
+            // This reduces cleanup overhead in high-traffic systems while ensuring eventual cleanup
+            if attempt == 0 && rand::rng().random::<f64>() < self.cleanup_probability {
                 sqlx::query("DELETE FROM distributed_locks WHERE acquired_at < $1")
                     .bind(cutoff_time)
                     .execute(&mut *tx)
