@@ -62,6 +62,9 @@ pub enum JwtGenerationError {
 }
 
 /// Verifies a JWT and validates claims for the participant context.
+///
+/// Note that verification does not check the value of the `iss` and `sub` claims. Clients should enforce requirements
+/// for these claims as needed.
 pub trait JwtVerifier: Send + Sync {
     fn verify_token(
         &self,
