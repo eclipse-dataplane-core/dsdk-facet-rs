@@ -21,6 +21,69 @@ use chrono::Utc;
 use rstest::rstest;
 use std::sync::Arc;
 
+/// Helper function to create a JWT generator for testing
+fn create_test_generator(
+    private_key: Vec<u8>,
+    iss: &str,
+    kid: &str,
+    key_format: KeyFormat,
+    signing_algorithm: SigningAlgorithm,
+) -> LocalJwtGenerator {
+    let signing_resolver = Arc::new(
+        StaticSigningKeyResolver::builder()
+            .key(private_key)
+            .iss(iss)
+            .kid(kid)
+            .key_format(key_format)
+            .build(),
+    );
+
+    LocalJwtGenerator::builder()
+        .signing_key_resolver(signing_resolver)
+        .signing_algorithm(signing_algorithm)
+        .build()
+}
+
+/// Helper function to create a JWT verifier for testing
+fn create_test_verifier(
+    public_key: Vec<u8>,
+    key_format: KeyFormat,
+    signing_algorithm: SigningAlgorithm,
+) -> LocalJwtVerifier {
+    let verification_resolver = Arc::new(
+        StaticVerificationKeyResolver::builder()
+            .key(public_key)
+            .key_format(key_format)
+            .build(),
+    );
+
+    LocalJwtVerifier::builder()
+        .verification_key_resolver(verification_resolver)
+        .signing_algorithm(signing_algorithm)
+        .build()
+}
+
+/// Helper function to create a JWT verifier with leeway for testing
+fn create_test_verifier_with_leeway(
+    public_key: Vec<u8>,
+    key_format: KeyFormat,
+    signing_algorithm: SigningAlgorithm,
+    leeway_seconds: u64,
+) -> LocalJwtVerifier {
+    let verification_resolver = Arc::new(
+        StaticVerificationKeyResolver::builder()
+            .key(public_key)
+            .key_format(key_format)
+            .build(),
+    );
+
+    LocalJwtVerifier::builder()
+        .verification_key_resolver(verification_resolver)
+        .signing_algorithm(signing_algorithm)
+        .leeway_seconds(leeway_seconds)
+        .build()
+}
+
 #[rstest]
 #[case(KeyFormat::PEM)]
 #[case(KeyFormat::DER)]
@@ -30,21 +93,13 @@ fn test_token_generation_validation(#[case] key_format: KeyFormat) {
         KeyFormat::DER => generate_ed25519_keypair_der().expect("Failed to generate DER keypair"),
     };
 
-    let private_key = keypair.private_key.clone();
-    let public_key = keypair.public_key.clone();
-
-    let signing_resolver = Arc::new(
-        StaticSigningKeyResolver::builder()
-            .key(private_key.clone())
-            .iss("user-id-123")
-            .kid("did:web:example.com#key-1")
-            .key_format(key_format.clone())
-            .build(),
+    let generator = create_test_generator(
+        keypair.private_key.clone(),
+        "user-id-123",
+        "did:web:example.com#key-1",
+        key_format.clone(),
+        SigningAlgorithm::EdDSA,
     );
-
-    let generator = LocalJwtGenerator::builder()
-        .signing_key_resolver(signing_resolver)
-        .build();
 
     let now = Utc::now().timestamp();
 
@@ -73,17 +128,11 @@ fn test_token_generation_validation(#[case] key_format: KeyFormat) {
         .generate_token(pc, claims)
         .expect("Token generation should succeed");
 
-    let verification_resolver = Arc::new(
-        StaticVerificationKeyResolver::builder()
-            .key(public_key.clone())
-            .key_format(key_format.clone())
-            .build(),
+    let verifier = create_test_verifier(
+        keypair.public_key.clone(),
+        key_format,
+        SigningAlgorithm::EdDSA,
     );
-
-    let verifier = LocalJwtVerifier::builder()
-        .verification_key_resolver(verification_resolver)
-        .signing_algorithm(SigningAlgorithm::EdDSA)
-        .build();
 
     let verified_claims = verifier
         .verify_token(pc, token.as_str())
@@ -102,22 +151,14 @@ fn test_token_generation_validation(#[case] key_format: KeyFormat) {
 #[test]
 fn test_expired_token_validation_pem_eddsa() {
     let keypair = generate_ed25519_keypair_pem().expect("Failed to generate PEM keypair");
-    let private_key = keypair.private_key.clone();
-    let public_key = keypair.public_key.clone();
 
-    let signing_resolver = Arc::new(
-        StaticSigningKeyResolver::builder()
-            .key(private_key.clone())
-            .iss("user-id-123")
-            .kid("did:web:example.com#key-1")
-            .key_format(KeyFormat::PEM)
-            .build(),
+    let generator = create_test_generator(
+        keypair.private_key.clone(),
+        "user-id-123",
+        "did:web:example.com#key-1",
+        KeyFormat::PEM,
+        SigningAlgorithm::EdDSA,
     );
-
-    let generator = LocalJwtGenerator::builder()
-        .signing_key_resolver(signing_resolver)
-        .signing_algorithm(SigningAlgorithm::EdDSA)
-        .build();
 
     let now = Utc::now().timestamp();
 
@@ -138,21 +179,11 @@ fn test_expired_token_validation_pem_eddsa() {
         .generate_token(pc, claims)
         .expect("Token generation should succeed");
 
-    let verification_resolver = Arc::new(
-        StaticVerificationKeyResolver::builder()
-            .key(public_key.clone())
-            .build(),
+    let verifier = create_test_verifier(
+        keypair.public_key.clone(),
+        KeyFormat::PEM,
+        SigningAlgorithm::EdDSA,
     );
-
-    let verifier = LocalJwtVerifier::builder()
-        .verification_key_resolver(verification_resolver)
-        .signing_algorithm(SigningAlgorithm::EdDSA)
-        .build();
-
-    let pc = &ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("audience1")
-        .build();
 
     let result = verifier.verify_token(pc, token.as_str());
 
@@ -163,22 +194,14 @@ fn test_expired_token_validation_pem_eddsa() {
 #[test]
 fn test_leeway_allows_recently_expired_token_pem() {
     let keypair = generate_ed25519_keypair_pem().expect("Failed to generate PEM keypair");
-    let private_key = keypair.private_key.clone();
-    let public_key = keypair.public_key.clone();
 
-    let signing_resolver = Arc::new(
-        StaticSigningKeyResolver::builder()
-            .key(private_key.clone())
-            .iss("issuer-leeway")
-            .kid("did:web:example.com#key-1")
-            .key_format(KeyFormat::PEM)
-            .build(),
+    let generator = create_test_generator(
+        keypair.private_key.clone(),
+        "issuer-leeway",
+        "did:web:example.com#key-1",
+        KeyFormat::PEM,
+        SigningAlgorithm::EdDSA,
     );
-
-    let generator = LocalJwtGenerator::builder()
-        .signing_key_resolver(signing_resolver)
-        .signing_algorithm(SigningAlgorithm::EdDSA)
-        .build();
 
     let now = Utc::now().timestamp();
 
@@ -190,7 +213,7 @@ fn test_leeway_allows_recently_expired_token_pem() {
         .build();
 
     let pc = &ParticipantContext::builder()
-        .identifier("participant-1")
+        .identifier("participant1")
         .audience("audience1")
         .build();
 
@@ -198,23 +221,13 @@ fn test_leeway_allows_recently_expired_token_pem() {
         .generate_token(pc, claims)
         .expect("Token generation should succeed");
 
-    let verification_resolver = Arc::new(
-        StaticVerificationKeyResolver::builder()
-            .key(public_key.clone())
-            .build(),
-    );
-
     // Verifier with 30-second leeway (default) should accept token expired 20 seconds ago
-    let verifier = LocalJwtVerifier::builder()
-        .verification_key_resolver(verification_resolver)
-        .signing_algorithm(SigningAlgorithm::EdDSA)
-        .leeway_seconds(30)
-        .build();
-
-    let pc = &ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("audience1")
-        .build();
+    let verifier = create_test_verifier_with_leeway(
+        keypair.public_key.clone(),
+        KeyFormat::PEM,
+        SigningAlgorithm::EdDSA,
+        30,
+    );
 
     let verified_claims = verifier
         .verify_token(pc, token.as_str())
@@ -227,22 +240,14 @@ fn test_leeway_allows_recently_expired_token_pem() {
 #[test]
 fn test_leeway_rejects_token_expired_beyond_leeway_pem() {
     let keypair = generate_ed25519_keypair_pem().expect("Failed to generate PEM keypair");
-    let private_key = keypair.private_key.clone();
-    let public_key = keypair.public_key.clone();
 
-    let signing_resolver = Arc::new(
-        StaticSigningKeyResolver::builder()
-            .key(private_key.clone())
-            .iss("user-id-123")
-            .kid("did:web:example.com#key-1")
-            .key_format(KeyFormat::PEM)
-            .build(),
+    let generator = create_test_generator(
+        keypair.private_key.clone(),
+        "user-id-123",
+        "did:web:example.com#key-1",
+        KeyFormat::PEM,
+        SigningAlgorithm::EdDSA,
     );
-
-    let generator = LocalJwtGenerator::builder()
-        .signing_key_resolver(signing_resolver)
-        .signing_algorithm(SigningAlgorithm::EdDSA)
-        .build();
 
     let now = Utc::now().timestamp();
 
@@ -263,23 +268,13 @@ fn test_leeway_rejects_token_expired_beyond_leeway_pem() {
         .generate_token(pc, claims)
         .expect("Token generation should succeed");
 
-    let verification_resolver = Arc::new(
-        StaticVerificationKeyResolver::builder()
-            .key(public_key.clone())
-            .build(),
-    );
-
     // Verifier with 30-second leeway should reject token expired 100 seconds ago
-    let verifier = LocalJwtVerifier::builder()
-        .verification_key_resolver(verification_resolver)
-        .signing_algorithm(SigningAlgorithm::EdDSA)
-        .leeway_seconds(30)
-        .build();
-
-    let pc = &ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("audience1")
-        .build();
+    let verifier = create_test_verifier_with_leeway(
+        keypair.public_key.clone(),
+        KeyFormat::PEM,
+        SigningAlgorithm::EdDSA,
+        30,
+    );
 
     let result = verifier.verify_token(pc, token.as_str());
 
@@ -292,22 +287,13 @@ fn test_invalid_signature_pem_eddsa() {
     let keypair1 = generate_ed25519_keypair_pem().expect("Failed to generate keypair 1");
     let keypair2 = generate_ed25519_keypair_pem().expect("Failed to generate keypair 2");
 
-    let private_key1 = keypair1.private_key.clone();
-    let public_key2 = keypair2.public_key.clone();
-
-    let signing_resolver = Arc::new(
-        StaticSigningKeyResolver::builder()
-            .key(private_key1.clone())
-            .iss("user-id-123")
-            .kid("did:web:example.com#key-1")
-            .key_format(KeyFormat::PEM)
-            .build(),
+    let generator = create_test_generator(
+        keypair1.private_key.clone(),
+        "user-id-123",
+        "did:web:example.com#key-1",
+        KeyFormat::PEM,
+        SigningAlgorithm::EdDSA,
     );
-
-    let generator = LocalJwtGenerator::builder()
-        .signing_key_resolver(signing_resolver)
-        .signing_algorithm(SigningAlgorithm::EdDSA)
-        .build();
 
     let now = Utc::now().timestamp();
 
@@ -328,22 +314,12 @@ fn test_invalid_signature_pem_eddsa() {
         .generate_token(pc, claims)
         .expect("Token generation should succeed");
 
-    let verification_resolver = Arc::new(
-        StaticVerificationKeyResolver::builder()
-            .key(public_key2.clone())
-            .build(),
-    );
-
     // Try to verify with a different public key
-    let verifier = LocalJwtVerifier::builder()
-        .verification_key_resolver(verification_resolver)
-        .signing_algorithm(SigningAlgorithm::EdDSA)
-        .build();
-
-    let pc = &ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("audience1")
-        .build();
+    let verifier = create_test_verifier(
+        keypair2.public_key.clone(),
+        KeyFormat::PEM,
+        SigningAlgorithm::EdDSA,
+    );
 
     let result = verifier.verify_token(pc, token.as_str());
 
@@ -354,18 +330,12 @@ fn test_invalid_signature_pem_eddsa() {
 #[test]
 fn test_malformed_token_pem_eddsa() {
     let keypair = generate_ed25519_keypair_pem().expect("Failed to generate PEM keypair");
-    let public_key = keypair.public_key.clone();
 
-    let verification_resolver = Arc::new(
-        StaticVerificationKeyResolver::builder()
-            .key(public_key.clone())
-            .build(),
+    let verifier = create_test_verifier(
+        keypair.public_key.clone(),
+        KeyFormat::PEM,
+        SigningAlgorithm::EdDSA,
     );
-
-    let verifier = LocalJwtVerifier::builder()
-        .verification_key_resolver(verification_resolver)
-        .signing_algorithm(SigningAlgorithm::EdDSA)
-        .build();
 
     let malformed_tokens = vec![
         "not.a.token",
@@ -398,21 +368,14 @@ fn test_mismatched_key_format_pem_eddsa() {
         .build();
 
     let keypair_pem = generate_ed25519_keypair_pem().expect("Failed to generate PEM keypair");
-    let private_key_pem = keypair_pem.private_key.clone();
 
-    let signing_resolver = Arc::new(
-        StaticSigningKeyResolver::builder()
-            .key(private_key_pem.clone())
-            .iss("user-id-123")
-            .kid("did:web:example.com#key-1")
-        .key_format(KeyFormat::PEM)
-            .build(),
+    let generator = create_test_generator(
+        keypair_pem.private_key.clone(),
+        "user-id-123",
+        "did:web:example.com#key-1",
+        KeyFormat::PEM,
+        SigningAlgorithm::EdDSA,
     );
-
-    let generator = LocalJwtGenerator::builder()
-        .signing_key_resolver(signing_resolver)
-        .signing_algorithm(SigningAlgorithm::EdDSA)
-        .build();
 
     let now = Utc::now().timestamp();
     let claims = TokenClaims::builder()
@@ -428,24 +391,12 @@ fn test_mismatched_key_format_pem_eddsa() {
         .expect("Token generation should succeed");
 
     let keypair_der = generate_ed25519_keypair_der().expect("Failed to generate DER keypair");
-    let public_key_der = keypair_der.public_key.clone();
 
-    let verification_resolver = Arc::new(
-        StaticVerificationKeyResolver::builder()
-            .key_format(KeyFormat::DER)
-            .key(public_key_der.clone())
-            .build(),
+    let verifier = create_test_verifier(
+        keypair_der.public_key.clone(),
+        KeyFormat::DER,
+        SigningAlgorithm::EdDSA,
     );
-
-    let verifier = LocalJwtVerifier::builder()
-        .verification_key_resolver(verification_resolver)
-        .signing_algorithm(SigningAlgorithm::EdDSA)
-        .build();
-
-    let pc = &ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("audience1")
-        .build();
 
     let result = verifier.verify_token(pc, token.as_str());
 
@@ -456,21 +407,14 @@ fn test_mismatched_key_format_pem_eddsa() {
 #[test]
 fn test_rsa_token_generation_validation_pem() {
     let keypair = generate_rsa_keypair_pem().expect("Failed to generate RSA PEM keypair");
-    let private_key = keypair.private_key.clone();
-    let public_key = keypair.public_key.clone();
 
-    let signing_resolver = Arc::new(
-        StaticSigningKeyResolver::builder()
-            .key(private_key.clone())
-            .iss("issuer-rsa")
-            .kid("did:web:example.com#key-1")
-            .build(),
+    let generator = create_test_generator(
+        keypair.private_key.clone(),
+        "issuer-rsa",
+        "did:web:example.com#key-1",
+        KeyFormat::PEM,
+        SigningAlgorithm::RS256,
     );
-
-    let generator = LocalJwtGenerator::builder()
-        .signing_key_resolver(signing_resolver)
-        .signing_algorithm(SigningAlgorithm::RS256)
-        .build();
 
     let now = Utc::now().timestamp();
 
@@ -495,16 +439,11 @@ fn test_rsa_token_generation_validation_pem() {
         .generate_token(pc, claims)
         .expect("Token generation should succeed");
 
-    let verification_resolver = Arc::new(
-        StaticVerificationKeyResolver::builder()
-            .key(public_key.clone())
-            .build(),
+    let verifier = create_test_verifier(
+        keypair.public_key.clone(),
+        KeyFormat::PEM,
+        SigningAlgorithm::RS256,
     );
-
-    let verifier = LocalJwtVerifier::builder()
-        .verification_key_resolver(verification_resolver)
-        .signing_algorithm(SigningAlgorithm::RS256)
-        .build();
 
     let verified_claims = verifier
         .verify_token(pc, token.as_str())
