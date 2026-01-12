@@ -464,3 +464,98 @@ fn test_rsa_token_generation_validation_pem() {
         &serde_json::Value::String("read:data".to_string())
     );
 }
+
+#[test]
+fn test_audience_mismatch_pem_eddsa() {
+    let keypair = generate_ed25519_keypair_pem().expect("Failed to generate PEM keypair");
+
+    let generator = create_test_generator(
+        keypair.private_key,
+        "user-id-123",
+        "did:web:example.com#key-1",
+        KeyFormat::PEM,
+        SigningAlgorithm::EdDSA,
+    );
+
+    let now = Utc::now().timestamp();
+
+    let claims = TokenClaims::builder()
+        .sub("user-id-123")
+        .iss("user-id-123")
+        .aud("audience-123")
+        .iat(now)
+        .exp(now + 10000)
+        .build();
+
+    let pc_generate = &ParticipantContext::builder()
+        .identifier("participant-1")
+        .audience("audience-123")
+        .build();
+
+    let token = generator
+        .generate_token(pc_generate, claims)
+        .expect("Token generation should succeed");
+
+    let verifier = create_test_verifier(
+        keypair.public_key,
+        KeyFormat::PEM,
+        SigningAlgorithm::EdDSA,
+    );
+
+    // Try to verify with a different audience
+    let pc_verify = &ParticipantContext::builder()
+        .identifier("participant-1")
+        .audience("different-audience")
+        .build();
+
+    let result = verifier.verify_token(pc_verify, token.as_str());
+
+    assert!(result.is_err());
+    assert!(matches!(result.unwrap_err(), JwtVerificationError::VerificationFailed(_)));
+}
+
+#[test]
+fn test_algorithm_mismatch_pem() {
+    let keypair_eddsa = generate_ed25519_keypair_pem().expect("Failed to generate EdDSA keypair");
+    let keypair_rsa = generate_rsa_keypair_pem().expect("Failed to generate RSA keypair");
+
+    // Generate token with EdDSA
+    let generator = create_test_generator(
+        keypair_eddsa.private_key,
+        "user-id-123",
+        "did:web:example.com#key-1",
+        KeyFormat::PEM,
+        SigningAlgorithm::EdDSA,
+    );
+
+    let now = Utc::now().timestamp();
+
+    let claims = TokenClaims::builder()
+        .sub("user-id-123")
+        .iss("user-id-123")
+        .aud("audience-123")
+        .iat(now)
+        .exp(now + 10000)
+        .build();
+
+    let pc = &ParticipantContext::builder()
+        .identifier("participant-1")
+        .audience("audience-123")
+        .build();
+
+    let token = generator
+        .generate_token(pc, claims)
+        .expect("Token generation should succeed");
+
+    // Try to verify EdDSA token with RS256 verifier
+    let verifier = create_test_verifier(
+        keypair_rsa.public_key,
+        KeyFormat::PEM,
+        SigningAlgorithm::RS256,
+    );
+
+    let result = verifier.verify_token(pc, token.as_str());
+
+    // Should fail due to algorithm mismatch
+    assert!(result.is_err());
+}
