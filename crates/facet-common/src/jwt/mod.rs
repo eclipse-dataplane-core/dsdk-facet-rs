@@ -38,6 +38,8 @@ pub struct TokenClaims {
     pub aud: String,
     pub iat: i64,
     pub exp: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nbf: Option<i64>,
     #[builder(default)]
     #[serde(flatten)]
     pub custom: Map<String, Value>,
@@ -76,6 +78,9 @@ pub enum JwtVerificationError {
 
     #[error("Token has expired")]
     TokenExpired,
+
+    #[error("Token is not yet valid")]
+    TokenNotYetValid,
 
     #[error("Invalid token format")]
     InvalidFormat,
@@ -220,11 +225,13 @@ impl JwtVerifier for LocalJwtVerifier {
         let decoding_key = self.load_decoding_key(iss, &kid)?;
         let mut validation = Validation::new(self.signing_algorithm.into());
         validation.leeway = self.leeway_seconds;
+        validation.validate_nbf = true; // Enable not-before validation
         validation.aud = Some(HashSet::from([participant_context.audience.clone()]));
 
         // Perform the actual cryptographic verification with the correct key
         let token_data = decode::<TokenClaims>(token, &decoding_key, &validation).map_err(|e| match e.kind() {
             ErrorKind::ExpiredSignature => JwtVerificationError::TokenExpired,
+            ErrorKind::ImmatureSignature => JwtVerificationError::TokenNotYetValid,
             ErrorKind::InvalidSignature => JwtVerificationError::InvalidSignature,
             ErrorKind::InvalidToken => JwtVerificationError::InvalidFormat,
             ErrorKind::InvalidKeyFormat => JwtVerificationError::VerificationFailed("Invalid key format".to_string()),

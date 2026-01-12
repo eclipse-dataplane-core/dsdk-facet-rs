@@ -559,3 +559,141 @@ fn test_algorithm_mismatch_pem() {
     // Should fail due to algorithm mismatch
     assert!(result.is_err());
 }
+
+#[test]
+fn test_not_before_validation_pem_eddsa() {
+    let keypair = generate_ed25519_keypair_pem().expect("Failed to generate PEM keypair");
+
+    let generator = create_test_generator(
+        keypair.private_key,
+        "user-id-123",
+        "did:web:example.com#key-1",
+        KeyFormat::PEM,
+        SigningAlgorithm::EdDSA,
+    );
+
+    let now = Utc::now().timestamp();
+
+    let claims = TokenClaims::builder()
+        .sub("user-id-123")
+        .iss("user-id-123")
+        .aud("audience-123")
+        .iat(now)
+        .nbf(now + 10000) // Not valid for another 10,000 seconds
+        .exp(now + 20000)
+        .build();
+
+    let pc = &ParticipantContext::builder()
+        .identifier("participant-1")
+        .audience("audience-123")
+        .build();
+
+    let token = generator
+        .generate_token(pc, claims)
+        .expect("Token generation should succeed");
+
+    let verifier = create_test_verifier(
+        keypair.public_key,
+        KeyFormat::PEM,
+        SigningAlgorithm::EdDSA,
+    );
+
+    let result = verifier.verify_token(pc, token.as_str());
+
+    assert!(result.is_err());
+    assert!(matches!(result.unwrap_err(), JwtVerificationError::TokenNotYetValid));
+}
+
+#[test]
+fn test_not_before_with_leeway_pem_eddsa() {
+    let keypair = generate_ed25519_keypair_pem().expect("Failed to generate PEM keypair");
+
+    let generator = create_test_generator(
+        keypair.private_key,
+        "user-id-123",
+        "did:web:example.com#key-1",
+        KeyFormat::PEM,
+        SigningAlgorithm::EdDSA,
+    );
+
+    let now = Utc::now().timestamp();
+
+    let claims = TokenClaims::builder()
+        .sub("user-id-456")
+        .iss("user-id-123")
+        .aud("audience-123")
+        .iat(now)
+        .nbf(now + 20) // Not valid for another 20 seconds
+        .exp(now + 10000)
+        .build();
+
+    let pc = &ParticipantContext::builder()
+        .identifier("participant-1")
+        .audience("audience-123")
+        .build();
+
+    let token = generator
+        .generate_token(pc, claims)
+        .expect("Token generation should succeed");
+
+    // Verifier with 30-second leeway should accept token with nbf 20 seconds in the future
+    let verifier = create_test_verifier_with_leeway(
+        keypair.public_key,
+        KeyFormat::PEM,
+        SigningAlgorithm::EdDSA,
+        30,
+    );
+
+    let verified_claims = verifier
+        .verify_token(pc, token.as_str())
+        .expect("Token should be valid with leeway");
+
+    assert_eq!(verified_claims.sub, "user-id-456");
+    assert_eq!(verified_claims.nbf, Some(now + 20));
+}
+
+#[test]
+fn test_not_before_beyond_leeway_pem_eddsa() {
+    let keypair = generate_ed25519_keypair_pem().expect("Failed to generate PEM keypair");
+
+    let generator = create_test_generator(
+        keypair.private_key,
+        "user-id-123",
+        "did:web:example.com#key-1",
+        KeyFormat::PEM,
+        SigningAlgorithm::EdDSA,
+    );
+
+    let now = Utc::now().timestamp();
+
+    let claims = TokenClaims::builder()
+        .sub("user-id-789")
+        .iss("user-id-123")
+        .aud("audience-123")
+        .iat(now)
+        .nbf(now + 100) // Not valid for another 100 seconds
+        .exp(now + 10000)
+        .build();
+
+    let pc = &ParticipantContext::builder()
+        .identifier("participant-1")
+        .audience("audience-123")
+        .build();
+
+    let token = generator
+        .generate_token(pc, claims)
+        .expect("Token generation should succeed");
+
+    // Verifier with 30-second leeway should reject token with nbf 100 seconds in the future
+    let verifier = create_test_verifier_with_leeway(
+        keypair.public_key,
+        KeyFormat::PEM,
+        SigningAlgorithm::EdDSA,
+        30,
+    );
+
+    let result = verifier.verify_token(pc, token.as_str());
+
+    assert!(result.is_err());
+    assert!(matches!(result.unwrap_err(), JwtVerificationError::TokenNotYetValid));
+}
