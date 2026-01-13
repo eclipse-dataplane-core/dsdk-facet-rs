@@ -62,9 +62,10 @@ use facet_common::context::ParticipantContext;
 #[derive(Builder)]
 pub struct PostgresTokenStore {
     pool: PgPool,
+    encryption_key: secretbox::Key,
+    
     #[builder(default = default_clock())]
     clock: Arc<dyn Clock>,
-    encryption_key: secretbox::Key,
 }
 
 impl PostgresTokenStore {

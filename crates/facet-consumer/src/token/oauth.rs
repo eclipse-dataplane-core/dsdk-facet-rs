@@ -30,6 +30,7 @@ pub struct OAuth2TokenClient {
     clock: Arc<dyn Clock>,
     #[builder(default = Client::new())]
     http_client: Client,
+    #[builder(into)]
     identifier: String,
     jwt_generator: Arc<LocalJwtGenerator>,
     #[builder(default = DEFAULT_EXPIRATION_SECONDS)]
