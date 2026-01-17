@@ -124,6 +124,23 @@ impl TokenClientApi {
         drop(guard);
         Ok(())
     }
+
+    pub async fn delete_token(
+        &self,
+        participant_context: &str,
+        identifier: &str,
+        owner: &str,
+    ) -> Result<(), TokenError> {
+        let guard = self
+            .lock_manager
+            .lock(identifier, owner)
+            .await
+            .map_err(|e| TokenError::general_error(format!("Failed to acquire lock: {}", e)))?;
+
+        let _ = self.token_store.remove_token(participant_context, identifier).await?;
+        drop(guard);
+        Ok(())
+    }
 }
 
 /// Refreshes expired tokens with a remote authorization server.
