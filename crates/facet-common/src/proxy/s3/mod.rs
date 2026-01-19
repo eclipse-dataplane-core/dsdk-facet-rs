@@ -80,6 +80,19 @@ pub use opparser::DefaultS3OperationParser;
 const SECURITY_TOKEN_HEADER: &str = "x-amz-security-token";
 const HOST: &str = "host";
 
+/// Creates S3 resource expressions.
+pub struct S3Resources {}
+
+impl S3Resources {
+    pub fn exact_match(file: &str) -> String {
+        format!("^/{}$", file)
+    }
+
+    pub fn all_objects_in_bucket(bucket: &str) -> String {
+        format!("^/{}/.*", bucket)
+    }
+}
+
 /// S3 addressing style for upstream requests
 #[derive(Clone, Debug, PartialEq)]
 pub enum UpstreamStyle {
@@ -208,7 +221,7 @@ impl S3Proxy {
     /// Extract host and path from the request header
     pub(crate) fn extract_request_components<'a>(
         &self,
-        req_header: &'a pingora_http::RequestHeader,
+        req_header: &'a RequestHeader,
     ) -> Result<(&'a str, &'a str)> {
         let path = req_header.uri.path();
         let host = req_header
@@ -287,7 +300,7 @@ impl ProxyHttp for S3Proxy {
     async fn upstream_request_filter(
         &self,
         session: &mut Session,
-        upstream_request: &mut pingora_http::RequestHeader,
+        upstream_request: &mut RequestHeader,
         participant_context: &mut Self::CTX,
     ) -> Result<()> {
         // Parse incoming request to extract bucket and key
@@ -333,9 +346,7 @@ impl ProxyHttp for S3Proxy {
             .to_string();
 
         // Parse operation from request
-        let operation = self
-            .operation_parser
-            .parse_operation(&scope, req_header)?;
+        let operation = self.operation_parser.parse_operation(&scope, req_header)?;
 
         let is_authorized = self
             .auth_evaluator
@@ -473,4 +484,3 @@ impl ParticipantContextResolver for StaticParticipantContextResolver {
         Ok(self.participant_context.clone())
     }
 }
-

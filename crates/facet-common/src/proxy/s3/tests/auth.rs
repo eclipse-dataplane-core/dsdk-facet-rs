@@ -13,14 +13,13 @@
 use crate::auth::{AuthorizationEvaluator, MemoryAuthorizationEvaluator, Rule};
 use crate::context::ParticipantContext;
 use crate::proxy::s3::opparser::DefaultS3OperationParser;
-use crate::proxy::s3::S3OperationParser;
+use crate::proxy::s3::{S3OperationParser, S3Resources};
 use pingora_http::RequestHeader;
 
 /// Helper function to create a RequestHeader for testing
 fn create_request(method: &str, uri: &str) -> RequestHeader {
     let mut req = RequestHeader::build(method, uri.as_bytes(), None).unwrap();
-    req.insert_header("Host", "test-bucket.s3.amazonaws.com")
-        .unwrap();
+    req.insert_header("Host", "test-bucket.s3.amazonaws.com").unwrap();
     req
 }
 
@@ -48,12 +47,14 @@ fn test_allow_get_object() {
     let participant = create_participant("user1");
 
     // Allow GetObject on specific resource
-    let rules = vec![Rule::new(
-        "bucket1".to_string(),
-        vec!["s3:GetObject".to_string()],
-        "^/bucket1/file.txt$".to_string(),
-    )
-    .unwrap()];
+    let rules = vec![
+        Rule::new(
+            "bucket1".to_string(),
+            vec!["s3:GetObject".to_string()],
+            "^/bucket1/file.txt$".to_string(),
+        )
+        .unwrap(),
+    ];
     setup_rules(&evaluator, "user1", rules);
 
     let req = create_request("GET", "/bucket1/file.txt");
@@ -70,12 +71,14 @@ fn test_allow_get_object_with_wildcard() {
     let participant = create_participant("user1");
 
     // Allow GetObject on all objects in bucket
-    let rules = vec![Rule::new(
-        "bucket1".to_string(),
-        vec!["s3:GetObject".to_string()],
-        "^/bucket1/.*".to_string(),
-    )
-    .unwrap()];
+    let rules = vec![
+        Rule::new(
+            "bucket1".to_string(),
+            vec!["s3:GetObject".to_string()],
+            S3Resources::all_objects_in_bucket("bucket1"),
+        )
+        .unwrap(),
+    ];
     setup_rules(&evaluator, "user1", rules);
 
     let req = create_request("GET", "/bucket1/path/to/file.txt");
@@ -91,12 +94,14 @@ fn test_allow_get_object_acl() {
     let evaluator = MemoryAuthorizationEvaluator::new();
     let participant = create_participant("user1");
 
-    let rules = vec![Rule::new(
-        "bucket1".to_string(),
-        vec!["s3:GetObjectAcl".to_string()],
-        "^/bucket1/.*".to_string(),
-    )
-    .unwrap()];
+    let rules = vec![
+        Rule::new(
+            "bucket1".to_string(),
+            vec!["s3:GetObjectAcl".to_string()],
+            S3Resources::all_objects_in_bucket("bucket1"),
+        )
+        .unwrap(),
+    ];
     setup_rules(&evaluator, "user1", rules);
 
     let req = create_request("GET", "/bucket1/file.txt?acl");
@@ -112,12 +117,14 @@ fn test_allow_get_object_tagging() {
     let evaluator = MemoryAuthorizationEvaluator::new();
     let participant = create_participant("user1");
 
-    let rules = vec![Rule::new(
-        "bucket1".to_string(),
-        vec!["s3:GetObjectTagging".to_string()],
-        "^/bucket1/.*".to_string(),
-    )
-    .unwrap()];
+    let rules = vec![
+        Rule::new(
+            "bucket1".to_string(),
+            vec!["s3:GetObjectTagging".to_string()],
+            S3Resources::all_objects_in_bucket("bucket1"),
+        )
+        .unwrap(),
+    ];
     setup_rules(&evaluator, "user1", rules);
 
     let req = create_request("GET", "/bucket1/file.txt?tagging");
@@ -134,12 +141,14 @@ fn test_allow_head_object() {
     let participant = create_participant("user1");
 
     // HEAD uses same permission as GET
-    let rules = vec![Rule::new(
-        "bucket1".to_string(),
-        vec!["s3:GetObject".to_string()],
-        "^/bucket1/.*".to_string(),
-    )
-    .unwrap()];
+    let rules = vec![
+        Rule::new(
+            "bucket1".to_string(),
+            vec!["s3:GetObject".to_string()],
+            S3Resources::all_objects_in_bucket("bucket1"),
+        )
+        .unwrap(),
+    ];
     setup_rules(&evaluator, "user1", rules);
 
     let req = create_request("HEAD", "/bucket1/file.txt");
@@ -155,12 +164,14 @@ fn test_allow_get_object_version() {
     let evaluator = MemoryAuthorizationEvaluator::new();
     let participant = create_participant("user1");
 
-    let rules = vec![Rule::new(
-        "bucket1".to_string(),
-        vec!["s3:GetObjectVersion".to_string()],
-        "^/bucket1/.*".to_string(),
-    )
-    .unwrap()];
+    let rules = vec![
+        Rule::new(
+            "bucket1".to_string(),
+            vec!["s3:GetObjectVersion".to_string()],
+            S3Resources::all_objects_in_bucket("bucket1"),
+        )
+        .unwrap(),
+    ];
     setup_rules(&evaluator, "user1", rules);
 
     let req = create_request("GET", "/bucket1/file.txt?versionId=abc123");
@@ -178,12 +189,14 @@ fn test_allow_put_object() {
     let evaluator = MemoryAuthorizationEvaluator::new();
     let participant = create_participant("user1");
 
-    let rules = vec![Rule::new(
-        "bucket1".to_string(),
-        vec!["s3:PutObject".to_string()],
-        "^/bucket1/.*".to_string(),
-    )
-    .unwrap()];
+    let rules = vec![
+        Rule::new(
+            "bucket1".to_string(),
+            vec!["s3:PutObject".to_string()],
+            S3Resources::all_objects_in_bucket("bucket1"),
+        )
+        .unwrap(),
+    ];
     setup_rules(&evaluator, "user1", rules);
 
     let req = create_request("PUT", "/bucket1/new-file.txt");
@@ -199,12 +212,14 @@ fn test_allow_put_object_acl() {
     let evaluator = MemoryAuthorizationEvaluator::new();
     let participant = create_participant("user1");
 
-    let rules = vec![Rule::new(
-        "bucket1".to_string(),
-        vec!["s3:PutObjectAcl".to_string()],
-        "^/bucket1/.*".to_string(),
-    )
-    .unwrap()];
+    let rules = vec![
+        Rule::new(
+            "bucket1".to_string(),
+            vec!["s3:PutObjectAcl".to_string()],
+            S3Resources::all_objects_in_bucket("bucket1"),
+        )
+        .unwrap(),
+    ];
     setup_rules(&evaluator, "user1", rules);
 
     let req = create_request("PUT", "/bucket1/file.txt?acl");
@@ -220,12 +235,14 @@ fn test_allow_put_object_tagging() {
     let evaluator = MemoryAuthorizationEvaluator::new();
     let participant = create_participant("user1");
 
-    let rules = vec![Rule::new(
-        "bucket1".to_string(),
-        vec!["s3:PutObjectTagging".to_string()],
-        "^/bucket1/.*".to_string(),
-    )
-    .unwrap()];
+    let rules = vec![
+        Rule::new(
+            "bucket1".to_string(),
+            vec!["s3:PutObjectTagging".to_string()],
+            S3Resources::all_objects_in_bucket("bucket1"),
+        )
+        .unwrap(),
+    ];
     setup_rules(&evaluator, "user1", rules);
 
     let req = create_request("PUT", "/bucket1/file.txt?tagging");
@@ -243,12 +260,14 @@ fn test_allow_delete_object() {
     let evaluator = MemoryAuthorizationEvaluator::new();
     let participant = create_participant("user1");
 
-    let rules = vec![Rule::new(
-        "bucket1".to_string(),
-        vec!["s3:DeleteObject".to_string()],
-        "^/bucket1/.*".to_string(),
-    )
-    .unwrap()];
+    let rules = vec![
+        Rule::new(
+            "bucket1".to_string(),
+            vec!["s3:DeleteObject".to_string()],
+            S3Resources::all_objects_in_bucket("bucket1"),
+        )
+        .unwrap(),
+    ];
     setup_rules(&evaluator, "user1", rules);
 
     let req = create_request("DELETE", "/bucket1/file.txt");
@@ -264,12 +283,14 @@ fn test_allow_post_delete_batch() {
     let evaluator = MemoryAuthorizationEvaluator::new();
     let participant = create_participant("user1");
 
-    let rules = vec![Rule::new(
-        "bucket1".to_string(),
-        vec!["s3:DeleteObject".to_string()],
-        "^/bucket1.*".to_string(),
-    )
-    .unwrap()];
+    let rules = vec![
+        Rule::new(
+            "bucket1".to_string(),
+            vec!["s3:DeleteObject".to_string()],
+            "^/bucket1.*".to_string(),
+        )
+        .unwrap(),
+    ];
     setup_rules(&evaluator, "user1", rules);
 
     let req = create_request("POST", "/bucket1?delete");
@@ -287,12 +308,14 @@ fn test_allow_list_bucket() {
     let evaluator = MemoryAuthorizationEvaluator::new();
     let participant = create_participant("user1");
 
-    let rules = vec![Rule::new(
-        "bucket1".to_string(),
-        vec!["s3:ListBucket".to_string()],
-        "^/bucket1$".to_string(),
-    )
-    .unwrap()];
+    let rules = vec![
+        Rule::new(
+            "bucket1".to_string(),
+            vec!["s3:ListBucket".to_string()],
+            S3Resources::exact_match("bucket1"),
+        )
+        .unwrap(),
+    ];
     setup_rules(&evaluator, "user1", rules);
 
     let req = create_request("GET", "/bucket1?list-type=2");
@@ -308,12 +331,14 @@ fn test_allow_list_bucket_versions() {
     let evaluator = MemoryAuthorizationEvaluator::new();
     let participant = create_participant("user1");
 
-    let rules = vec![Rule::new(
-        "bucket1".to_string(),
-        vec!["s3:ListBucketVersions".to_string()],
-        "^/bucket1$".to_string(),
-    )
-    .unwrap()];
+    let rules = vec![
+        Rule::new(
+            "bucket1".to_string(),
+            vec!["s3:ListBucketVersions".to_string()],
+            S3Resources::exact_match("bucket1"),
+        )
+        .unwrap(),
+    ];
     setup_rules(&evaluator, "user1", rules);
 
     let req = create_request("GET", "/bucket1?versions");
@@ -329,12 +354,14 @@ fn test_allow_list_bucket_multipart_uploads() {
     let evaluator = MemoryAuthorizationEvaluator::new();
     let participant = create_participant("user1");
 
-    let rules = vec![Rule::new(
-        "bucket1".to_string(),
-        vec!["s3:ListBucketMultipartUploads".to_string()],
-        "^/bucket1$".to_string(),
-    )
-    .unwrap()];
+    let rules = vec![
+        Rule::new(
+            "bucket1".to_string(),
+            vec!["s3:ListBucketMultipartUploads".to_string()],
+            S3Resources::exact_match("bucket1"),
+        )
+        .unwrap(),
+    ];
     setup_rules(&evaluator, "user1", rules);
 
     let req = create_request("GET", "/bucket1?uploads");
@@ -350,12 +377,14 @@ fn test_allow_get_bucket_location() {
     let evaluator = MemoryAuthorizationEvaluator::new();
     let participant = create_participant("user1");
 
-    let rules = vec![Rule::new(
-        "bucket1".to_string(),
-        vec!["s3:GetBucketLocation".to_string()],
-        "^/bucket1$".to_string(),
-    )
-    .unwrap()];
+    let rules = vec![
+        Rule::new(
+            "bucket1".to_string(),
+            vec!["s3:GetBucketLocation".to_string()],
+            S3Resources::exact_match("bucket1"),
+        )
+        .unwrap(),
+    ];
     setup_rules(&evaluator, "user1", rules);
 
     let req = create_request("GET", "/bucket1?location");
@@ -386,12 +415,14 @@ fn test_deny_wrong_scope() {
     let evaluator = MemoryAuthorizationEvaluator::new();
     let participant = create_participant("user1");
 
-    let rules = vec![Rule::new(
-        "bucket1".to_string(),
-        vec!["s3:GetObject".to_string()],
-        "^/bucket1/.*".to_string(),
-    )
-    .unwrap()];
+    let rules = vec![
+        Rule::new(
+            "bucket1".to_string(),
+            vec!["s3:GetObject".to_string()],
+            S3Resources::all_objects_in_bucket("bucket1"),
+        )
+        .unwrap(),
+    ];
     setup_rules(&evaluator, "user1", rules);
 
     // Request to bucket2, but rules are for bucket1 scope
@@ -409,12 +440,14 @@ fn test_deny_wrong_action() {
     let participant = create_participant("user1");
 
     // Only allow GetObject
-    let rules = vec![Rule::new(
-        "bucket1".to_string(),
-        vec!["s3:GetObject".to_string()],
-        "^/bucket1/.*".to_string(),
-    )
-    .unwrap()];
+    let rules = vec![
+        Rule::new(
+            "bucket1".to_string(),
+            vec!["s3:GetObject".to_string()],
+            S3Resources::all_objects_in_bucket("bucket1"),
+        )
+        .unwrap(),
+    ];
     setup_rules(&evaluator, "user1", rules);
 
     // Try to PutObject
@@ -432,12 +465,14 @@ fn test_deny_wrong_resource_pattern() {
     let participant = create_participant("user1");
 
     // Only allow access to /bucket1/public/*
-    let rules = vec![Rule::new(
-        "bucket1".to_string(),
-        vec!["s3:GetObject".to_string()],
-        "^/bucket1/public/.*".to_string(),
-    )
-    .unwrap()];
+    let rules = vec![
+        Rule::new(
+            "bucket1".to_string(),
+            vec!["s3:GetObject".to_string()],
+            "^/bucket1/public/.*".to_string(),
+        )
+        .unwrap(),
+    ];
     setup_rules(&evaluator, "user1", rules);
 
     // Try to access /bucket1/private/file.txt
@@ -455,12 +490,14 @@ fn test_deny_read_only_user_trying_to_write() {
     let participant = create_participant("readonly_user");
 
     // Read-only permissions
-    let rules = vec![Rule::new(
-        "bucket1".to_string(),
-        vec!["s3:GetObject".to_string(), "s3:ListBucket".to_string()],
-        "^/bucket1.*".to_string(),
-    )
-    .unwrap()];
+    let rules = vec![
+        Rule::new(
+            "bucket1".to_string(),
+            vec!["s3:GetObject".to_string(), "s3:ListBucket".to_string()],
+            "^/bucket1.*".to_string(),
+        )
+        .unwrap(),
+    ];
     setup_rules(&evaluator, "readonly_user", rules);
 
     // Try to delete
@@ -478,12 +515,14 @@ fn test_deny_get_acl_without_permission() {
     let participant = create_participant("user1");
 
     // Only allow GetObject, not GetObjectAcl
-    let rules = vec![Rule::new(
-        "bucket1".to_string(),
-        vec!["s3:GetObject".to_string()],
-        "^/bucket1/.*".to_string(),
-    )
-    .unwrap()];
+    let rules = vec![
+        Rule::new(
+            "bucket1".to_string(),
+            vec!["s3:GetObject".to_string()],
+            S3Resources::all_objects_in_bucket("bucket1"),
+        )
+        .unwrap(),
+    ];
     setup_rules(&evaluator, "user1", rules);
 
     let req = create_request("GET", "/bucket1/file.txt?acl");
@@ -502,16 +541,18 @@ fn test_multiple_actions_in_single_rule() {
     let participant = create_participant("user1");
 
     // Allow multiple actions
-    let rules = vec![Rule::new(
-        "bucket1".to_string(),
-        vec![
-            "s3:GetObject".to_string(),
-            "s3:PutObject".to_string(),
-            "s3:DeleteObject".to_string(),
-        ],
-        "^/bucket1/.*".to_string(),
-    )
-    .unwrap()];
+    let rules = vec![
+        Rule::new(
+            "bucket1".to_string(),
+            vec![
+                "s3:GetObject".to_string(),
+                "s3:PutObject".to_string(),
+                "s3:DeleteObject".to_string(),
+            ],
+            S3Resources::all_objects_in_bucket("bucket1"),
+        )
+        .unwrap(),
+    ];
     setup_rules(&evaluator, "user1", rules);
 
     // Test GET
@@ -586,7 +627,7 @@ fn test_multiple_rules_different_scopes() {
         Rule::new(
             "bucket1".to_string(),
             vec!["s3:GetObject".to_string()],
-            "^/bucket1/.*".to_string(),
+            S3Resources::all_objects_in_bucket("bucket1"),
         )
         .unwrap(),
         Rule::new(
@@ -671,16 +712,18 @@ fn test_folder_specific_access() {
     let participant = create_participant("user123");
 
     // User can only access their own folder
-    let rules = vec![Rule::new(
-        "shared-bucket".to_string(),
-        vec![
-            "s3:GetObject".to_string(),
-            "s3:PutObject".to_string(),
-            "s3:DeleteObject".to_string(),
-        ],
-        "^/shared-bucket/users/user123/.*".to_string(),
-    )
-    .unwrap()];
+    let rules = vec![
+        Rule::new(
+            "shared-bucket".to_string(),
+            vec![
+                "s3:GetObject".to_string(),
+                "s3:PutObject".to_string(),
+                "s3:DeleteObject".to_string(),
+            ],
+            "^/shared-bucket/users/user123/.*".to_string(),
+        )
+        .unwrap(),
+    ];
     setup_rules(&evaluator, "user123", rules);
 
     // Can access own folder
@@ -701,12 +744,14 @@ fn test_temporary_upload_access() {
     let participant = create_participant("upload-service");
 
     // Service can only write to temp uploads folder
-    let rules = vec![Rule::new(
-        "storage-bucket".to_string(),
-        vec!["s3:PutObject".to_string()],
-        "^/storage-bucket/temp-uploads/.*".to_string(),
-    )
-    .unwrap()];
+    let rules = vec![
+        Rule::new(
+            "storage-bucket".to_string(),
+            vec!["s3:PutObject".to_string()],
+            "^/storage-bucket/temp-uploads/.*".to_string(),
+        )
+        .unwrap(),
+    ];
     setup_rules(&evaluator, "upload-service", rules);
 
     // Can upload to temp
@@ -734,10 +779,7 @@ fn test_versioned_bucket_access() {
     let rules = vec![
         Rule::new(
             "versioned-bucket".to_string(),
-            vec![
-                "s3:GetObjectVersion".to_string(),
-                "s3:ListBucketVersions".to_string(),
-            ],
+            vec!["s3:GetObjectVersion".to_string(), "s3:ListBucketVersions".to_string()],
             "^/versioned-bucket.*".to_string(),
         )
         .unwrap(),
@@ -767,22 +809,24 @@ fn test_admin_full_access() {
     let participant = create_participant("admin");
 
     // Admin has all permissions
-    let rules = vec![Rule::new(
-        "admin-bucket".to_string(),
-        vec![
-            "s3:GetObject".to_string(),
-            "s3:GetObjectAcl".to_string(),
-            "s3:GetObjectTagging".to_string(),
-            "s3:PutObject".to_string(),
-            "s3:PutObjectAcl".to_string(),
-            "s3:PutObjectTagging".to_string(),
-            "s3:DeleteObject".to_string(),
-            "s3:ListBucket".to_string(),
-            "s3:ListBucketVersions".to_string(),
-        ],
-        "^/admin-bucket.*".to_string(),
-    )
-    .unwrap()];
+    let rules = vec![
+        Rule::new(
+            "admin-bucket".to_string(),
+            vec![
+                "s3:GetObject".to_string(),
+                "s3:GetObjectAcl".to_string(),
+                "s3:GetObjectTagging".to_string(),
+                "s3:PutObject".to_string(),
+                "s3:PutObjectAcl".to_string(),
+                "s3:PutObjectTagging".to_string(),
+                "s3:DeleteObject".to_string(),
+                "s3:ListBucket".to_string(),
+                "s3:ListBucketVersions".to_string(),
+            ],
+            "^/admin-bucket.*".to_string(),
+        )
+        .unwrap(),
+    ];
     setup_rules(&evaluator, "admin", rules);
 
     // Test various operations
@@ -817,21 +861,25 @@ fn test_different_participants_different_permissions() {
     let evaluator = MemoryAuthorizationEvaluator::new();
 
     // Setup rules for user1
-    let rules_user1 = vec![Rule::new(
-        "bucket1".to_string(),
-        vec!["s3:GetObject".to_string()],
-        "^/bucket1/.*".to_string(),
-    )
-    .unwrap()];
+    let rules_user1 = vec![
+        Rule::new(
+            "bucket1".to_string(),
+            vec!["s3:GetObject".to_string()],
+            S3Resources::all_objects_in_bucket("bucket1"),
+        )
+        .unwrap(),
+    ];
     setup_rules(&evaluator, "user1", rules_user1);
 
     // Setup rules for user2
-    let rules_user2 = vec![Rule::new(
-        "bucket1".to_string(),
-        vec!["s3:PutObject".to_string()],
-        "^/bucket1/.*".to_string(),
-    )
-    .unwrap()];
+    let rules_user2 = vec![
+        Rule::new(
+            "bucket1".to_string(),
+            vec!["s3:PutObject".to_string()],
+            S3Resources::all_objects_in_bucket("bucket1"),
+        )
+        .unwrap(),
+    ];
     setup_rules(&evaluator, "user2", rules_user2);
 
     let req_get = create_request("GET", "/bucket1/file.txt");
@@ -865,12 +913,14 @@ fn test_regex_pattern_with_specific_file_extension() {
     let participant = create_participant("image-processor");
 
     // Only allow access to image files
-    let rules = vec![Rule::new(
-        "media-bucket".to_string(),
-        vec!["s3:GetObject".to_string()],
-        r"^/media-bucket/.*\.(jpg|jpeg|png|gif)$".to_string(),
-    )
-    .unwrap()];
+    let rules = vec![
+        Rule::new(
+            "media-bucket".to_string(),
+            vec!["s3:GetObject".to_string()],
+            r"^/media-bucket/.*\.(jpg|jpeg|png|gif)$".to_string(),
+        )
+        .unwrap(),
+    ];
     setup_rules(&evaluator, "image-processor", rules);
 
     // Can access image files
