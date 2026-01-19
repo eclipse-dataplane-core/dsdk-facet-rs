@@ -332,3 +332,34 @@ fn create_test_proxy(upstream_style: UpstreamStyle, proxy_domain: Option<String>
         .build()
 }
 
+#[test]
+fn test_context_caching() {
+    // Create proxy
+    let proxy = create_test_proxy(UpstreamStyle::PathStyle, None);
+
+    // Create context using new_ctx
+    let mut ctx = proxy.new_ctx();
+
+    // Verify initial state
+    assert!(ctx.parsed_request.is_none(), "Initially parsed_request should be None");
+    assert_eq!(ctx.participant_context.identifier, "anonymous");
+    assert_eq!(ctx.participant_context.audience, "anonymous");
+
+    // Simulate parsing and caching (what upstream_peer does)
+    let parsed = ParsedS3Request {
+        bucket: "test-bucket".to_string(),
+        key: "test-key.txt".to_string(),
+    };
+    ctx.parsed_request = Some(parsed.clone());
+
+    // Verify cached data
+    assert!(ctx.parsed_request.is_some(), "After caching, parsed_request should be Some");
+    assert_eq!(ctx.parsed_request.as_ref().unwrap().bucket, "test-bucket");
+    assert_eq!(ctx.parsed_request.as_ref().unwrap().key, "test-key.txt");
+
+    // Verify we can retrieve it (what upstream_request_filter does)
+    let retrieved = ctx.parsed_request.as_ref().unwrap();
+    assert_eq!(retrieved.bucket, "test-bucket");
+    assert_eq!(retrieved.key, "test-key.txt");
+}
+

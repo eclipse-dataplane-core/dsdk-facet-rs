@@ -29,6 +29,7 @@
 //! 1. **Parse incoming request**: Extract bucket and key from either:
 //!    - Path-style: `/bucket/key` (e.g., `/my-bucket/path/to/file.txt`)
 //!    - Virtual-hosted-style: `bucket.proxy.com/key`
+//!    - **Note**: Parsing happens once in `upstream_peer` and is cached in session context
 //!
 //! 2. **Validate JWT token**: Check `x-amz-security-token` header
 //!
@@ -104,9 +105,18 @@ pub enum UpstreamStyle {
 
 /// Parsed S3 request with bucket and key extracted
 #[derive(Clone, Debug)]
-pub(crate) struct ParsedS3Request {
-    pub(crate) bucket: String,
-    pub(crate) key: String, // Can be empty for bucket-level operations
+pub struct ParsedS3Request {
+    pub bucket: String,
+    pub key: String, // Can be empty for bucket-level operations
+}
+
+/// Session context that caches parsed S3 request data to avoid duplicate parsing
+#[derive(Clone, Debug)]
+pub struct S3ProxyContext {
+    /// Participant context for authorization
+    pub participant_context: ParticipantContext,
+    /// Cached parsed S3 request (bucket and key)
+    pub parsed_request: Option<ParsedS3Request>,
 }
 
 /// Resolves credentials for a given participant context.
@@ -271,25 +281,33 @@ impl S3Proxy {
 
 #[async_trait]
 impl ProxyHttp for S3Proxy {
-    type CTX = ParticipantContext;
+    type CTX = S3ProxyContext;
 
     fn new_ctx(&self) -> Self::CTX {
-        ParticipantContext {
-            identifier: "anonymous".to_string(),
-            audience: "anonymous".to_string(),
+        S3ProxyContext {
+            participant_context: ParticipantContext {
+                identifier: "anonymous".to_string(),
+                audience: "anonymous".to_string(),
+            },
+            parsed_request: None,
         }
     }
 
-    async fn upstream_peer(&self, session: &mut Session, participant_context: &mut Self::CTX) -> Result<Box<HttpPeer>> {
+    async fn upstream_peer(&self, session: &mut Session, ctx: &mut Self::CTX) -> Result<Box<HttpPeer>> {
         let req_header = session.req_header();
         let (host, path) = self.extract_request_components(req_header)?;
-        *participant_context = self.participant_context_resolver.resolve(path)?;
 
-        // Parse incoming request to extract bucket and key
+        // Resolve participant context
+        ctx.participant_context = self.participant_context_resolver.resolve(path)?;
+
+        // Parse incoming request to extract bucket and key (PARSE ONCE)
         let parsed = self.parse_incoming_request(host, path)?;
 
         // Construct upstream peer based on style
         let (upstream_host, port) = self.build_upstream_host(&parsed)?;
+
+        // Cache parsed request for later use in upstream_request_filter
+        ctx.parsed_request = Some(parsed);
 
         let addr = format!("{}:{}", upstream_host, port);
         let peer = Box::new(HttpPeer::new(addr.as_str(), self.use_tls, upstream_host.clone()));
@@ -301,16 +319,16 @@ impl ProxyHttp for S3Proxy {
         &self,
         session: &mut Session,
         upstream_request: &mut RequestHeader,
-        participant_context: &mut Self::CTX,
+        ctx: &mut Self::CTX,
     ) -> Result<()> {
-        // Parse incoming request to extract bucket and key
-        let req_header = session.req_header();
-        let (host, path) = self.extract_request_components(req_header)?;
-
-        let parsed = self.parse_incoming_request(host, path)?;
+        // Retrieve cached parsed request (already parsed in upstream_peer)
+        let parsed = ctx
+            .parsed_request
+            .as_ref()
+            .ok_or_else(|| internal_error("Parsed request not found in context"))?;
 
         // Reconstruct URI and Host based on upstream_style
-        let (new_uri, new_host) = self.build_upstream_uri_and_host(&parsed);
+        let (new_uri, new_host) = self.build_upstream_uri_and_host(parsed);
 
         // Update the request URI
         let uri: http::Uri = new_uri
@@ -335,7 +353,7 @@ impl ProxyHttp for S3Proxy {
         // Verify token (remove from request if valid)
         let claims = self
             .token_verifier
-            .verify_token(participant_context, token)
+            .verify_token(&ctx.participant_context, token)
             .map_err(|e| http_status_error(403, format!("Invalid token: {}", e)))?;
 
         let scope = claims
@@ -346,11 +364,12 @@ impl ProxyHttp for S3Proxy {
             .to_string();
 
         // Parse operation from request
+        let req_header = session.req_header();
         let operation = self.operation_parser.parse_operation(&scope, req_header)?;
 
         let is_authorized = self
             .auth_evaluator
-            .evaluate(participant_context, operation)
+            .evaluate(&ctx.participant_context, operation)
             .map_err(|e| http_status_error(403, format!("Authorization error: {}", e)))?;
 
         if !is_authorized {
@@ -364,7 +383,7 @@ impl ProxyHttp for S3Proxy {
         let uri = upstream_request.uri.to_string();
 
         // Build signing params
-        let creds = self.credential_resolver.resolve_credentials(participant_context)?;
+        let creds = self.credential_resolver.resolve_credentials(&ctx.participant_context)?;
 
         let aws_creds = Credentials::new(&creds.access_key_id, &creds.secret_key, None, None, "facet-proxy");
 
