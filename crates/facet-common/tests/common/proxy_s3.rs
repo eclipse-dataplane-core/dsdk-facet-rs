@@ -101,7 +101,7 @@ impl ProxyConfig {
     }
 
     /// Create configuration for token validation testing
-    pub fn for_token_testing(
+    pub async fn for_token_testing(
         port: u16,
         upstream_endpoint: String,
         upstream_style: UpstreamStyle,
@@ -137,7 +137,7 @@ impl ProxyConfig {
             audience: "test-audience".to_string(),
         };
 
-        auth_evaluator.save_rule(ctx, rule).unwrap();
+        auth_evaluator.save_rule(ctx, rule).await.unwrap();
 
         Self {
             port,
@@ -223,7 +223,7 @@ pub fn launch_s3proxy(config: ProxyConfig) {
 }
 
 /// Add an authorization rule to an evaluator.
-pub fn add_auth_rule(
+pub async fn add_auth_rule(
     evaluator: &Arc<MemoryAuthorizationEvaluator>,
     participant_id: &str,
     scope: &str,
@@ -242,5 +242,5 @@ pub fn add_auth_rule(
         audience: "test-audience".to_string(),
     };
 
-    evaluator.save_rule(ctx, rule).unwrap();
+    evaluator.save_rule(ctx, rule).await.unwrap();
 }

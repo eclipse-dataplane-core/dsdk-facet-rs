@@ -36,8 +36,9 @@ impl S3CredentialResolver for PassthroughCredentialsResolver {
 /// Always-permissive authorization evaluator (allows all operations)
 pub struct PermissiveAuthEvaluator;
 
+#[async_trait::async_trait]
 impl AuthorizationEvaluator for PermissiveAuthEvaluator {
-    fn evaluate(
+    async fn evaluate(
         &self,
         _participant_context: &ParticipantContext,
         _operation: Operation,
@@ -138,8 +139,9 @@ pub struct FailingAuthEvaluator {
     pub internal_detail: String,
 }
 
+#[async_trait::async_trait]
 impl AuthorizationEvaluator for FailingAuthEvaluator {
-    fn evaluate(
+    async fn evaluate(
         &self,
         _participant_context: &ParticipantContext,
         _operation: Operation,

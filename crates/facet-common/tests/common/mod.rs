@@ -17,12 +17,17 @@
 mod mocks;
 mod proxy_s3;
 mod minio;
+mod postgres;
 
 use std::net::TcpListener;
 #[allow(unused_imports)] // Mocks are used in some test files but not others
 pub use mocks::*;
+#[allow(unused_imports)] // Used in some test files but not others
 pub use proxy_s3::*;
+#[allow(unused_imports)] // Used in some test files but not others
 pub use minio::*;
+#[allow(unused_imports)] // Used in some test files but not others
+pub use postgres::*;
 
 
 /// Get an available port by binding to port 0 and retrieving the assigned port

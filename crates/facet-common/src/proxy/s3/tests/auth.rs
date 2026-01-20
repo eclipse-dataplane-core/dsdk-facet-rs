@@ -32,20 +32,20 @@ fn create_participant(identifier: &str) -> ParticipantContext {
 }
 
 /// Helper function to set up rules for a participant
-fn setup_rules(evaluator: &MemoryAuthorizationEvaluator, participant_id: &str, rules: Vec<Rule>) {
+async fn setup_rules(evaluator: &MemoryAuthorizationEvaluator, participant_id: &str, rules: Vec<Rule>) {
     let ctx = &ParticipantContext {
         identifier: participant_id.to_string(),
         audience: "test-audience".to_string(),
     };
     for rule in rules {
-        evaluator.save_rule(ctx, rule).unwrap();
+        evaluator.save_rule(ctx, rule).await.unwrap();
     }
 }
 
 // ==================== Object GET Operations - Allow ====================
 
-#[test]
-fn test_allow_get_object() {
+#[tokio::test]
+async fn test_allow_get_object() {
     let parser = DefaultS3OperationParser::new();
     let evaluator = MemoryAuthorizationEvaluator::new();
     let participant = create_participant("user1");
@@ -59,17 +59,17 @@ fn test_allow_get_object() {
         )
         .unwrap(),
     ];
-    setup_rules(&evaluator, "user1", rules);
+    setup_rules(&evaluator, "user1", rules).await;
 
     let req = create_request("GET", "/bucket1/file.txt");
     let operation = parser.parse_operation("bucket1", &req).unwrap();
-    let result = evaluator.evaluate(&participant, operation).unwrap();
+    let result = evaluator.evaluate(&participant, operation).await.unwrap();
 
     assert!(result);
 }
 
-#[test]
-fn test_allow_get_object_with_wildcard() {
+#[tokio::test]
+async fn test_allow_get_object_with_wildcard() {
     let parser = DefaultS3OperationParser::new();
     let evaluator = MemoryAuthorizationEvaluator::new();
     let participant = create_participant("user1");
@@ -83,17 +83,17 @@ fn test_allow_get_object_with_wildcard() {
         )
         .unwrap(),
     ];
-    setup_rules(&evaluator, "user1", rules);
+    setup_rules(&evaluator, "user1", rules).await;
 
     let req = create_request("GET", "/bucket1/path/to/file.txt");
     let operation = parser.parse_operation("bucket1", &req).unwrap();
-    let result = evaluator.evaluate(&participant, operation).unwrap();
+    let result = evaluator.evaluate(&participant, operation).await.unwrap();
 
     assert!(result);
 }
 
-#[test]
-fn test_allow_get_object_acl() {
+#[tokio::test]
+async fn test_allow_get_object_acl() {
     let parser = DefaultS3OperationParser::new();
     let evaluator = MemoryAuthorizationEvaluator::new();
     let participant = create_participant("user1");
@@ -106,17 +106,17 @@ fn test_allow_get_object_acl() {
         )
         .unwrap(),
     ];
-    setup_rules(&evaluator, "user1", rules);
+    setup_rules(&evaluator, "user1", rules).await;
 
     let req = create_request("GET", "/bucket1/file.txt?acl");
     let operation = parser.parse_operation("bucket1", &req).unwrap();
-    let result = evaluator.evaluate(&participant, operation).unwrap();
+    let result = evaluator.evaluate(&participant, operation).await.unwrap();
 
     assert!(result);
 }
 
-#[test]
-fn test_allow_get_object_tagging() {
+#[tokio::test]
+async fn test_allow_get_object_tagging() {
     let parser = DefaultS3OperationParser::new();
     let evaluator = MemoryAuthorizationEvaluator::new();
     let participant = create_participant("user1");
@@ -129,17 +129,17 @@ fn test_allow_get_object_tagging() {
         )
         .unwrap(),
     ];
-    setup_rules(&evaluator, "user1", rules);
+    setup_rules(&evaluator, "user1", rules).await;
 
     let req = create_request("GET", "/bucket1/file.txt?tagging");
     let operation = parser.parse_operation("bucket1", &req).unwrap();
-    let result = evaluator.evaluate(&participant, operation).unwrap();
+    let result = evaluator.evaluate(&participant, operation).await.unwrap();
 
     assert!(result);
 }
 
-#[test]
-fn test_allow_head_object() {
+#[tokio::test]
+async fn test_allow_head_object() {
     let parser = DefaultS3OperationParser::new();
     let evaluator = MemoryAuthorizationEvaluator::new();
     let participant = create_participant("user1");
@@ -153,17 +153,17 @@ fn test_allow_head_object() {
         )
         .unwrap(),
     ];
-    setup_rules(&evaluator, "user1", rules);
+    setup_rules(&evaluator, "user1", rules).await;
 
     let req = create_request("HEAD", "/bucket1/file.txt");
     let operation = parser.parse_operation("bucket1", &req).unwrap();
-    let result = evaluator.evaluate(&participant, operation).unwrap();
+    let result = evaluator.evaluate(&participant, operation).await.unwrap();
 
     assert!(result);
 }
 
-#[test]
-fn test_allow_get_object_version() {
+#[tokio::test]
+async fn test_allow_get_object_version() {
     let parser = DefaultS3OperationParser::new();
     let evaluator = MemoryAuthorizationEvaluator::new();
     let participant = create_participant("user1");
@@ -176,19 +176,19 @@ fn test_allow_get_object_version() {
         )
         .unwrap(),
     ];
-    setup_rules(&evaluator, "user1", rules);
+    setup_rules(&evaluator, "user1", rules).await;
 
     let req = create_request("GET", "/bucket1/file.txt?versionId=abc123");
     let operation = parser.parse_operation("bucket1", &req).unwrap();
-    let result = evaluator.evaluate(&participant, operation).unwrap();
+    let result = evaluator.evaluate(&participant, operation).await.unwrap();
 
     assert!(result);
 }
 
 // ==================== Object PUT Operations - Allow ====================
 
-#[test]
-fn test_allow_put_object() {
+#[tokio::test]
+async fn test_allow_put_object() {
     let parser = DefaultS3OperationParser::new();
     let evaluator = MemoryAuthorizationEvaluator::new();
     let participant = create_participant("user1");
@@ -201,17 +201,17 @@ fn test_allow_put_object() {
         )
         .unwrap(),
     ];
-    setup_rules(&evaluator, "user1", rules);
+    setup_rules(&evaluator, "user1", rules).await;
 
     let req = create_request("PUT", "/bucket1/new-file.txt");
     let operation = parser.parse_operation("bucket1", &req).unwrap();
-    let result = evaluator.evaluate(&participant, operation).unwrap();
+    let result = evaluator.evaluate(&participant, operation).await.unwrap();
 
     assert!(result);
 }
 
-#[test]
-fn test_allow_put_object_acl() {
+#[tokio::test]
+async fn test_allow_put_object_acl() {
     let parser = DefaultS3OperationParser::new();
     let evaluator = MemoryAuthorizationEvaluator::new();
     let participant = create_participant("user1");
@@ -224,17 +224,17 @@ fn test_allow_put_object_acl() {
         )
         .unwrap(),
     ];
-    setup_rules(&evaluator, "user1", rules);
+    setup_rules(&evaluator, "user1", rules).await;
 
     let req = create_request("PUT", "/bucket1/file.txt?acl");
     let operation = parser.parse_operation("bucket1", &req).unwrap();
-    let result = evaluator.evaluate(&participant, operation).unwrap();
+    let result = evaluator.evaluate(&participant, operation).await.unwrap();
 
     assert!(result);
 }
 
-#[test]
-fn test_allow_put_object_tagging() {
+#[tokio::test]
+async fn test_allow_put_object_tagging() {
     let parser = DefaultS3OperationParser::new();
     let evaluator = MemoryAuthorizationEvaluator::new();
     let participant = create_participant("user1");
@@ -247,19 +247,19 @@ fn test_allow_put_object_tagging() {
         )
         .unwrap(),
     ];
-    setup_rules(&evaluator, "user1", rules);
+    setup_rules(&evaluator, "user1", rules).await;
 
     let req = create_request("PUT", "/bucket1/file.txt?tagging");
     let operation = parser.parse_operation("bucket1", &req).unwrap();
-    let result = evaluator.evaluate(&participant, operation).unwrap();
+    let result = evaluator.evaluate(&participant, operation).await.unwrap();
 
     assert!(result);
 }
 
 // ==================== Object DELETE Operations - Allow ====================
 
-#[test]
-fn test_allow_delete_object() {
+#[tokio::test]
+async fn test_allow_delete_object() {
     let parser = DefaultS3OperationParser::new();
     let evaluator = MemoryAuthorizationEvaluator::new();
     let participant = create_participant("user1");
@@ -272,17 +272,17 @@ fn test_allow_delete_object() {
         )
         .unwrap(),
     ];
-    setup_rules(&evaluator, "user1", rules);
+    setup_rules(&evaluator, "user1", rules).await;
 
     let req = create_request("DELETE", "/bucket1/file.txt");
     let operation = parser.parse_operation("bucket1", &req).unwrap();
-    let result = evaluator.evaluate(&participant, operation).unwrap();
+    let result = evaluator.evaluate(&participant, operation).await.unwrap();
 
     assert!(result);
 }
 
-#[test]
-fn test_allow_post_delete_batch() {
+#[tokio::test]
+async fn test_allow_post_delete_batch() {
     let parser = DefaultS3OperationParser::new();
     let evaluator = MemoryAuthorizationEvaluator::new();
     let participant = create_participant("user1");
@@ -295,19 +295,19 @@ fn test_allow_post_delete_batch() {
         )
         .unwrap(),
     ];
-    setup_rules(&evaluator, "user1", rules);
+    setup_rules(&evaluator, "user1", rules).await;
 
     let req = create_request("POST", "/bucket1?delete");
     let operation = parser.parse_operation("bucket1", &req).unwrap();
-    let result = evaluator.evaluate(&participant, operation).unwrap();
+    let result = evaluator.evaluate(&participant, operation).await.unwrap();
 
     assert!(result);
 }
 
 // ==================== Bucket Operations - Allow ====================
 
-#[test]
-fn test_allow_list_bucket() {
+#[tokio::test]
+async fn test_allow_list_bucket() {
     let parser = DefaultS3OperationParser::new();
     let evaluator = MemoryAuthorizationEvaluator::new();
     let participant = create_participant("user1");
@@ -320,17 +320,17 @@ fn test_allow_list_bucket() {
         )
         .unwrap(),
     ];
-    setup_rules(&evaluator, "user1", rules);
+    setup_rules(&evaluator, "user1", rules).await;
 
     let req = create_request("GET", "/bucket1?list-type=2");
     let operation = parser.parse_operation("bucket1", &req).unwrap();
-    let result = evaluator.evaluate(&participant, operation).unwrap();
+    let result = evaluator.evaluate(&participant, operation).await.unwrap();
 
     assert!(result);
 }
 
-#[test]
-fn test_allow_list_bucket_versions() {
+#[tokio::test]
+async fn test_allow_list_bucket_versions() {
     let parser = DefaultS3OperationParser::new();
     let evaluator = MemoryAuthorizationEvaluator::new();
     let participant = create_participant("user1");
@@ -343,17 +343,17 @@ fn test_allow_list_bucket_versions() {
         )
         .unwrap(),
     ];
-    setup_rules(&evaluator, "user1", rules);
+    setup_rules(&evaluator, "user1", rules).await;
 
     let req = create_request("GET", "/bucket1?versions");
     let operation = parser.parse_operation("bucket1", &req).unwrap();
-    let result = evaluator.evaluate(&participant, operation).unwrap();
+    let result = evaluator.evaluate(&participant, operation).await.unwrap();
 
     assert!(result);
 }
 
-#[test]
-fn test_allow_list_bucket_multipart_uploads() {
+#[tokio::test]
+async fn test_allow_list_bucket_multipart_uploads() {
     let parser = DefaultS3OperationParser::new();
     let evaluator = MemoryAuthorizationEvaluator::new();
     let participant = create_participant("user1");
@@ -366,17 +366,17 @@ fn test_allow_list_bucket_multipart_uploads() {
         )
         .unwrap(),
     ];
-    setup_rules(&evaluator, "user1", rules);
+    setup_rules(&evaluator, "user1", rules).await;
 
     let req = create_request("GET", "/bucket1?uploads");
     let operation = parser.parse_operation("bucket1", &req).unwrap();
-    let result = evaluator.evaluate(&participant, operation).unwrap();
+    let result = evaluator.evaluate(&participant, operation).await.unwrap();
 
     assert!(result);
 }
 
-#[test]
-fn test_allow_get_bucket_location() {
+#[tokio::test]
+async fn test_allow_get_bucket_location() {
     let parser = DefaultS3OperationParser::new();
     let evaluator = MemoryAuthorizationEvaluator::new();
     let participant = create_participant("user1");
@@ -389,32 +389,32 @@ fn test_allow_get_bucket_location() {
         )
         .unwrap(),
     ];
-    setup_rules(&evaluator, "user1", rules);
+    setup_rules(&evaluator, "user1", rules).await;
 
     let req = create_request("GET", "/bucket1?location");
     let operation = parser.parse_operation("bucket1", &req).unwrap();
-    let result = evaluator.evaluate(&participant, operation).unwrap();
+    let result = evaluator.evaluate(&participant, operation).await.unwrap();
 
     assert!(result);
 }
 
 // ==================== Deny Scenarios ====================
 
-#[test]
-fn test_deny_no_rules_for_participant() {
+#[tokio::test]
+async fn test_deny_no_rules_for_participant() {
     let parser = DefaultS3OperationParser::new();
     let evaluator = MemoryAuthorizationEvaluator::new();
     let participant = create_participant("unknown_user");
 
     let req = create_request("GET", "/bucket1/file.txt");
     let operation = parser.parse_operation("bucket1", &req).unwrap();
-    let result = evaluator.evaluate(&participant, operation).unwrap();
+    let result = evaluator.evaluate(&participant, operation).await.unwrap();
 
     assert!(!result);
 }
 
-#[test]
-fn test_deny_wrong_scope() {
+#[tokio::test]
+async fn test_deny_wrong_scope() {
     let parser = DefaultS3OperationParser::new();
     let evaluator = MemoryAuthorizationEvaluator::new();
     let participant = create_participant("user1");
@@ -427,18 +427,18 @@ fn test_deny_wrong_scope() {
         )
         .unwrap(),
     ];
-    setup_rules(&evaluator, "user1", rules);
+    setup_rules(&evaluator, "user1", rules).await;
 
     // Request to bucket2, but rules are for bucket1 scope
     let req = create_request("GET", "/bucket2/file.txt");
     let operation = parser.parse_operation("bucket2", &req).unwrap();
-    let result = evaluator.evaluate(&participant, operation).unwrap();
+    let result = evaluator.evaluate(&participant, operation).await.unwrap();
 
     assert!(!result);
 }
 
-#[test]
-fn test_deny_wrong_action() {
+#[tokio::test]
+async fn test_deny_wrong_action() {
     let parser = DefaultS3OperationParser::new();
     let evaluator = MemoryAuthorizationEvaluator::new();
     let participant = create_participant("user1");
@@ -452,18 +452,18 @@ fn test_deny_wrong_action() {
         )
         .unwrap(),
     ];
-    setup_rules(&evaluator, "user1", rules);
+    setup_rules(&evaluator, "user1", rules).await;
 
     // Try to PutObject
     let req = create_request("PUT", "/bucket1/file.txt");
     let operation = parser.parse_operation("bucket1", &req).unwrap();
-    let result = evaluator.evaluate(&participant, operation).unwrap();
+    let result = evaluator.evaluate(&participant, operation).await.unwrap();
 
     assert!(!result);
 }
 
-#[test]
-fn test_deny_wrong_resource_pattern() {
+#[tokio::test]
+async fn test_deny_wrong_resource_pattern() {
     let parser = DefaultS3OperationParser::new();
     let evaluator = MemoryAuthorizationEvaluator::new();
     let participant = create_participant("user1");
@@ -477,18 +477,18 @@ fn test_deny_wrong_resource_pattern() {
         )
         .unwrap(),
     ];
-    setup_rules(&evaluator, "user1", rules);
+    setup_rules(&evaluator, "user1", rules).await;
 
     // Try to access /bucket1/private/file.txt
     let req = create_request("GET", "/bucket1/private/file.txt");
     let operation = parser.parse_operation("bucket1", &req).unwrap();
-    let result = evaluator.evaluate(&participant, operation).unwrap();
+    let result = evaluator.evaluate(&participant, operation).await.unwrap();
 
     assert!(!result);
 }
 
-#[test]
-fn test_deny_read_only_user_trying_to_write() {
+#[tokio::test]
+async fn test_deny_read_only_user_trying_to_write() {
     let parser = DefaultS3OperationParser::new();
     let evaluator = MemoryAuthorizationEvaluator::new();
     let participant = create_participant("readonly_user");
@@ -502,18 +502,18 @@ fn test_deny_read_only_user_trying_to_write() {
         )
         .unwrap(),
     ];
-    setup_rules(&evaluator, "readonly_user", rules);
+    setup_rules(&evaluator, "readonly_user", rules).await;
 
     // Try to delete
     let req = create_request("DELETE", "/bucket1/file.txt");
     let operation = parser.parse_operation("bucket1", &req).unwrap();
-    let result = evaluator.evaluate(&participant, operation).unwrap();
+    let result = evaluator.evaluate(&participant, operation).await.unwrap();
 
     assert!(!result);
 }
 
-#[test]
-fn test_deny_get_acl_without_permission() {
+#[tokio::test]
+async fn test_deny_get_acl_without_permission() {
     let parser = DefaultS3OperationParser::new();
     let evaluator = MemoryAuthorizationEvaluator::new();
     let participant = create_participant("user1");
@@ -527,19 +527,19 @@ fn test_deny_get_acl_without_permission() {
         )
         .unwrap(),
     ];
-    setup_rules(&evaluator, "user1", rules);
+    setup_rules(&evaluator, "user1", rules).await;
 
     let req = create_request("GET", "/bucket1/file.txt?acl");
     let operation = parser.parse_operation("bucket1", &req).unwrap();
-    let result = evaluator.evaluate(&participant, operation).unwrap();
+    let result = evaluator.evaluate(&participant, operation).await.unwrap();
 
     assert!(!result);
 }
 
 // ==================== Multiple Actions ====================
 
-#[test]
-fn test_multiple_actions_in_single_rule() {
+#[tokio::test]
+async fn test_multiple_actions_in_single_rule() {
     let parser = DefaultS3OperationParser::new();
     let evaluator = MemoryAuthorizationEvaluator::new();
     let participant = create_participant("user1");
@@ -557,28 +557,28 @@ fn test_multiple_actions_in_single_rule() {
         )
         .unwrap(),
     ];
-    setup_rules(&evaluator, "user1", rules);
+    setup_rules(&evaluator, "user1", rules).await;
 
     // Test GET
     let req = create_request("GET", "/bucket1/file.txt");
     let operation = parser.parse_operation("bucket1", &req).unwrap();
-    assert!(evaluator.evaluate(&participant, operation).unwrap());
+    assert!(evaluator.evaluate(&participant, operation).await.unwrap());
 
     // Test PUT
     let req = create_request("PUT", "/bucket1/file.txt");
     let operation = parser.parse_operation("bucket1", &req).unwrap();
-    assert!(evaluator.evaluate(&participant, operation).unwrap());
+    assert!(evaluator.evaluate(&participant, operation).await.unwrap());
 
     // Test DELETE
     let req = create_request("DELETE", "/bucket1/file.txt");
     let operation = parser.parse_operation("bucket1", &req).unwrap();
-    assert!(evaluator.evaluate(&participant, operation).unwrap());
+    assert!(evaluator.evaluate(&participant, operation).await.unwrap());
 }
 
 // ==================== Multiple Rules ====================
 
-#[test]
-fn test_multiple_rules_different_resources() {
+#[tokio::test]
+async fn test_multiple_rules_different_resources() {
     let parser = DefaultS3OperationParser::new();
     let evaluator = MemoryAuthorizationEvaluator::new();
     let participant = create_participant("user1");
@@ -602,26 +602,26 @@ fn test_multiple_rules_different_resources() {
         )
         .unwrap(),
     ];
-    setup_rules(&evaluator, "user1", rules);
+    setup_rules(&evaluator, "user1", rules).await;
 
     // Can read from public
     let req = create_request("GET", "/bucket1/public/file.txt");
     let operation = parser.parse_operation("bucket1", &req).unwrap();
-    assert!(evaluator.evaluate(&participant, operation).unwrap());
+    assert!(evaluator.evaluate(&participant, operation).await.unwrap());
 
     // Cannot write to public
     let req = create_request("PUT", "/bucket1/public/file.txt");
     let operation = parser.parse_operation("bucket1", &req).unwrap();
-    assert!(!evaluator.evaluate(&participant, operation).unwrap());
+    assert!(!evaluator.evaluate(&participant, operation).await.unwrap());
 
     // Can write to uploads
     let req = create_request("PUT", "/bucket1/uploads/file.txt");
     let operation = parser.parse_operation("bucket1", &req).unwrap();
-    assert!(evaluator.evaluate(&participant, operation).unwrap());
+    assert!(evaluator.evaluate(&participant, operation).await.unwrap());
 }
 
-#[test]
-fn test_multiple_rules_different_scopes() {
+#[tokio::test]
+async fn test_multiple_rules_different_scopes() {
     let parser = DefaultS3OperationParser::new();
     let evaluator = MemoryAuthorizationEvaluator::new();
     let participant = create_participant("user1");
@@ -641,33 +641,33 @@ fn test_multiple_rules_different_scopes() {
         )
         .unwrap(),
     ];
-    setup_rules(&evaluator, "user1", rules);
+    setup_rules(&evaluator, "user1", rules).await;
 
     // Can read from bucket1
     let req = create_request("GET", "/bucket1/file.txt");
     let operation = parser.parse_operation("bucket1", &req).unwrap();
-    assert!(evaluator.evaluate(&participant, operation).unwrap());
+    assert!(evaluator.evaluate(&participant, operation).await.unwrap());
 
     // Cannot write to bucket1
     let req = create_request("PUT", "/bucket1/file.txt");
     let operation = parser.parse_operation("bucket1", &req).unwrap();
-    assert!(!evaluator.evaluate(&participant, operation).unwrap());
+    assert!(!evaluator.evaluate(&participant, operation).await.unwrap());
 
     // Can write to bucket2
     let req = create_request("PUT", "/bucket2/file.txt");
     let operation = parser.parse_operation("bucket2", &req).unwrap();
-    assert!(evaluator.evaluate(&participant, operation).unwrap());
+    assert!(evaluator.evaluate(&participant, operation).await.unwrap());
 
     // Cannot read from bucket2
     let req = create_request("GET", "/bucket2/file.txt");
     let operation = parser.parse_operation("bucket2", &req).unwrap();
-    assert!(!evaluator.evaluate(&participant, operation).unwrap());
+    assert!(!evaluator.evaluate(&participant, operation).await.unwrap());
 }
 
 // ==================== Real-world Scenarios ====================
 
-#[test]
-fn test_readonly_access_to_entire_bucket() {
+#[tokio::test]
+async fn test_readonly_access_to_entire_bucket() {
     let parser = DefaultS3OperationParser::new();
     let evaluator = MemoryAuthorizationEvaluator::new();
     let participant = create_participant("analyst");
@@ -686,31 +686,31 @@ fn test_readonly_access_to_entire_bucket() {
         )
         .unwrap(),
     ];
-    setup_rules(&evaluator, "analyst", rules);
+    setup_rules(&evaluator, "analyst", rules).await;
 
     // Can list bucket
     let req = create_request("GET", "/data-bucket?list-type=2");
     let operation = parser.parse_operation("data-bucket", &req).unwrap();
-    assert!(evaluator.evaluate(&participant, operation).unwrap());
+    assert!(evaluator.evaluate(&participant, operation).await.unwrap());
 
     // Can read objects
     let req = create_request("GET", "/data-bucket/reports/2024/q1.csv");
     let operation = parser.parse_operation("data-bucket", &req).unwrap();
-    assert!(evaluator.evaluate(&participant, operation).unwrap());
+    assert!(evaluator.evaluate(&participant, operation).await.unwrap());
 
     // Cannot delete
     let req = create_request("DELETE", "/data-bucket/reports/2024/q1.csv");
     let operation = parser.parse_operation("data-bucket", &req).unwrap();
-    assert!(!evaluator.evaluate(&participant, operation).unwrap());
+    assert!(!evaluator.evaluate(&participant, operation).await.unwrap());
 
     // Cannot write
     let req = create_request("PUT", "/data-bucket/reports/2024/q2.csv");
     let operation = parser.parse_operation("data-bucket", &req).unwrap();
-    assert!(!evaluator.evaluate(&participant, operation).unwrap());
+    assert!(!evaluator.evaluate(&participant, operation).await.unwrap());
 }
 
-#[test]
-fn test_folder_specific_access() {
+#[tokio::test]
+async fn test_folder_specific_access() {
     let parser = DefaultS3OperationParser::new();
     let evaluator = MemoryAuthorizationEvaluator::new();
     let participant = create_participant("user123");
@@ -728,21 +728,21 @@ fn test_folder_specific_access() {
         )
         .unwrap(),
     ];
-    setup_rules(&evaluator, "user123", rules);
+    setup_rules(&evaluator, "user123", rules).await;
 
     // Can access own folder
     let req = create_request("GET", "/shared-bucket/users/user123/documents/file.pdf");
     let operation = parser.parse_operation("shared-bucket", &req).unwrap();
-    assert!(evaluator.evaluate(&participant, operation).unwrap());
+    assert!(evaluator.evaluate(&participant, operation).await.unwrap());
 
     // Cannot access another user's folder
     let req = create_request("GET", "/shared-bucket/users/user456/documents/file.pdf");
     let operation = parser.parse_operation("shared-bucket", &req).unwrap();
-    assert!(!evaluator.evaluate(&participant, operation).unwrap());
+    assert!(!evaluator.evaluate(&participant, operation).await.unwrap());
 }
 
-#[test]
-fn test_temporary_upload_access() {
+#[tokio::test]
+async fn test_temporary_upload_access() {
     let parser = DefaultS3OperationParser::new();
     let evaluator = MemoryAuthorizationEvaluator::new();
     let participant = create_participant("upload-service");
@@ -756,26 +756,26 @@ fn test_temporary_upload_access() {
         )
         .unwrap(),
     ];
-    setup_rules(&evaluator, "upload-service", rules);
+    setup_rules(&evaluator, "upload-service", rules).await;
 
     // Can upload to temp
     let req = create_request("PUT", "/storage-bucket/temp-uploads/file-abc123.tmp");
     let operation = parser.parse_operation("storage-bucket", &req).unwrap();
-    assert!(evaluator.evaluate(&participant, operation).unwrap());
+    assert!(evaluator.evaluate(&participant, operation).await.unwrap());
 
     // Cannot read
     let req = create_request("GET", "/storage-bucket/temp-uploads/file-abc123.tmp");
     let operation = parser.parse_operation("storage-bucket", &req).unwrap();
-    assert!(!evaluator.evaluate(&participant, operation).unwrap());
+    assert!(!evaluator.evaluate(&participant, operation).await.unwrap());
 
     // Cannot upload to permanent storage
     let req = create_request("PUT", "/storage-bucket/permanent/file.dat");
     let operation = parser.parse_operation("storage-bucket", &req).unwrap();
-    assert!(!evaluator.evaluate(&participant, operation).unwrap());
+    assert!(!evaluator.evaluate(&participant, operation).await.unwrap());
 }
 
-#[test]
-fn test_versioned_bucket_access() {
+#[tokio::test]
+async fn test_versioned_bucket_access() {
     let parser = DefaultS3OperationParser::new();
     let evaluator = MemoryAuthorizationEvaluator::new();
     let participant = create_participant("backup-service");
@@ -788,26 +788,26 @@ fn test_versioned_bucket_access() {
         )
         .unwrap(),
     ];
-    setup_rules(&evaluator, "backup-service", rules);
+    setup_rules(&evaluator, "backup-service", rules).await;
 
     // Can list versions
     let req = create_request("GET", "/versioned-bucket?versions");
     let operation = parser.parse_operation("versioned-bucket", &req).unwrap();
-    assert!(evaluator.evaluate(&participant, operation).unwrap());
+    assert!(evaluator.evaluate(&participant, operation).await.unwrap());
 
     // Can get specific version
     let req = create_request("GET", "/versioned-bucket/file.txt?versionId=v123");
     let operation = parser.parse_operation("versioned-bucket", &req).unwrap();
-    assert!(evaluator.evaluate(&participant, operation).unwrap());
+    assert!(evaluator.evaluate(&participant, operation).await.unwrap());
 
     // Cannot get current version (no GetObject permission)
     let req = create_request("GET", "/versioned-bucket/file.txt");
     let operation = parser.parse_operation("versioned-bucket", &req).unwrap();
-    assert!(!evaluator.evaluate(&participant, operation).unwrap());
+    assert!(!evaluator.evaluate(&participant, operation).await.unwrap());
 }
 
-#[test]
-fn test_admin_full_access() {
+#[tokio::test]
+async fn test_admin_full_access() {
     let parser = DefaultS3OperationParser::new();
     let evaluator = MemoryAuthorizationEvaluator::new();
     let participant = create_participant("admin");
@@ -831,7 +831,7 @@ fn test_admin_full_access() {
         )
         .unwrap(),
     ];
-    setup_rules(&evaluator, "admin", rules);
+    setup_rules(&evaluator, "admin", rules).await;
 
     // Test various operations
     let operations = vec![
@@ -849,7 +849,7 @@ fn test_admin_full_access() {
         let req = create_request(method, uri);
         let operation = parser.parse_operation("admin-bucket", &req).unwrap();
         assert!(
-            evaluator.evaluate(&participant, operation).unwrap(),
+            evaluator.evaluate(&participant, operation).await.unwrap(),
             "Admin should have access to {} {}",
             method,
             uri
@@ -859,8 +859,8 @@ fn test_admin_full_access() {
 
 // ==================== Multiple Participants ====================
 
-#[test]
-fn test_different_participants_different_permissions() {
+#[tokio::test]
+async fn test_different_participants_different_permissions() {
     let parser = DefaultS3OperationParser::new();
     let evaluator = MemoryAuthorizationEvaluator::new();
 
@@ -873,7 +873,7 @@ fn test_different_participants_different_permissions() {
         )
         .unwrap(),
     ];
-    setup_rules(&evaluator, "user1", rules_user1);
+    setup_rules(&evaluator, "user1", rules_user1).await;
 
     // Setup rules for user2
     let rules_user2 = vec![
@@ -884,7 +884,7 @@ fn test_different_participants_different_permissions() {
         )
         .unwrap(),
     ];
-    setup_rules(&evaluator, "user2", rules_user2);
+    setup_rules(&evaluator, "user2", rules_user2).await;
 
     let req_get = create_request("GET", "/bucket1/file.txt");
     let req_put = create_request("PUT", "/bucket1/file.txt");
@@ -892,26 +892,26 @@ fn test_different_participants_different_permissions() {
     // user1 can read
     let operation = parser.parse_operation("bucket1", &req_get).unwrap();
     let participant1 = create_participant("user1");
-    assert!(evaluator.evaluate(&participant1, operation).unwrap());
+    assert!(evaluator.evaluate(&participant1, operation).await.unwrap());
 
     // user1 cannot write
     let operation = parser.parse_operation("bucket1", &req_put).unwrap();
-    assert!(!evaluator.evaluate(&participant1, operation).unwrap());
+    assert!(!evaluator.evaluate(&participant1, operation).await.unwrap());
 
     // user2 can write
     let operation = parser.parse_operation("bucket1", &req_put).unwrap();
     let participant2 = create_participant("user2");
-    assert!(evaluator.evaluate(&participant2, operation).unwrap());
+    assert!(evaluator.evaluate(&participant2, operation).await.unwrap());
 
     // user2 cannot read
     let operation = parser.parse_operation("bucket1", &req_get).unwrap();
-    assert!(!evaluator.evaluate(&participant2, operation).unwrap());
+    assert!(!evaluator.evaluate(&participant2, operation).await.unwrap());
 }
 
 // ==================== Complex Resource Patterns ====================
 
-#[test]
-fn test_regex_pattern_with_specific_file_extension() {
+#[tokio::test]
+async fn test_regex_pattern_with_specific_file_extension() {
     let parser = DefaultS3OperationParser::new();
     let evaluator = MemoryAuthorizationEvaluator::new();
     let participant = create_participant("image-processor");
@@ -925,7 +925,7 @@ fn test_regex_pattern_with_specific_file_extension() {
         )
         .unwrap(),
     ];
-    setup_rules(&evaluator, "image-processor", rules);
+    setup_rules(&evaluator, "image-processor", rules).await;
 
     // Can access image files
     let image_files = vec![
@@ -937,7 +937,7 @@ fn test_regex_pattern_with_specific_file_extension() {
         let req = create_request("GET", uri);
         let operation = parser.parse_operation("media-bucket", &req).unwrap();
         assert!(
-            evaluator.evaluate(&participant, operation).unwrap(),
+            evaluator.evaluate(&participant, operation).await.unwrap(),
             "Should allow access to {}",
             uri
         );
@@ -953,7 +953,7 @@ fn test_regex_pattern_with_specific_file_extension() {
         let req = create_request("GET", uri);
         let operation = parser.parse_operation("media-bucket", &req).unwrap();
         assert!(
-            !evaluator.evaluate(&participant, operation).unwrap(),
+            !evaluator.evaluate(&participant, operation).await.unwrap(),
             "Should deny access to {}",
             uri
         );

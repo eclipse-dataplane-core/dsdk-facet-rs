@@ -28,8 +28,9 @@ impl MemoryAuthorizationEvaluator {
     }
 }
 
+#[async_trait::async_trait]
 impl AuthorizationEvaluator for MemoryAuthorizationEvaluator {
-    fn evaluate(
+    async fn evaluate(
         &self,
         participant_context: &ParticipantContext,
         operation: Operation,
@@ -55,8 +56,9 @@ impl AuthorizationEvaluator for MemoryAuthorizationEvaluator {
     }
 }
 
+#[async_trait::async_trait]
 impl RuleStore for MemoryAuthorizationEvaluator {
-    fn get_rules(&self, participant_context: &ParticipantContext) -> Result<Vec<Rule>, AuthorizationError> {
+    async fn get_rules(&self, participant_context: &ParticipantContext) -> Result<Vec<Rule>, AuthorizationError> {
         let rules = self.rules.read().map_err(|e| AuthorizationError::StoreError(format!("Failed to acquire lock: {}", e)))?;
 
         let Some(participant_rules) = rules.get(&participant_context.identifier) else {
@@ -71,7 +73,7 @@ impl RuleStore for MemoryAuthorizationEvaluator {
         Ok(all_rules)
     }
 
-    fn save_rule(&self, participant_context: &ParticipantContext, rule: Rule) -> Result<(), AuthorizationError> {
+    async fn save_rule(&self, participant_context: &ParticipantContext, rule: Rule) -> Result<(), AuthorizationError> {
         let mut rules = self.rules.write().map_err(|e| AuthorizationError::StoreError(format!("Failed to acquire lock: {}", e)))?;
 
         rules
@@ -84,7 +86,7 @@ impl RuleStore for MemoryAuthorizationEvaluator {
         Ok(())
     }
 
-    fn remove_rule(&self, participant_context: &ParticipantContext, rule: Rule) -> Result<(), AuthorizationError> {
+    async fn remove_rule(&self, participant_context: &ParticipantContext, rule: Rule) -> Result<(), AuthorizationError> {
         let mut rules = self.rules.write().map_err(|e| AuthorizationError::StoreError(format!("Failed to acquire lock: {}", e)))?;
 
         let Some(participant_rules) = rules.get_mut(&participant_context.identifier) else {

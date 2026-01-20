@@ -14,12 +14,14 @@
 mod tests;
 
 mod mem;
+mod postgres;
 
 use crate::context::ParticipantContext;
 use regex::Regex;
 use thiserror::Error;
 
 pub use mem::MemoryAuthorizationEvaluator;
+pub use postgres::PostgresAuthorizationEvaluator;
 
 /// Represents an operation with specific attributes that describe its scope, action, and resource.
 ///
@@ -73,8 +75,9 @@ impl Rule {
 }
 
 /// Evaluates whether an operation is authorized for a participant based on the configured rules.
+#[async_trait::async_trait]
 pub trait AuthorizationEvaluator: Sync + Send {
-    fn evaluate(
+    async fn evaluate(
         &self,
         participant_context: &ParticipantContext,
         operation: Operation,
@@ -82,10 +85,11 @@ pub trait AuthorizationEvaluator: Sync + Send {
 }
 
 /// Stores rules for a participant.
+#[async_trait::async_trait]
 pub trait RuleStore: Send + Sync {
-    fn get_rules(&self, participant_context: &ParticipantContext) -> Result<Vec<Rule>, AuthorizationError>;
-    fn save_rule(&self, participant_context: &ParticipantContext, rule: Rule) -> Result<(), AuthorizationError>;
-    fn remove_rule(&self, participant_context: &ParticipantContext, rule: Rule) -> Result<(), AuthorizationError>;
+    async fn get_rules(&self, participant_context: &ParticipantContext) -> Result<Vec<Rule>, AuthorizationError>;
+    async fn save_rule(&self, participant_context: &ParticipantContext, rule: Rule) -> Result<(), AuthorizationError>;
+    async fn remove_rule(&self, participant_context: &ParticipantContext, rule: Rule) -> Result<(), AuthorizationError>;
 }
 
 pub struct TrueAuthorizationEvaluator {}
@@ -96,8 +100,9 @@ impl TrueAuthorizationEvaluator {
     }
 }
 
+#[async_trait::async_trait]
 impl AuthorizationEvaluator for TrueAuthorizationEvaluator {
-    fn evaluate(&self, _: &ParticipantContext, _: Operation) -> Result<bool, AuthorizationError> {
+    async fn evaluate(&self, _: &ParticipantContext, _: Operation) -> Result<bool, AuthorizationError> {
         Ok(true)
     }
 }

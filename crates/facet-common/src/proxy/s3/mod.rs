@@ -367,6 +367,7 @@ impl ProxyHttp for S3Proxy {
         let is_authorized = self
             .auth_evaluator
             .evaluate(&ctx.participant_context, operation)
+            .await
             .map_err(|e| {
                 internal_error(format!(
                     "Authorization evaluation failed for participant {}: {}",

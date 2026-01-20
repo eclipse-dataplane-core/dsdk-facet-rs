@@ -17,7 +17,7 @@ use aws_sdk_s3::config::{Credentials, Region};
 use aws_sdk_s3::Client;
 use facet_common::proxy::s3::UpstreamStyle;
 use crate::common::{
-    get_available_port, MinioInstance, ProxyConfig, launch_s3proxy,
+    get_available_port, launch_s3proxy, MinioInstance, ProxyConfig,
     MINIO_ACCESS_KEY, MINIO_SECRET_KEY, TEST_BUCKET, TEST_KEY,
 };
 
@@ -40,7 +40,7 @@ async fn test_s3_proxy_with_token_validation() {
         None,
         VALID_SESSION_TOKEN.to_string(),
         "test-scope".to_string(),
-    ));
+    ).await);
 
     // Configure SDK to use the proxy as a reverse proxy endpoint
     let proxy_url = format!("http://127.0.0.1:{}", proxy_port);

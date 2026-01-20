@@ -17,19 +17,19 @@ fn create_test_evaluator() -> MemoryAuthorizationEvaluator {
     MemoryAuthorizationEvaluator::new()
 }
 
-fn setup_rules(evaluator: &MemoryAuthorizationEvaluator, participant_id: &str, rules: Vec<Rule>) {
+async fn setup_rules(evaluator: &MemoryAuthorizationEvaluator, participant_id: &str, rules: Vec<Rule>) {
     let ctx = &ParticipantContext {
         identifier: participant_id.to_string(),
         audience: "test-audience".to_string(),
     };
 
     for rule in rules {
-        evaluator.save_rule(ctx, rule).unwrap();
+        evaluator.save_rule(ctx, rule).await.unwrap();
     }
 }
 
-#[test]
-fn test_evaluate_authorized_exact_match() {
+#[tokio::test]
+async fn test_evaluate_authorized_exact_match() {
     let evaluator = create_test_evaluator();
     let rules = vec![
         Rule::new(
@@ -39,7 +39,7 @@ fn test_evaluate_authorized_exact_match() {
         )
         .unwrap(),
     ];
-    setup_rules(&evaluator, "participant1", rules);
+    setup_rules(&evaluator, "participant1", rules).await;
 
     let result = evaluator.evaluate(
         &ParticipantContext {
@@ -51,14 +51,14 @@ fn test_evaluate_authorized_exact_match() {
             action: "read".to_string(),
             resource: "resource1".to_string(),
         },
-    );
+    ).await;
 
     assert!(result.is_ok());
     assert!(result.unwrap());
 }
 
-#[test]
-fn test_evaluate_no_rules_for_participant() {
+#[tokio::test]
+async fn test_evaluate_no_rules_for_participant() {
     let evaluator = create_test_evaluator();
 
     let result = evaluator.evaluate(
@@ -71,14 +71,14 @@ fn test_evaluate_no_rules_for_participant() {
             action: "read".to_string(),
             resource: "resource1".to_string(),
         },
-    );
+    ).await;
 
     assert!(result.is_ok());
     assert!(!result.unwrap());
 }
 
-#[test]
-fn test_evaluate_no_rules_for_scope() {
+#[tokio::test]
+async fn test_evaluate_no_rules_for_scope() {
     let evaluator = create_test_evaluator();
     let rules = vec![
         Rule::new(
@@ -88,7 +88,7 @@ fn test_evaluate_no_rules_for_scope() {
         )
         .unwrap(),
     ];
-    setup_rules(&evaluator, "participant1", rules);
+    setup_rules(&evaluator, "participant1", rules).await;
 
     let result = evaluator.evaluate(
         &ParticipantContext {
@@ -100,14 +100,14 @@ fn test_evaluate_no_rules_for_scope() {
             action: "read".to_string(),
             resource: "resource1".to_string(),
         },
-    );
+    ).await;
 
     assert!(result.is_ok());
     assert!(!result.unwrap());
 }
 
-#[test]
-fn test_evaluate_action_not_authorized() {
+#[tokio::test]
+async fn test_evaluate_action_not_authorized() {
     let evaluator = create_test_evaluator();
     let rules = vec![
         Rule::new(
@@ -117,7 +117,7 @@ fn test_evaluate_action_not_authorized() {
         )
         .unwrap(),
     ];
-    setup_rules(&evaluator, "participant1", rules);
+    setup_rules(&evaluator, "participant1", rules).await;
 
     let result = evaluator.evaluate(
         &ParticipantContext {
@@ -129,14 +129,14 @@ fn test_evaluate_action_not_authorized() {
             action: "write".to_string(),
             resource: "resource1".to_string(),
         },
-    );
+    ).await;
 
     assert!(result.is_ok());
     assert!(!result.unwrap());
 }
 
-#[test]
-fn test_evaluate_resource_not_matching() {
+#[tokio::test]
+async fn test_evaluate_resource_not_matching() {
     let evaluator = create_test_evaluator();
     let rules = vec![
         Rule::new(
@@ -146,7 +146,7 @@ fn test_evaluate_resource_not_matching() {
         )
         .unwrap(),
     ];
-    setup_rules(&evaluator, "participant1", rules);
+    setup_rules(&evaluator, "participant1", rules).await;
 
     let result = evaluator.evaluate(
         &ParticipantContext {
@@ -158,14 +158,14 @@ fn test_evaluate_resource_not_matching() {
             action: "read".to_string(),
             resource: "resource2".to_string(),
         },
-    );
+    ).await;
 
     assert!(result.is_ok());
     assert!(!result.unwrap());
 }
 
-#[test]
-fn test_evaluate_regex_pattern_matching() {
+#[tokio::test]
+async fn test_evaluate_regex_pattern_matching() {
     let evaluator = create_test_evaluator();
     let rules = vec![
         Rule::new(
@@ -175,7 +175,7 @@ fn test_evaluate_regex_pattern_matching() {
         )
         .unwrap(),
     ];
-    setup_rules(&evaluator, "participant1", rules);
+    setup_rules(&evaluator, "participant1", rules).await;
 
     // Should match the pattern
     let result = evaluator.evaluate(
@@ -188,7 +188,7 @@ fn test_evaluate_regex_pattern_matching() {
             action: "read".to_string(),
             resource: "/api/users/123".to_string(),
         },
-    );
+    ).await;
     assert!(result.is_ok());
     assert!(result.unwrap());
 
@@ -203,13 +203,13 @@ fn test_evaluate_regex_pattern_matching() {
             action: "read".to_string(),
             resource: "/api/posts/123".to_string(),
         },
-    );
+    ).await;
     assert!(result.is_ok());
     assert!(!result.unwrap());
 }
 
-#[test]
-fn test_evaluate_multiple_actions_in_rule() {
+#[tokio::test]
+async fn test_evaluate_multiple_actions_in_rule() {
     let evaluator = create_test_evaluator();
     let rules = vec![
         Rule::new(
@@ -219,7 +219,7 @@ fn test_evaluate_multiple_actions_in_rule() {
         )
         .unwrap(),
     ];
-    setup_rules(&evaluator, "participant1", rules);
+    setup_rules(&evaluator, "participant1", rules).await;
 
     // All three actions should be authorized
     for action in &["read", "write", "delete"] {
@@ -233,14 +233,14 @@ fn test_evaluate_multiple_actions_in_rule() {
                 action: action.to_string(),
                 resource: "resource1".to_string(),
             },
-        );
+        ).await;
         assert!(result.is_ok());
         assert!(result.unwrap(), "Action {} should be authorized", action);
     }
 }
 
-#[test]
-fn test_evaluate_multiple_rules() {
+#[tokio::test]
+async fn test_evaluate_multiple_rules() {
     let evaluator = create_test_evaluator();
     let rules = vec![
         Rule::new(
@@ -256,7 +256,7 @@ fn test_evaluate_multiple_rules() {
         )
         .unwrap(),
     ];
-    setup_rules(&evaluator, "participant1", rules);
+    setup_rules(&evaluator, "participant1", rules).await;
 
     // First rule should match
     let result = evaluator.evaluate(
@@ -269,7 +269,7 @@ fn test_evaluate_multiple_rules() {
             action: "read".to_string(),
             resource: "/api/users/456".to_string(),
         },
-    );
+    ).await;
     assert!(result.is_ok());
     assert!(result.unwrap());
 
@@ -284,7 +284,7 @@ fn test_evaluate_multiple_rules() {
             action: "write".to_string(),
             resource: "/api/posts/789".to_string(),
         },
-    );
+    ).await;
     assert!(result.is_ok());
     assert!(result.unwrap());
 
@@ -299,7 +299,7 @@ fn test_evaluate_multiple_rules() {
             action: "write".to_string(),
             resource: "/api/users/456".to_string(),
         },
-    );
+    ).await;
     assert!(result.is_ok());
     assert!(!result.unwrap());
 }
@@ -334,21 +334,21 @@ fn test_rule_matches_resource() {
     assert!(!rule.matches_resource("api/users"));
 }
 
-#[test]
-fn test_get_rules_no_rules() {
+#[tokio::test]
+async fn test_get_rules_no_rules() {
     let evaluator = create_test_evaluator();
     let ctx = ParticipantContext {
         identifier: "participant1".to_string(),
         audience: "test-audience".to_string(),
     };
 
-    let result = evaluator.get_rules(&ctx);
+    let result = evaluator.get_rules(&ctx).await;
     assert!(result.is_ok());
     assert_eq!(result.unwrap().len(), 0);
 }
 
-#[test]
-fn test_get_rules_single_rule() {
+#[tokio::test]
+async fn test_get_rules_single_rule() {
     let evaluator = create_test_evaluator();
     let ctx = ParticipantContext {
         identifier: "participant1".to_string(),
@@ -361,9 +361,9 @@ fn test_get_rules_single_rule() {
     )
     .unwrap();
 
-    evaluator.save_rule(&ctx, rule.clone()).unwrap();
+    evaluator.save_rule(&ctx, rule.clone()).await.unwrap();
 
-    let result = evaluator.get_rules(&ctx);
+    let result = evaluator.get_rules(&ctx).await;
     assert!(result.is_ok());
     let rules = result.unwrap();
     assert_eq!(rules.len(), 1);
@@ -371,8 +371,8 @@ fn test_get_rules_single_rule() {
     assert_eq!(rules[0].actions, vec!["read"]);
 }
 
-#[test]
-fn test_get_rules_multiple_scopes() {
+#[tokio::test]
+async fn test_get_rules_multiple_scopes() {
     let evaluator = create_test_evaluator();
     let ctx = ParticipantContext {
         identifier: "participant1".to_string(),
@@ -383,15 +383,15 @@ fn test_get_rules_multiple_scopes() {
         Rule::new("scope1".to_string(), vec!["read".to_string()], "^resource1$".to_string()).unwrap(),
         Rule::new("scope2".to_string(), vec!["write".to_string()], "^resource2$".to_string()).unwrap(),
     ];
-    setup_rules(&evaluator, "participant1", rules);
+    setup_rules(&evaluator, "participant1", rules).await;
 
-    let result = evaluator.get_rules(&ctx);
+    let result = evaluator.get_rules(&ctx).await;
     assert!(result.is_ok());
     assert_eq!(result.unwrap().len(), 2);
 }
 
-#[test]
-fn test_get_rules_same_scope() {
+#[tokio::test]
+async fn test_get_rules_same_scope() {
     let evaluator = create_test_evaluator();
     let ctx = ParticipantContext {
         identifier: "participant1".to_string(),
@@ -402,15 +402,15 @@ fn test_get_rules_same_scope() {
         Rule::new("scope1".to_string(), vec!["read".to_string()], "^resource1$".to_string()).unwrap(),
         Rule::new("scope1".to_string(), vec!["write".to_string()], "^resource2$".to_string()).unwrap(),
     ];
-    setup_rules(&evaluator, "participant1", rules);
+    setup_rules(&evaluator, "participant1", rules).await;
 
-    let result = evaluator.get_rules(&ctx);
+    let result = evaluator.get_rules(&ctx).await;
     assert!(result.is_ok());
     assert_eq!(result.unwrap().len(), 2);
 }
 
-#[test]
-fn test_save_rule() {
+#[tokio::test]
+async fn test_save_rule() {
     let evaluator = create_test_evaluator();
     let ctx = ParticipantContext {
         identifier: "participant1".to_string(),
@@ -423,15 +423,15 @@ fn test_save_rule() {
     )
     .unwrap();
 
-    let result = evaluator.save_rule(&ctx, rule);
+    let result = evaluator.save_rule(&ctx, rule).await;
     assert!(result.is_ok());
 
-    let rules = evaluator.get_rules(&ctx).unwrap();
+    let rules = evaluator.get_rules(&ctx).await.unwrap();
     assert_eq!(rules.len(), 1);
 }
 
-#[test]
-fn test_save_multiple_rules_same_participant() {
+#[tokio::test]
+async fn test_save_multiple_rules_same_participant() {
     let evaluator = create_test_evaluator();
     let ctx = ParticipantContext {
         identifier: "participant1".to_string(),
@@ -441,15 +441,15 @@ fn test_save_multiple_rules_same_participant() {
     let rule1 = Rule::new("scope1".to_string(), vec!["read".to_string()], "^resource1$".to_string()).unwrap();
     let rule2 = Rule::new("scope2".to_string(), vec!["write".to_string()], "^resource2$".to_string()).unwrap();
 
-    evaluator.save_rule(&ctx, rule1).unwrap();
-    evaluator.save_rule(&ctx, rule2).unwrap();
+    evaluator.save_rule(&ctx, rule1).await.unwrap();
+    evaluator.save_rule(&ctx, rule2).await.unwrap();
 
-    let rules = evaluator.get_rules(&ctx).unwrap();
+    let rules = evaluator.get_rules(&ctx).await.unwrap();
     assert_eq!(rules.len(), 2);
 }
 
-#[test]
-fn test_save_rules_different_participants() {
+#[tokio::test]
+async fn test_save_rules_different_participants() {
     let evaluator = create_test_evaluator();
     let ctx1 = ParticipantContext {
         identifier: "participant1".to_string(),
@@ -462,15 +462,15 @@ fn test_save_rules_different_participants() {
 
     let rule = Rule::new("scope1".to_string(), vec!["read".to_string()], "^resource1$".to_string()).unwrap();
 
-    evaluator.save_rule(&ctx1, rule.clone()).unwrap();
-    evaluator.save_rule(&ctx2, rule).unwrap();
+    evaluator.save_rule(&ctx1, rule.clone()).await.unwrap();
+    evaluator.save_rule(&ctx2, rule).await.unwrap();
 
-    assert_eq!(evaluator.get_rules(&ctx1).unwrap().len(), 1);
-    assert_eq!(evaluator.get_rules(&ctx2).unwrap().len(), 1);
+    assert_eq!(evaluator.get_rules(&ctx1).await.unwrap().len(), 1);
+    assert_eq!(evaluator.get_rules(&ctx2).await.unwrap().len(), 1);
 }
 
-#[test]
-fn test_remove_rule_exists() {
+#[tokio::test]
+async fn test_remove_rule_exists() {
     let evaluator = create_test_evaluator();
     let ctx = ParticipantContext {
         identifier: "participant1".to_string(),
@@ -483,16 +483,16 @@ fn test_remove_rule_exists() {
     )
     .unwrap();
 
-    evaluator.save_rule(&ctx, rule.clone()).unwrap();
-    assert_eq!(evaluator.get_rules(&ctx).unwrap().len(), 1);
+    evaluator.save_rule(&ctx, rule.clone()).await.unwrap();
+    assert_eq!(evaluator.get_rules(&ctx).await.unwrap().len(), 1);
 
-    let result = evaluator.remove_rule(&ctx, rule);
+    let result = evaluator.remove_rule(&ctx, rule).await;
     assert!(result.is_ok());
-    assert_eq!(evaluator.get_rules(&ctx).unwrap().len(), 0);
+    assert_eq!(evaluator.get_rules(&ctx).await.unwrap().len(), 0);
 }
 
-#[test]
-fn test_remove_rule_not_exists() {
+#[tokio::test]
+async fn test_remove_rule_not_exists() {
     let evaluator = create_test_evaluator();
     let ctx = ParticipantContext {
         identifier: "participant1".to_string(),
@@ -505,12 +505,12 @@ fn test_remove_rule_not_exists() {
     )
     .unwrap();
 
-    let result = evaluator.remove_rule(&ctx, rule);
+    let result = evaluator.remove_rule(&ctx, rule).await;
     assert!(result.is_ok());
 }
 
-#[test]
-fn test_remove_rule_participant_not_exists() {
+#[tokio::test]
+async fn test_remove_rule_participant_not_exists() {
     let evaluator = create_test_evaluator();
     let ctx = ParticipantContext {
         identifier: "unknown".to_string(),
@@ -523,12 +523,12 @@ fn test_remove_rule_participant_not_exists() {
     )
     .unwrap();
 
-    let result = evaluator.remove_rule(&ctx, rule);
+    let result = evaluator.remove_rule(&ctx, rule).await;
     assert!(result.is_ok());
 }
 
-#[test]
-fn test_remove_rule_multiple_in_scope() {
+#[tokio::test]
+async fn test_remove_rule_multiple_in_scope() {
     let evaluator = create_test_evaluator();
     let ctx = ParticipantContext {
         identifier: "participant1".to_string(),
@@ -538,16 +538,16 @@ fn test_remove_rule_multiple_in_scope() {
     let rule1 = Rule::new("scope1".to_string(), vec!["read".to_string()], "^resource1$".to_string()).unwrap();
     let rule2 = Rule::new("scope1".to_string(), vec!["write".to_string()], "^resource2$".to_string()).unwrap();
 
-    evaluator.save_rule(&ctx, rule1.clone()).unwrap();
-    evaluator.save_rule(&ctx, rule2).unwrap();
-    assert_eq!(evaluator.get_rules(&ctx).unwrap().len(), 2);
+    evaluator.save_rule(&ctx, rule1.clone()).await.unwrap();
+    evaluator.save_rule(&ctx, rule2).await.unwrap();
+    assert_eq!(evaluator.get_rules(&ctx).await.unwrap().len(), 2);
 
-    evaluator.remove_rule(&ctx, rule1).unwrap();
-    assert_eq!(evaluator.get_rules(&ctx).unwrap().len(), 1);
+    evaluator.remove_rule(&ctx, rule1).await.unwrap();
+    assert_eq!(evaluator.get_rules(&ctx).await.unwrap().len(), 1);
 }
 
-#[test]
-fn test_remove_last_rule_cleans_scope() {
+#[tokio::test]
+async fn test_remove_last_rule_cleans_scope() {
     let evaluator = create_test_evaluator();
     let ctx = ParticipantContext {
         identifier: "participant1".to_string(),
@@ -557,18 +557,18 @@ fn test_remove_last_rule_cleans_scope() {
     let rule1 = Rule::new("scope1".to_string(), vec!["read".to_string()], "^resource1$".to_string()).unwrap();
     let rule2 = Rule::new("scope2".to_string(), vec!["write".to_string()], "^resource2$".to_string()).unwrap();
 
-    evaluator.save_rule(&ctx, rule1.clone()).unwrap();
-    evaluator.save_rule(&ctx, rule2).unwrap();
+    evaluator.save_rule(&ctx, rule1.clone()).await.unwrap();
+    evaluator.save_rule(&ctx, rule2).await.unwrap();
 
-    evaluator.remove_rule(&ctx, rule1).unwrap();
+    evaluator.remove_rule(&ctx, rule1).await.unwrap();
 
-    let rules = evaluator.get_rules(&ctx).unwrap();
+    let rules = evaluator.get_rules(&ctx).await.unwrap();
     assert_eq!(rules.len(), 1);
     assert_eq!(rules[0].scope, "scope2");
 }
 
-#[test]
-fn test_remove_last_rule_cleans_participant() {
+#[tokio::test]
+async fn test_remove_last_rule_cleans_participant() {
     let evaluator = create_test_evaluator();
     let ctx = ParticipantContext {
         identifier: "participant1".to_string(),
@@ -581,8 +581,8 @@ fn test_remove_last_rule_cleans_participant() {
     )
     .unwrap();
 
-    evaluator.save_rule(&ctx, rule.clone()).unwrap();
-    evaluator.remove_rule(&ctx, rule).unwrap();
+    evaluator.save_rule(&ctx, rule.clone()).await.unwrap();
+    evaluator.remove_rule(&ctx, rule).await.unwrap();
 
-    assert_eq!(evaluator.get_rules(&ctx).unwrap().len(), 0);
+    assert_eq!(evaluator.get_rules(&ctx).await.unwrap().len(), 0);
 }
