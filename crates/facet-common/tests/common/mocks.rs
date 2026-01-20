@@ -52,11 +52,11 @@ pub struct DefaultOperationParser;
 
 impl S3OperationParser for DefaultOperationParser {
     fn parse_operation(&self, scope: &str, request: &RequestHeader) -> Result<Operation> {
-        Ok(Operation {
-            scope: scope.to_string(),
-            action: format!("s3:{}", request.method.as_str()),
-            resource: request.uri.path().to_string(),
-        })
+        Ok(Operation::builder()
+            .scope(scope)
+            .action(format!("s3:{}", request.method.as_str()))
+            .resource(request.uri.path())
+            .build())
     }
 }
 

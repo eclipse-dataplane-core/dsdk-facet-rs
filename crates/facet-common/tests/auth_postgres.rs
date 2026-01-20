@@ -276,11 +276,11 @@ async fn test_postgres_auth_evaluate_authorized_exact_match() {
 
     evaluator.save_rule(&ctx, rule).await.unwrap();
 
-    let operation = Operation {
-        scope: "test_scope".to_string(),
-        action: "read".to_string(),
-        resource: "resource1".to_string(),
-    };
+    let operation = Operation::builder()
+        .scope("test_scope")
+        .action("read")
+        .resource("resource1")
+        .build();
 
     let result = evaluator.evaluate(&ctx, operation).await.unwrap();
     assert!(result);
@@ -297,11 +297,11 @@ async fn test_postgres_auth_evaluate_no_rules_for_participant() {
         .audience("test-audience")
         .build();
 
-    let operation = Operation {
-        scope: "test_scope".to_string(),
-        action: "read".to_string(),
-        resource: "resource1".to_string(),
-    };
+    let operation = Operation::builder()
+        .scope("test_scope")
+        .action("read")
+        .resource("resource1")
+        .build();
 
     let result = evaluator.evaluate(&ctx, operation).await.unwrap();
     assert!(!result);
@@ -327,11 +327,11 @@ async fn test_postgres_auth_evaluate_wrong_scope() {
 
     evaluator.save_rule(&ctx, rule).await.unwrap();
 
-    let operation = Operation {
-        scope: "scope2".to_string(),
-        action: "read".to_string(),
-        resource: "resource1".to_string(),
-    };
+    let operation = Operation::builder()
+        .scope("scope2")
+        .action("read")
+        .resource("resource1")
+        .build();
 
     let result = evaluator.evaluate(&ctx, operation).await.unwrap();
     assert!(!result);
@@ -357,11 +357,11 @@ async fn test_postgres_auth_evaluate_wrong_action() {
 
     evaluator.save_rule(&ctx, rule).await.unwrap();
 
-    let operation = Operation {
-        scope: "test_scope".to_string(),
-        action: "write".to_string(),
-        resource: "resource1".to_string(),
-    };
+    let operation = Operation::builder()
+        .scope("test_scope")
+        .action("write")
+        .resource("resource1")
+        .build();
 
     let result = evaluator.evaluate(&ctx, operation).await.unwrap();
     assert!(!result);
@@ -387,11 +387,11 @@ async fn test_postgres_auth_evaluate_wrong_resource() {
 
     evaluator.save_rule(&ctx, rule).await.unwrap();
 
-    let operation = Operation {
-        scope: "test_scope".to_string(),
-        action: "read".to_string(),
-        resource: "resource2".to_string(),
-    };
+    let operation = Operation::builder()
+        .scope("test_scope")
+        .action("read")
+        .resource("resource2")
+        .build();
 
     let result = evaluator.evaluate(&ctx, operation).await.unwrap();
     assert!(!result);
@@ -418,26 +418,26 @@ async fn test_postgres_auth_evaluate_regex_pattern() {
     evaluator.save_rule(&ctx, rule).await.unwrap();
 
     // Should match
-    let operation1 = Operation {
-        scope: "test_scope".to_string(),
-        action: "read".to_string(),
-        resource: "bucket/folder/file1.txt".to_string(),
-    };
+    let operation1 = Operation::builder()
+        .scope("test_scope")
+        .action("read")
+        .resource("bucket/folder/file1.txt")
+        .build();
     assert!(evaluator.evaluate(&ctx, operation1).await.unwrap());
 
-    let operation2 = Operation {
-        scope: "test_scope".to_string(),
-        action: "read".to_string(),
-        resource: "bucket/folder/subfolder/file2.txt".to_string(),
-    };
+    let operation2 = Operation::builder()
+        .scope("test_scope")
+        .action("read")
+        .resource("bucket/folder/subfolder/file2.txt")
+        .build();
     assert!(evaluator.evaluate(&ctx, operation2).await.unwrap());
 
     // Should not match
-    let operation3 = Operation {
-        scope: "test_scope".to_string(),
-        action: "read".to_string(),
-        resource: "bucket/folder/file.pdf".to_string(),
-    };
+    let operation3 = Operation::builder()
+        .scope("test_scope")
+        .action("read")
+        .resource("bucket/folder/file.pdf")
+        .build();
     assert!(!evaluator.evaluate(&ctx, operation3).await.unwrap());
 }
 
@@ -462,33 +462,33 @@ async fn test_postgres_auth_evaluate_multiple_actions() {
     evaluator.save_rule(&ctx, rule).await.unwrap();
 
     // All three actions should be authorized
-    let op_read = Operation {
-        scope: "test_scope".to_string(),
-        action: "read".to_string(),
-        resource: "resource1".to_string(),
-    };
+    let op_read = Operation::builder()
+        .scope("test_scope")
+        .action("read")
+        .resource("resource1")
+        .build();
     assert!(evaluator.evaluate(&ctx, op_read).await.unwrap());
 
-    let op_write = Operation {
-        scope: "test_scope".to_string(),
-        action: "write".to_string(),
-        resource: "resource1".to_string(),
-    };
+    let op_write = Operation::builder()
+        .scope("test_scope")
+        .action("write")
+        .resource("resource1")
+        .build();
     assert!(evaluator.evaluate(&ctx, op_write).await.unwrap());
 
-    let op_delete = Operation {
-        scope: "test_scope".to_string(),
-        action: "delete".to_string(),
-        resource: "resource1".to_string(),
-    };
+    let op_delete = Operation::builder()
+        .scope("test_scope")
+        .action("delete")
+        .resource("resource1")
+        .build();
     assert!(evaluator.evaluate(&ctx, op_delete).await.unwrap());
 
     // But not an unauthorized action
-    let op_admin = Operation {
-        scope: "test_scope".to_string(),
-        action: "admin".to_string(),
-        resource: "resource1".to_string(),
-    };
+    let op_admin = Operation::builder()
+        .scope("test_scope")
+        .action("admin")
+        .resource("resource1")
+        .build();
     assert!(!evaluator.evaluate(&ctx, op_admin).await.unwrap());
 }
 
@@ -521,27 +521,27 @@ async fn test_postgres_auth_evaluate_multiple_rules() {
     evaluator.save_rule(&ctx, rule2).await.unwrap();
 
     // Read resource1 should be authorized
-    let op1 = Operation {
-        scope: "test_scope".to_string(),
-        action: "read".to_string(),
-        resource: "resource1".to_string(),
-    };
+    let op1 = Operation::builder()
+        .scope("test_scope")
+        .action("read")
+        .resource("resource1")
+        .build();
     assert!(evaluator.evaluate(&ctx, op1).await.unwrap());
 
     // Write resource2 should be authorized
-    let op2 = Operation {
-        scope: "test_scope".to_string(),
-        action: "write".to_string(),
-        resource: "resource2".to_string(),
-    };
+    let op2 = Operation::builder()
+        .scope("test_scope")
+        .action("write")
+        .resource("resource2")
+        .build();
     assert!(evaluator.evaluate(&ctx, op2).await.unwrap());
 
     // Write resource1 should not be authorized
-    let op3 = Operation {
-        scope: "test_scope".to_string(),
-        action: "write".to_string(),
-        resource: "resource1".to_string(),
-    };
+    let op3 = Operation::builder()
+        .scope("test_scope")
+        .action("write")
+        .resource("resource1")
+        .build();
     assert!(!evaluator.evaluate(&ctx, op3).await.unwrap());
 }
 
@@ -656,11 +656,11 @@ async fn test_postgres_auth_concurrent_evaluations() {
         let evaluator_clone = evaluator.clone();
         let ctx_clone = ctx.clone();
         let handle = tokio::spawn(async move {
-            let operation = Operation {
-                scope: "test_scope".to_string(),
-                action: "read".to_string(),
-                resource: format!("resource{}", i),
-            };
+            let operation = Operation::builder()
+                .scope("test_scope")
+                .action("read")
+                .resource(format!("resource{}", i))
+                .build();
             evaluator_clone.evaluate(&ctx_clone, operation).await
         });
         handles.push(handle);
@@ -698,11 +698,11 @@ async fn test_postgres_auth_with_long_identifiers() {
 
     evaluator.save_rule(&ctx, rule).await.unwrap();
 
-    let operation = Operation {
-        scope: long_scope,
-        action: "read".to_string(),
-        resource: "resource1".to_string(),
-    };
+    let operation = Operation::builder()
+        .scope(long_scope)
+        .action("read")
+        .resource("resource1")
+        .build();
 
     let result = evaluator.evaluate(&ctx, operation).await.unwrap();
     assert!(result);
@@ -733,11 +733,11 @@ async fn test_postgres_auth_different_participants_isolated() {
 
     evaluator.save_rule(&ctx1, rule).await.unwrap();
 
-    let operation = Operation {
-        scope: "test_scope".to_string(),
-        action: "read".to_string(),
-        resource: "resource1".to_string(),
-    };
+    let operation = Operation::builder()
+        .scope("test_scope")
+        .action("read")
+        .resource("resource1")
+        .build();
 
     // Participant1 should be authorized
     assert!(evaluator.evaluate(&ctx1, operation.clone()).await.unwrap());
@@ -904,11 +904,11 @@ async fn test_postgres_auth_complex_real_world_scenario() {
         evaluator
             .evaluate(
                 &user1,
-                Operation {
-                    scope: "agreement123".to_string(),
-                    action: "s3:GetObject".to_string(),
-                    resource: "bucket1/folder1/file.txt".to_string(),
-                }
+                Operation::builder()
+                    .scope("agreement123")
+                    .action("s3:GetObject")
+                    .resource("bucket1/folder1/file.txt")
+                    .build()
             )
             .await
             .unwrap()
@@ -918,11 +918,11 @@ async fn test_postgres_auth_complex_real_world_scenario() {
         evaluator
             .evaluate(
                 &user1,
-                Operation {
-                    scope: "agreement123".to_string(),
-                    action: "s3:PutObject".to_string(),
-                    resource: "bucket1/folder1/uploads/newfile.txt".to_string(),
-                }
+                Operation::builder()
+                    .scope("agreement123")
+                    .action("s3:PutObject")
+                    .resource("bucket1/folder1/uploads/newfile.txt")
+                    .build()
             )
             .await
             .unwrap()
@@ -932,11 +932,11 @@ async fn test_postgres_auth_complex_real_world_scenario() {
         !evaluator
             .evaluate(
                 &user1,
-                Operation {
-                    scope: "agreement123".to_string(),
-                    action: "s3:DeleteObject".to_string(),
-                    resource: "bucket1/folder1/file.txt".to_string(),
-                }
+                Operation::builder()
+                    .scope("agreement123")
+                    .action("s3:DeleteObject")
+                    .resource("bucket1/folder1/file.txt")
+                    .build()
             )
             .await
             .unwrap()
@@ -947,11 +947,11 @@ async fn test_postgres_auth_complex_real_world_scenario() {
         evaluator
             .evaluate(
                 &user2,
-                Operation {
-                    scope: "agreement456".to_string(),
-                    action: "s3:GetObject".to_string(),
-                    resource: "bucket2/any/path/file.txt".to_string(),
-                }
+                Operation::builder()
+                    .scope("agreement456")
+                    .action("s3:GetObject")
+                    .resource("bucket2/any/path/file.txt")
+                    .build()
             )
             .await
             .unwrap()
@@ -961,11 +961,11 @@ async fn test_postgres_auth_complex_real_world_scenario() {
         evaluator
             .evaluate(
                 &user2,
-                Operation {
-                    scope: "agreement456".to_string(),
-                    action: "s3:DeleteObject".to_string(),
-                    resource: "bucket2/file.txt".to_string(),
-                }
+                Operation::builder()
+                    .scope("agreement456")
+                    .action("s3:DeleteObject")
+                    .resource("bucket2/file.txt")
+                    .build()
             )
             .await
             .unwrap()
@@ -976,11 +976,11 @@ async fn test_postgres_auth_complex_real_world_scenario() {
         !evaluator
             .evaluate(
                 &user1,
-                Operation {
-                    scope: "agreement456".to_string(),
-                    action: "s3:GetObject".to_string(),
-                    resource: "bucket2/file.txt".to_string(),
-                }
+                Operation::builder()
+                    .scope("agreement456")
+                    .action("s3:GetObject")
+                    .resource("bucket2/file.txt")
+                    .build()
             )
             .await
             .unwrap()

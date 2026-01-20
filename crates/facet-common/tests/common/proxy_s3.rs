@@ -77,10 +77,10 @@ impl ProxyConfig {
         });
 
         let participant_context_resolver = Arc::new(StaticParticipantContextResolver {
-            participant_context: ParticipantContext {
-                identifier: participant_id.to_string(),
-                audience: "s3-proxy".to_string(),
-            },
+            participant_context: ParticipantContext::builder()
+                .identifier(participant_id)
+                .audience("s3-proxy")
+                .build(),
         });
 
         let token_verifier = Arc::new(TestJwtVerifier {
@@ -118,10 +118,10 @@ impl ProxyConfig {
         });
 
         let participant_context_resolver = Arc::new(StaticParticipantContextResolver {
-            participant_context: ParticipantContext {
-                identifier: "proxy".to_string(),
-                audience: "s3-proxy".to_string(),
-            },
+            participant_context: ParticipantContext::builder()
+                .identifier("proxy")
+                .audience("s3-proxy")
+                .build(),
         });
 
         let token_verifier = Arc::new(TokenMatchingJwtVerifier {
@@ -132,10 +132,10 @@ impl ProxyConfig {
         let auth_evaluator = Arc::new(MemoryAuthorizationEvaluator::new());
         let rule = facet_common::auth::Rule::new(scope, vec!["s3:GetObject".to_string()], ".*".to_string())
             .expect("Failed to create authorization rule");
-        let ctx = &ParticipantContext {
-            identifier: "proxy".to_string(),
-            audience: "test-audience".to_string(),
-        };
+        let ctx = &ParticipantContext::builder()
+            .identifier("proxy")
+            .audience("test-audience")
+            .build();
 
         auth_evaluator.save_rule(ctx, rule).await.unwrap();
 
@@ -161,10 +161,10 @@ impl ProxyConfig {
         operation_parser: Arc<dyn S3OperationParser>,
     ) -> Self {
         let participant_context_resolver = Arc::new(StaticParticipantContextResolver {
-            participant_context: ParticipantContext {
-                identifier: "test-user".to_string(),
-                audience: "test-audience".to_string(),
-            },
+            participant_context: ParticipantContext::builder()
+                .identifier("test-user")
+                .audience("test-audience")
+                .build(),
         });
 
         Self {
@@ -237,10 +237,10 @@ pub async fn add_auth_rule(
     )
     .unwrap();
 
-    let ctx = &ParticipantContext {
-        identifier: participant_id.to_string(),
-        audience: "test-audience".to_string(),
-    };
+    let ctx = &ParticipantContext::builder()
+        .identifier(participant_id)
+        .audience("test-audience")
+        .build();
 
     evaluator.save_rule(ctx, rule).await.unwrap();
 }

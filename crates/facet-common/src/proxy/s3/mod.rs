@@ -282,10 +282,10 @@ impl ProxyHttp for S3Proxy {
 
     fn new_ctx(&self) -> Self::CTX {
         S3ProxyContext {
-            participant_context: ParticipantContext {
-                identifier: "anonymous".to_string(),
-                audience: "anonymous".to_string(),
-            },
+            participant_context: ParticipantContext::builder()
+                .identifier("anonymous")
+                .audience("anonymous")
+                .build(),
             parsed_request: None,
         }
     }

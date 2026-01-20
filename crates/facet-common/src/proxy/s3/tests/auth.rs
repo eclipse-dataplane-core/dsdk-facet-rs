@@ -25,18 +25,18 @@ fn create_request(method: &str, uri: &str) -> RequestHeader {
 
 /// Helper function to create a test participant context
 fn create_participant(identifier: &str) -> ParticipantContext {
-    ParticipantContext {
-        identifier: identifier.to_string(),
-        audience: "test-audience".to_string(),
-    }
+    ParticipantContext::builder()
+        .identifier(identifier)
+        .audience("test-audience")
+        .build()
 }
 
 /// Helper function to set up rules for a participant
 async fn setup_rules(evaluator: &MemoryAuthorizationEvaluator, participant_id: &str, rules: Vec<Rule>) {
-    let ctx = &ParticipantContext {
-        identifier: participant_id.to_string(),
-        audience: "test-audience".to_string(),
-    };
+    let ctx = &ParticipantContext::builder()
+        .identifier(participant_id)
+        .audience("test-audience")
+        .build();
     for rule in rules {
         evaluator.save_rule(ctx, rule).await.unwrap();
     }

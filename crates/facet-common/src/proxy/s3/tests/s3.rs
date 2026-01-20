@@ -189,10 +189,10 @@ fn test_parse_endpoint_with_tls() {
             },
         }))
         .participant_context_resolver(Arc::new(StaticParticipantContextResolver {
-            participant_context: ParticipantContext {
-                identifier: "test".to_string(),
-                audience: "test".to_string(),
-            },
+            participant_context: ParticipantContext::builder()
+                .identifier("test")
+                .audience("test")
+                .build(),
         }))
         .auth_evaluator(Arc::new(TrueAuthorizationEvaluator::new()))
         .build();
@@ -323,10 +323,10 @@ fn create_test_proxy(upstream_style: UpstreamStyle, proxy_domain: Option<String>
             },
         }))
         .participant_context_resolver(Arc::new(StaticParticipantContextResolver {
-            participant_context: ParticipantContext {
-                identifier: "test".to_string(),
-                audience: "test".to_string(),
-            },
+            participant_context: ParticipantContext::builder()
+                .identifier("test")
+                .audience("test")
+                .build(),
         }))
         .auth_evaluator(Arc::new(TrueAuthorizationEvaluator::new()))
         .build()

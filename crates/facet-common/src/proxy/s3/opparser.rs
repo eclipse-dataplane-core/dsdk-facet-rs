@@ -120,10 +120,10 @@ impl S3OperationParser for DefaultS3OperationParser {
         // Extract resource (the path)
         let resource = url.path().to_string();
 
-        Ok(Operation {
-            scope: scope.to_string(),
-            action,
-            resource,
-        })
+        Ok(Operation::builder()
+            .scope(scope)
+            .action(action)
+            .resource(resource)
+            .build())
     }
 }

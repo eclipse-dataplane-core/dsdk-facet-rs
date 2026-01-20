@@ -30,10 +30,13 @@ pub use postgres::PostgresAuthorizationEvaluator;
 /// * `scope` - The scope or domain of the operation, for example, a contract agreement.
 /// * `action` - The specific action to be performed, such as "protocol::read", "write", or "protocol::delete".
 /// * `resource` - The resource on which the action will be performed.
-#[derive(Debug, Clone)]
+#[derive(bon::Builder, Debug, Clone)]
 pub struct Operation {
+    #[builder(into)]
     pub scope: String,
+    #[builder(into)]
     pub action: String,
+    #[builder(into)]
     pub resource: String,
 }
 
