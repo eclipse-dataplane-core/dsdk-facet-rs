@@ -13,7 +13,7 @@
 mod common;
 
 use chrono::{TimeDelta, Utc};
-use common::setup_postgres_container;
+use common::{setup_postgres_container, truncate_to_micros};
 use facet_common::context::ParticipantContext;
 use facet_common::util::{Clock, MockClock, encryption_key};
 use facet_consumer::token::{PostgresTokenStore, TokenData, TokenError, TokenStore};
@@ -73,7 +73,7 @@ async fn test_postgres_save_and_get_token() {
     assert_eq!(retrieved.identifier, "provider1");
     assert_eq!(retrieved.token, "access_token_123");
     assert_eq!(retrieved.refresh_token, "refresh_token_123");
-    assert_eq!(retrieved.expires_at, expires_at);
+    assert_eq!(retrieved.expires_at, truncate_to_micros(expires_at));
     assert_eq!(retrieved.refresh_endpoint, "https://auth.example.com/refresh");
 }
 
@@ -141,7 +141,7 @@ async fn test_postgres_save_token_upserts_on_duplicate() {
     let retrieved = store.get_token(pc, "provider1").await.unwrap();
     assert_eq!(retrieved.token, "new_token");
     assert_eq!(retrieved.refresh_token, "new_refresh");
-    assert_eq!(retrieved.expires_at, expires_at_2);
+    assert_eq!(retrieved.expires_at, truncate_to_micros(expires_at_2));
     assert_eq!(retrieved.refresh_endpoint, "https://new.example.com/refresh");
 }
 
@@ -186,7 +186,7 @@ async fn test_postgres_update_token_success() {
     let retrieved = store.get_token(pc, "provider1").await.unwrap();
     assert_eq!(retrieved.token, "token_updated");
     assert_eq!(retrieved.refresh_token, "refresh_updated");
-    assert_eq!(retrieved.expires_at, new_expires_at);
+    assert_eq!(retrieved.expires_at, truncate_to_micros(new_expires_at));
 }
 
 #[tokio::test]

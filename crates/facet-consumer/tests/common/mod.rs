@@ -10,6 +10,7 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
+use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 use testcontainers::runners::AsyncRunner;
 use testcontainers_modules::postgres::Postgres;
@@ -42,4 +43,13 @@ pub async fn setup_postgres_container() -> (PgPool, testcontainers::ContainerAsy
     .unwrap_or_else(|_| panic!("PostgreSQL failed to become ready within 5 seconds"));
 
     (pool, container)
+}
+
+/// Truncates a DateTime to microsecond precision to match PostgreSQL TIMESTAMP WITH TIME ZONE behavior.
+///
+/// PostgreSQL stores timestamps with microsecond precision, so this helper ensures test assertions
+/// account for the precision loss when round-tripping timestamps through the database.
+pub fn truncate_to_micros(dt: DateTime<Utc>) -> DateTime<Utc> {
+    let micros = dt.timestamp_micros();
+    DateTime::from_timestamp_micros(micros).expect("Invalid timestamp")
 }
