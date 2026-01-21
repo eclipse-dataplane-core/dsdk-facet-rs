@@ -12,7 +12,7 @@
 
 use bon::Builder;
 
-/// Participant data.
+/// Represents a context for a participant in the system.
 #[derive(Builder, Clone, Debug, PartialEq)]
 pub struct ParticipantContext {
     // The internal participant context ID, a UUID.
