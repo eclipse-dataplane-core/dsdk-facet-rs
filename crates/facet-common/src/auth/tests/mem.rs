@@ -560,7 +560,17 @@ async fn test_remove_last_rule_cleans_scope() {
     evaluator.save_rule(&ctx, rule1.clone()).await.unwrap();
     evaluator.save_rule(&ctx, rule2).await.unwrap();
 
+    // Verify both scopes exist in internal map
+    assert!(evaluator.has_scope("participant1", "scope1"));
+    assert!(evaluator.has_scope("participant1", "scope2"));
+    assert_eq!(evaluator.scope_count("participant1"), Some(2));
+
     evaluator.remove_rule(&ctx, rule1).await.unwrap();
+
+    // Verify scope1 is removed from internal map but scope2 remains
+    assert!(!evaluator.has_scope("participant1", "scope1"));
+    assert!(evaluator.has_scope("participant1", "scope2"));
+    assert_eq!(evaluator.scope_count("participant1"), Some(1));
 
     let rules = evaluator.get_rules(&ctx).await.unwrap();
     assert_eq!(rules.len(), 1);
@@ -582,7 +592,509 @@ async fn test_remove_last_rule_cleans_participant() {
     .unwrap();
 
     evaluator.save_rule(&ctx, rule.clone()).await.unwrap();
+
+    // Verify participant exists in internal map
+    assert!(evaluator.has_participant("participant1"));
+    assert_eq!(evaluator.participant_count(), 1);
+
     evaluator.remove_rule(&ctx, rule).await.unwrap();
 
+    // Verify participant is completely removed from internal map
+    assert!(!evaluator.has_participant("participant1"));
+    assert_eq!(evaluator.participant_count(), 0);
     assert_eq!(evaluator.get_rules(&ctx).await.unwrap().len(), 0);
+}
+
+#[tokio::test]
+async fn test_remove_rules_single_participant() {
+    let evaluator = create_test_evaluator();
+    let ctx = ParticipantContext::builder()
+        .identifier("participant1")
+        .audience("test-audience")
+        .build();
+
+    // Add multiple rules across different scopes
+    let rule1 = Rule::new(
+        "scope1".to_string(),
+        vec!["read".to_string()],
+        "^resource1$".to_string(),
+    )
+    .unwrap();
+
+    let rule2 = Rule::new(
+        "scope1".to_string(),
+        vec!["write".to_string()],
+        "^resource2$".to_string(),
+    )
+    .unwrap();
+
+    let rule3 = Rule::new(
+        "scope2".to_string(),
+        vec!["delete".to_string()],
+        "^resource3$".to_string(),
+    )
+    .unwrap();
+
+    evaluator.save_rule(&ctx, rule1).await.unwrap();
+    evaluator.save_rule(&ctx, rule2).await.unwrap();
+    evaluator.save_rule(&ctx, rule3).await.unwrap();
+
+    // Verify rules exist
+    let rules = evaluator.get_rules(&ctx).await.unwrap();
+    assert_eq!(rules.len(), 3);
+
+    // Remove all rules
+    evaluator.remove_rules(&ctx).await.unwrap();
+
+    // Verify all rules are removed
+    let rules = evaluator.get_rules(&ctx).await.unwrap();
+    assert_eq!(rules.len(), 0);
+}
+
+#[tokio::test]
+async fn test_remove_rules_no_rules() {
+    let evaluator = create_test_evaluator();
+    let ctx = ParticipantContext::builder()
+        .identifier("participant1")
+        .audience("test-audience")
+        .build();
+
+    // Remove rules when no rules exist - should be a no-op
+    let result = evaluator.remove_rules(&ctx).await;
+    assert!(result.is_ok());
+
+    // Verify still no rules
+    let rules = evaluator.get_rules(&ctx).await.unwrap();
+    assert_eq!(rules.len(), 0);
+}
+
+#[tokio::test]
+async fn test_remove_rules_isolation() {
+    let evaluator = create_test_evaluator();
+    let ctx1 = ParticipantContext::builder()
+        .identifier("participant1")
+        .audience("test-audience")
+        .build();
+
+    let ctx2 = ParticipantContext::builder()
+        .identifier("participant2")
+        .audience("test-audience")
+        .build();
+
+    // Add rules for both participants
+    let rule1 = Rule::new(
+        "scope1".to_string(),
+        vec!["read".to_string()],
+        "^resource1$".to_string(),
+    )
+    .unwrap();
+
+    let rule2 = Rule::new(
+        "scope1".to_string(),
+        vec!["write".to_string()],
+        "^resource2$".to_string(),
+    )
+    .unwrap();
+
+    evaluator.save_rule(&ctx1, rule1).await.unwrap();
+    evaluator.save_rule(&ctx2, rule2).await.unwrap();
+
+    // Verify both have rules
+    assert_eq!(evaluator.get_rules(&ctx1).await.unwrap().len(), 1);
+    assert_eq!(evaluator.get_rules(&ctx2).await.unwrap().len(), 1);
+
+    // Remove rules for participant1
+    evaluator.remove_rules(&ctx1).await.unwrap();
+
+    // Verify participant1 has no rules but participant2 still has rules
+    assert_eq!(evaluator.get_rules(&ctx1).await.unwrap().len(), 0);
+    assert_eq!(evaluator.get_rules(&ctx2).await.unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn test_remove_rules_then_read() {
+    let evaluator = create_test_evaluator();
+    let ctx = ParticipantContext::builder()
+        .identifier("participant1")
+        .audience("test-audience")
+        .build();
+
+    let rule = Rule::new(
+        "scope1".to_string(),
+        vec!["read".to_string()],
+        "^resource1$".to_string(),
+    )
+    .unwrap();
+
+    // Add rule
+    evaluator.save_rule(&ctx, rule.clone()).await.unwrap();
+    assert_eq!(evaluator.get_rules(&ctx).await.unwrap().len(), 1);
+
+    // Remove all rules
+    evaluator.remove_rules(&ctx).await.unwrap();
+    assert_eq!(evaluator.get_rules(&ctx).await.unwrap().len(), 0);
+
+    // Re-add same rule - should work
+    evaluator.save_rule(&ctx, rule).await.unwrap();
+    assert_eq!(evaluator.get_rules(&ctx).await.unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn test_remove_rules_affects_authorization() {
+    let evaluator = create_test_evaluator();
+    let ctx = ParticipantContext::builder()
+        .identifier("participant1")
+        .audience("test-audience")
+        .build();
+
+    let rule = Rule::new(
+        "test_scope".to_string(),
+        vec!["read".to_string()],
+        "^resource1$".to_string(),
+    )
+    .unwrap();
+
+    let operation = Operation::builder()
+        .scope("test_scope")
+        .action("read")
+        .resource("resource1")
+        .build();
+
+    // Add rule and verify authorization succeeds
+    evaluator.save_rule(&ctx, rule).await.unwrap();
+    assert!(evaluator.evaluate(&ctx, operation.clone()).await.unwrap());
+
+    // Remove all rules
+    evaluator.remove_rules(&ctx).await.unwrap();
+
+    // Verify authorization now fails
+    assert!(!evaluator.evaluate(&ctx, operation).await.unwrap());
+}
+
+#[tokio::test]
+async fn test_remove_rules_multiple_scopes() {
+    let evaluator = create_test_evaluator();
+    let ctx = ParticipantContext::builder()
+        .identifier("participant1")
+        .audience("test-audience")
+        .build();
+
+    // Add rules in multiple scopes
+    let rules = vec![
+        Rule::new("scope1".to_string(), vec!["read".to_string()], "^resource1$".to_string()).unwrap(),
+        Rule::new("scope2".to_string(), vec!["write".to_string()], "^resource2$".to_string()).unwrap(),
+        Rule::new("scope3".to_string(), vec!["delete".to_string()], "^resource3$".to_string()).unwrap(),
+    ];
+
+    for rule in rules {
+        evaluator.save_rule(&ctx, rule).await.unwrap();
+    }
+
+    // Verify all rules exist
+    assert_eq!(evaluator.get_rules(&ctx).await.unwrap().len(), 3);
+
+    // Remove all rules
+    evaluator.remove_rules(&ctx).await.unwrap();
+
+    // Verify all rules from all scopes are removed
+    assert_eq!(evaluator.get_rules(&ctx).await.unwrap().len(), 0);
+}
+
+#[tokio::test]
+async fn test_remove_rule_incremental_cleanup() {
+    let evaluator = create_test_evaluator();
+    let ctx = ParticipantContext::builder()
+        .identifier("participant1")
+        .audience("test-audience")
+        .build();
+
+    // Add 3 rules to the same scope
+    let rule1 = Rule::new("scope1".to_string(), vec!["read".to_string()], "^resource1$".to_string()).unwrap();
+    let rule2 = Rule::new("scope1".to_string(), vec!["write".to_string()], "^resource2$".to_string()).unwrap();
+    let rule3 = Rule::new("scope1".to_string(), vec!["delete".to_string()], "^resource3$".to_string()).unwrap();
+
+    evaluator.save_rule(&ctx, rule1.clone()).await.unwrap();
+    evaluator.save_rule(&ctx, rule2.clone()).await.unwrap();
+    evaluator.save_rule(&ctx, rule3.clone()).await.unwrap();
+
+    // Verify initial state
+    assert!(evaluator.has_participant("participant1"));
+    assert!(evaluator.has_scope("participant1", "scope1"));
+    assert_eq!(evaluator.rule_count("participant1", "scope1"), Some(3));
+
+    // Remove first rule - scope and participant should remain
+    evaluator.remove_rule(&ctx, rule1).await.unwrap();
+    assert!(evaluator.has_participant("participant1"));
+    assert!(evaluator.has_scope("participant1", "scope1"));
+    assert_eq!(evaluator.rule_count("participant1", "scope1"), Some(2));
+
+    // Remove second rule - scope and participant should remain
+    evaluator.remove_rule(&ctx, rule2).await.unwrap();
+    assert!(evaluator.has_participant("participant1"));
+    assert!(evaluator.has_scope("participant1", "scope1"));
+    assert_eq!(evaluator.rule_count("participant1", "scope1"), Some(1));
+
+    // Remove last rule - scope and participant should be cleaned up
+    evaluator.remove_rule(&ctx, rule3).await.unwrap();
+    assert!(!evaluator.has_participant("participant1"));
+    assert!(!evaluator.has_scope("participant1", "scope1"));
+    assert_eq!(evaluator.rule_count("participant1", "scope1"), None);
+    assert_eq!(evaluator.participant_count(), 0);
+}
+
+#[tokio::test]
+async fn test_remove_rule_keeps_other_scopes() {
+    let evaluator = create_test_evaluator();
+    let ctx = ParticipantContext::builder()
+        .identifier("participant1")
+        .audience("test-audience")
+        .build();
+
+    // Add rules to multiple scopes
+    let rule1_scope1 = Rule::new("scope1".to_string(), vec!["read".to_string()], "^resource1$".to_string()).unwrap();
+    let rule2_scope1 = Rule::new("scope1".to_string(), vec!["write".to_string()], "^resource2$".to_string()).unwrap();
+    let rule_scope2 = Rule::new("scope2".to_string(), vec!["delete".to_string()], "^resource3$".to_string()).unwrap();
+    let rule_scope3 = Rule::new("scope3".to_string(), vec!["admin".to_string()], "^resource4$".to_string()).unwrap();
+
+    evaluator.save_rule(&ctx, rule1_scope1.clone()).await.unwrap();
+    evaluator.save_rule(&ctx, rule2_scope1.clone()).await.unwrap();
+    evaluator.save_rule(&ctx, rule_scope2.clone()).await.unwrap();
+    evaluator.save_rule(&ctx, rule_scope3.clone()).await.unwrap();
+
+    // Verify initial state
+    assert_eq!(evaluator.scope_count("participant1"), Some(3));
+    assert_eq!(evaluator.rule_count("participant1", "scope1"), Some(2));
+    assert_eq!(evaluator.rule_count("participant1", "scope2"), Some(1));
+    assert_eq!(evaluator.rule_count("participant1", "scope3"), Some(1));
+
+    // Remove all rules from scope1
+    evaluator.remove_rule(&ctx, rule1_scope1).await.unwrap();
+    evaluator.remove_rule(&ctx, rule2_scope1).await.unwrap();
+
+    // Verify scope1 is removed but other scopes remain
+    assert!(evaluator.has_participant("participant1"));
+    assert!(!evaluator.has_scope("participant1", "scope1"));
+    assert!(evaluator.has_scope("participant1", "scope2"));
+    assert!(evaluator.has_scope("participant1", "scope3"));
+    assert_eq!(evaluator.scope_count("participant1"), Some(2));
+    assert_eq!(evaluator.rule_count("participant1", "scope1"), None);
+}
+
+#[tokio::test]
+async fn test_remove_rules_cleans_all_internal_state() {
+    let evaluator = create_test_evaluator();
+    let ctx = ParticipantContext::builder()
+        .identifier("participant1")
+        .audience("test-audience")
+        .build();
+
+    // Add multiple rules across multiple scopes
+    let rule1 = Rule::new("scope1".to_string(), vec!["read".to_string()], "^resource1$".to_string()).unwrap();
+    let rule2 = Rule::new("scope2".to_string(), vec!["write".to_string()], "^resource2$".to_string()).unwrap();
+    let rule3 = Rule::new("scope3".to_string(), vec!["delete".to_string()], "^resource3$".to_string()).unwrap();
+
+    evaluator.save_rule(&ctx, rule1).await.unwrap();
+    evaluator.save_rule(&ctx, rule2).await.unwrap();
+    evaluator.save_rule(&ctx, rule3).await.unwrap();
+
+    // Verify participant and scopes exist
+    assert!(evaluator.has_participant("participant1"));
+    assert_eq!(evaluator.scope_count("participant1"), Some(3));
+    assert_eq!(evaluator.participant_count(), 1);
+
+    // Remove all rules at once
+    evaluator.remove_rules(&ctx).await.unwrap();
+
+    // Verify complete cleanup
+    assert!(!evaluator.has_participant("participant1"));
+    assert_eq!(evaluator.scope_count("participant1"), None);
+    assert_eq!(evaluator.participant_count(), 0);
+}
+
+#[tokio::test]
+async fn test_multiple_participants_isolation() {
+    let evaluator = create_test_evaluator();
+    let ctx1 = ParticipantContext::builder()
+        .identifier("participant1")
+        .audience("test-audience")
+        .build();
+    let ctx2 = ParticipantContext::builder()
+        .identifier("participant2")
+        .audience("test-audience")
+        .build();
+
+    // Add rules for both participants
+    let rule1 = Rule::new("scope1".to_string(), vec!["read".to_string()], "^resource1$".to_string()).unwrap();
+    let rule2 = Rule::new("scope1".to_string(), vec!["write".to_string()], "^resource2$".to_string()).unwrap();
+
+    evaluator.save_rule(&ctx1, rule1.clone()).await.unwrap();
+    evaluator.save_rule(&ctx2, rule2).await.unwrap();
+
+    // Verify both participants exist
+    assert!(evaluator.has_participant("participant1"));
+    assert!(evaluator.has_participant("participant2"));
+    assert_eq!(evaluator.participant_count(), 2);
+
+    // Remove participant1's rule
+    evaluator.remove_rule(&ctx1, rule1).await.unwrap();
+
+    // Verify participant1 is cleaned up but participant2 remains
+    assert!(!evaluator.has_participant("participant1"));
+    assert!(evaluator.has_participant("participant2"));
+    assert_eq!(evaluator.participant_count(), 1);
+}
+
+#[tokio::test]
+async fn test_remove_nonexistent_rule_no_impact() {
+    let evaluator = create_test_evaluator();
+    let ctx = ParticipantContext::builder()
+        .identifier("participant1")
+        .audience("test-audience")
+        .build();
+
+    // Add one rule
+    let rule1 = Rule::new("scope1".to_string(), vec!["read".to_string()], "^resource1$".to_string()).unwrap();
+    evaluator.save_rule(&ctx, rule1).await.unwrap();
+
+    // Try to remove a rule that doesn't exist
+    let nonexistent_rule = Rule::new("scope1".to_string(), vec!["write".to_string()], "^resource2$".to_string()).unwrap();
+    evaluator.remove_rule(&ctx, nonexistent_rule).await.unwrap();
+
+    // Verify the existing rule is not affected
+    assert!(evaluator.has_participant("participant1"));
+    assert!(evaluator.has_scope("participant1", "scope1"));
+    assert_eq!(evaluator.rule_count("participant1", "scope1"), Some(1));
+}
+
+#[tokio::test]
+async fn test_remove_rule_from_nonexistent_participant() {
+    let evaluator = create_test_evaluator();
+    let ctx = ParticipantContext::builder()
+        .identifier("nonexistent_participant")
+        .audience("test-audience")
+        .build();
+
+    let rule = Rule::new("scope1".to_string(), vec!["read".to_string()], "^resource1$".to_string()).unwrap();
+
+    // Should not error, just no-op
+    evaluator.remove_rule(&ctx, rule).await.unwrap();
+
+    // Verify still no participant
+    assert!(!evaluator.has_participant("nonexistent_participant"));
+    assert_eq!(evaluator.participant_count(), 0);
+}
+
+#[tokio::test]
+async fn test_remove_rule_from_nonexistent_scope() {
+    let evaluator = create_test_evaluator();
+    let ctx = ParticipantContext::builder()
+        .identifier("participant1")
+        .audience("test-audience")
+        .build();
+
+    // Add a rule in scope1
+    let rule1 = Rule::new("scope1".to_string(), vec!["read".to_string()], "^resource1$".to_string()).unwrap();
+    evaluator.save_rule(&ctx, rule1).await.unwrap();
+
+    // Try to remove a rule from scope2 (doesn't exist)
+    let rule2 = Rule::new("scope2".to_string(), vec!["write".to_string()], "^resource2$".to_string()).unwrap();
+    evaluator.remove_rule(&ctx, rule2).await.unwrap();
+
+    // Verify scope1 is unaffected
+    assert!(evaluator.has_participant("participant1"));
+    assert!(evaluator.has_scope("participant1", "scope1"));
+    assert!(!evaluator.has_scope("participant1", "scope2"));
+    assert_eq!(evaluator.scope_count("participant1"), Some(1));
+}
+
+#[tokio::test]
+async fn test_remove_rules_from_nonexistent_participant() {
+    let evaluator = create_test_evaluator();
+    let ctx = ParticipantContext::builder()
+        .identifier("nonexistent_participant")
+        .audience("test-audience")
+        .build();
+
+    // Should not error, just no-op
+    evaluator.remove_rules(&ctx).await.unwrap();
+
+    // Verify still no participant
+    assert!(!evaluator.has_participant("nonexistent_participant"));
+    assert_eq!(evaluator.participant_count(), 0);
+}
+
+#[tokio::test]
+async fn test_readd_after_cleanup() {
+    let evaluator = create_test_evaluator();
+    let ctx = ParticipantContext::builder()
+        .identifier("participant1")
+        .audience("test-audience")
+        .build();
+
+    let rule = Rule::new("scope1".to_string(), vec!["read".to_string()], "^resource1$".to_string()).unwrap();
+
+    // Add, remove, and add again
+    evaluator.save_rule(&ctx, rule.clone()).await.unwrap();
+    assert!(evaluator.has_participant("participant1"));
+
+    evaluator.remove_rule(&ctx, rule.clone()).await.unwrap();
+    assert!(!evaluator.has_participant("participant1"));
+
+    evaluator.save_rule(&ctx, rule).await.unwrap();
+    assert!(evaluator.has_participant("participant1"));
+    assert!(evaluator.has_scope("participant1", "scope1"));
+    assert_eq!(evaluator.rule_count("participant1", "scope1"), Some(1));
+}
+
+#[tokio::test]
+async fn test_complex_multi_scope_multi_rule_cleanup() {
+    let evaluator = create_test_evaluator();
+    let ctx = ParticipantContext::builder()
+        .identifier("participant1")
+        .audience("test-audience")
+        .build();
+
+    // Add multiple rules across multiple scopes
+    let rules_scope1 = vec![
+        Rule::new("scope1".to_string(), vec!["read".to_string()], "^resource1$".to_string()).unwrap(),
+        Rule::new("scope1".to_string(), vec!["write".to_string()], "^resource2$".to_string()).unwrap(),
+        Rule::new("scope1".to_string(), vec!["delete".to_string()], "^resource3$".to_string()).unwrap(),
+    ];
+    let rules_scope2 = vec![
+        Rule::new("scope2".to_string(), vec!["read".to_string()], "^resource4$".to_string()).unwrap(),
+        Rule::new("scope2".to_string(), vec!["write".to_string()], "^resource5$".to_string()).unwrap(),
+    ];
+
+    for rule in &rules_scope1 {
+        evaluator.save_rule(&ctx, rule.clone()).await.unwrap();
+    }
+    for rule in &rules_scope2 {
+        evaluator.save_rule(&ctx, rule.clone()).await.unwrap();
+    }
+
+    // Verify initial state
+    assert_eq!(evaluator.scope_count("participant1"), Some(2));
+    assert_eq!(evaluator.rule_count("participant1", "scope1"), Some(3));
+    assert_eq!(evaluator.rule_count("participant1", "scope2"), Some(2));
+
+    // Remove all rules from scope1
+    for rule in &rules_scope1 {
+        evaluator.remove_rule(&ctx, rule.clone()).await.unwrap();
+    }
+
+    // Verify scope1 is cleaned up but participant and scope2 remain
+    assert!(evaluator.has_participant("participant1"));
+    assert!(!evaluator.has_scope("participant1", "scope1"));
+    assert!(evaluator.has_scope("participant1", "scope2"));
+    assert_eq!(evaluator.scope_count("participant1"), Some(1));
+    assert_eq!(evaluator.rule_count("participant1", "scope2"), Some(2));
+
+    // Remove all rules from scope2
+    for rule in &rules_scope2 {
+        evaluator.remove_rule(&ctx, rule.clone()).await.unwrap();
+    }
+
+    // Verify complete cleanup
+    assert!(!evaluator.has_participant("participant1"));
+    assert_eq!(evaluator.participant_count(), 0);
 }

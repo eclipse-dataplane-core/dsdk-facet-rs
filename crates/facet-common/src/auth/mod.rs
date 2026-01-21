@@ -94,6 +94,7 @@ pub trait RuleStore: Send + Sync {
     async fn get_rules(&self, participant_context: &ParticipantContext) -> Result<Vec<Rule>, AuthorizationError>;
     async fn save_rule(&self, participant_context: &ParticipantContext, rule: Rule) -> Result<(), AuthorizationError>;
     async fn remove_rule(&self, participant_context: &ParticipantContext, rule: Rule) -> Result<(), AuthorizationError>;
+    async fn remove_rules(&self, participant_context: &ParticipantContext) -> Result<(), AuthorizationError>;
 }
 
 pub struct TrueAuthorizationEvaluator {}

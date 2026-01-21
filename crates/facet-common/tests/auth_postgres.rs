@@ -986,3 +986,184 @@ async fn test_postgres_auth_complex_real_world_scenario() {
             .unwrap()
     );
 }
+
+#[tokio::test]
+async fn test_postgres_auth_remove_rules_single_participant() {
+    let (pool, _container) = setup_postgres_container().await;
+    let evaluator = PostgresAuthorizationEvaluator::new(pool);
+    evaluator.initialize().await.unwrap();
+
+    let ctx = ParticipantContext::builder()
+        .identifier("participant1")
+        .audience("test-audience")
+        .build();
+
+    // Add multiple rules across different scopes
+    let rule1 = Rule::new(
+        "scope1".to_string(),
+        vec!["read".to_string()],
+        "^resource1$".to_string(),
+    )
+    .unwrap();
+
+    let rule2 = Rule::new(
+        "scope1".to_string(),
+        vec!["write".to_string()],
+        "^resource2$".to_string(),
+    )
+    .unwrap();
+
+    let rule3 = Rule::new(
+        "scope2".to_string(),
+        vec!["delete".to_string()],
+        "^resource3$".to_string(),
+    )
+    .unwrap();
+
+    evaluator.save_rule(&ctx, rule1).await.unwrap();
+    evaluator.save_rule(&ctx, rule2).await.unwrap();
+    evaluator.save_rule(&ctx, rule3).await.unwrap();
+
+    // Verify rules exist
+    let rules = evaluator.get_rules(&ctx).await.unwrap();
+    assert_eq!(rules.len(), 3);
+
+    // Remove all rules
+    evaluator.remove_rules(&ctx).await.unwrap();
+
+    // Verify all rules are removed
+    let rules = evaluator.get_rules(&ctx).await.unwrap();
+    assert_eq!(rules.len(), 0);
+}
+
+#[tokio::test]
+async fn test_postgres_auth_remove_rules_no_rules() {
+    let (pool, _container) = setup_postgres_container().await;
+    let evaluator = PostgresAuthorizationEvaluator::new(pool);
+    evaluator.initialize().await.unwrap();
+
+    let ctx = ParticipantContext::builder()
+        .identifier("participant1")
+        .audience("test-audience")
+        .build();
+
+    // Remove rules when no rules exist - should be a no-op
+    let result = evaluator.remove_rules(&ctx).await;
+    assert!(result.is_ok());
+
+    // Verify still no rules
+    let rules = evaluator.get_rules(&ctx).await.unwrap();
+    assert_eq!(rules.len(), 0);
+}
+
+#[tokio::test]
+async fn test_postgres_auth_remove_rules_isolation() {
+    let (pool, _container) = setup_postgres_container().await;
+    let evaluator = PostgresAuthorizationEvaluator::new(pool);
+    evaluator.initialize().await.unwrap();
+
+    let ctx1 = ParticipantContext::builder()
+        .identifier("participant1")
+        .audience("test-audience")
+        .build();
+
+    let ctx2 = ParticipantContext::builder()
+        .identifier("participant2")
+        .audience("test-audience")
+        .build();
+
+    // Add rules for both participants
+    let rule1 = Rule::new(
+        "scope1".to_string(),
+        vec!["read".to_string()],
+        "^resource1$".to_string(),
+    )
+    .unwrap();
+
+    let rule2 = Rule::new(
+        "scope1".to_string(),
+        vec!["write".to_string()],
+        "^resource2$".to_string(),
+    )
+    .unwrap();
+
+    evaluator.save_rule(&ctx1, rule1.clone()).await.unwrap();
+    evaluator.save_rule(&ctx2, rule2.clone()).await.unwrap();
+
+    // Verify both have rules
+    assert_eq!(evaluator.get_rules(&ctx1).await.unwrap().len(), 1);
+    assert_eq!(evaluator.get_rules(&ctx2).await.unwrap().len(), 1);
+
+    // Remove rules for participant1
+    evaluator.remove_rules(&ctx1).await.unwrap();
+
+    // Verify participant1 has no rules but participant2 still has rules
+    assert_eq!(evaluator.get_rules(&ctx1).await.unwrap().len(), 0);
+    assert_eq!(evaluator.get_rules(&ctx2).await.unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn test_postgres_auth_remove_rules_then_readd() {
+    let (pool, _container) = setup_postgres_container().await;
+    let evaluator = PostgresAuthorizationEvaluator::new(pool);
+    evaluator.initialize().await.unwrap();
+
+    let ctx = ParticipantContext::builder()
+        .identifier("participant1")
+        .audience("test-audience")
+        .build();
+
+    let rule = Rule::new(
+        "scope1".to_string(),
+        vec!["read".to_string()],
+        "^resource1$".to_string(),
+    )
+    .unwrap();
+
+    // Add rule
+    evaluator.save_rule(&ctx, rule.clone()).await.unwrap();
+    assert_eq!(evaluator.get_rules(&ctx).await.unwrap().len(), 1);
+
+    // Remove all rules
+    evaluator.remove_rules(&ctx).await.unwrap();
+    assert_eq!(evaluator.get_rules(&ctx).await.unwrap().len(), 0);
+
+    // Re-add same rule - should work
+    evaluator.save_rule(&ctx, rule).await.unwrap();
+    assert_eq!(evaluator.get_rules(&ctx).await.unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn test_postgres_auth_remove_rules_affects_authorization() {
+    let (pool, _container) = setup_postgres_container().await;
+    let evaluator = PostgresAuthorizationEvaluator::new(pool);
+    evaluator.initialize().await.unwrap();
+
+    let ctx = ParticipantContext::builder()
+        .identifier("participant1")
+        .audience("test-audience")
+        .build();
+
+    let rule = Rule::new(
+        "test_scope".to_string(),
+        vec!["read".to_string()],
+        "^resource1$".to_string(),
+    )
+    .unwrap();
+
+    let operation = Operation::builder()
+        .scope("test_scope")
+        .action("read")
+        .resource("resource1")
+        .build();
+
+    // Add rule and verify authorization succeeds
+    evaluator.save_rule(&ctx, rule).await.unwrap();
+    assert!(evaluator.evaluate(&ctx, operation.clone()).await.unwrap());
+
+    // Remove all rules
+    evaluator.remove_rules(&ctx).await.unwrap();
+
+    // Verify authorization now fails
+    assert!(!evaluator.evaluate(&ctx, operation).await.unwrap());
+}

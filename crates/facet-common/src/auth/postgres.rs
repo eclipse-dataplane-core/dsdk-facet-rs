@@ -165,6 +165,15 @@ impl RuleStore for PostgresAuthorizationEvaluator {
 
         Ok(())
     }
+
+    async fn remove_rules(&self, participant_context: &ParticipantContext) -> Result<(), AuthorizationError> {
+        sqlx::query("DELETE FROM authorization_rules WHERE participant_identifier = $1")
+            .bind(&participant_context.identifier)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| AuthorizationError::StoreError(format!("Failed to remove rules: {}", e)))?;
+        Ok(())
+    }
 }
 
 #[async_trait::async_trait]
@@ -208,4 +217,5 @@ impl AuthorizationEvaluator for PostgresAuthorizationEvaluator {
 
         Ok(false)
     }
+
 }
