@@ -10,7 +10,9 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
-use crate::auth::{AuthorizationError, AuthorizationEvaluator, MemoryAuthorizationEvaluator, Operation, Rule, RuleStore};
+use crate::auth::{
+    AuthorizationError, AuthorizationEvaluator, MemoryAuthorizationEvaluator, Operation, Rule, RuleStore,
+};
 use crate::context::ParticipantContext;
 
 fn create_test_evaluator() -> MemoryAuthorizationEvaluator {
@@ -18,10 +20,7 @@ fn create_test_evaluator() -> MemoryAuthorizationEvaluator {
 }
 
 async fn setup_rules(evaluator: &MemoryAuthorizationEvaluator, participant_id: &str, rules: Vec<Rule>) {
-    let ctx = &ParticipantContext::builder()
-        .identifier(participant_id)
-        .audience("test-audience")
-        .build();
+    let ctx = &ParticipantContext::builder().id(participant_id).build();
 
     for rule in rules {
         evaluator.save_rule(ctx, rule).await.unwrap();
@@ -41,17 +40,16 @@ async fn test_evaluate_authorized_exact_match() {
     ];
     setup_rules(&evaluator, "participant1", rules).await;
 
-    let result = evaluator.evaluate(
-        &ParticipantContext::builder()
-            .identifier("participant1")
-            .audience("test_audience")
-            .build(),
-        Operation::builder()
-            .scope("test_scope")
-            .action("read")
-            .resource("resource1")
-            .build(),
-    ).await;
+    let result = evaluator
+        .evaluate(
+            &ParticipantContext::builder().id("participant1").build(),
+            Operation::builder()
+                .scope("test_scope")
+                .action("read")
+                .resource("resource1")
+                .build(),
+        )
+        .await;
 
     assert!(result.is_ok());
     assert!(result.unwrap());
@@ -61,17 +59,16 @@ async fn test_evaluate_authorized_exact_match() {
 async fn test_evaluate_no_rules_for_participant() {
     let evaluator = create_test_evaluator();
 
-    let result = evaluator.evaluate(
-        &ParticipantContext::builder()
-            .identifier("unknown_participant")
-            .audience("test_audience")
-            .build(),
-        Operation::builder()
-            .scope("test_scope")
-            .action("read")
-            .resource("resource1")
-            .build(),
-    ).await;
+    let result = evaluator
+        .evaluate(
+            &ParticipantContext::builder().id("unknown_participant").build(),
+            Operation::builder()
+                .scope("test_scope")
+                .action("read")
+                .resource("resource1")
+                .build(),
+        )
+        .await;
 
     assert!(result.is_ok());
     assert!(!result.unwrap());
@@ -90,17 +87,16 @@ async fn test_evaluate_no_rules_for_scope() {
     ];
     setup_rules(&evaluator, "participant1", rules).await;
 
-    let result = evaluator.evaluate(
-        &ParticipantContext::builder()
-            .identifier("participant1")
-            .audience("test_audience")
-            .build(),
-        Operation::builder()
-            .scope("scope2")
-            .action("read")
-            .resource("resource1")
-            .build(),
-    ).await;
+    let result = evaluator
+        .evaluate(
+            &ParticipantContext::builder().id("participant1").build(),
+            Operation::builder()
+                .scope("scope2")
+                .action("read")
+                .resource("resource1")
+                .build(),
+        )
+        .await;
 
     assert!(result.is_ok());
     assert!(!result.unwrap());
@@ -119,17 +115,16 @@ async fn test_evaluate_action_not_authorized() {
     ];
     setup_rules(&evaluator, "participant1", rules).await;
 
-    let result = evaluator.evaluate(
-        &ParticipantContext::builder()
-            .identifier("participant1")
-            .audience("test_audience")
-            .build(),
-        Operation::builder()
-            .scope("test_scope")
-            .action("write")
-            .resource("resource1")
-            .build(),
-    ).await;
+    let result = evaluator
+        .evaluate(
+            &ParticipantContext::builder().id("participant1").build(),
+            Operation::builder()
+                .scope("test_scope")
+                .action("write")
+                .resource("resource1")
+                .build(),
+        )
+        .await;
 
     assert!(result.is_ok());
     assert!(!result.unwrap());
@@ -148,17 +143,16 @@ async fn test_evaluate_resource_not_matching() {
     ];
     setup_rules(&evaluator, "participant1", rules).await;
 
-    let result = evaluator.evaluate(
-        &ParticipantContext::builder()
-            .identifier("participant1")
-            .audience("test_audience")
-            .build(),
-        Operation::builder()
-            .scope("test_scope")
-            .action("read")
-            .resource("resource2")
-            .build(),
-    ).await;
+    let result = evaluator
+        .evaluate(
+            &ParticipantContext::builder().id("participant1").build(),
+            Operation::builder()
+                .scope("test_scope")
+                .action("read")
+                .resource("resource2")
+                .build(),
+        )
+        .await;
 
     assert!(result.is_ok());
     assert!(!result.unwrap());
@@ -178,32 +172,30 @@ async fn test_evaluate_regex_pattern_matching() {
     setup_rules(&evaluator, "participant1", rules).await;
 
     // Should match the pattern
-    let result = evaluator.evaluate(
-        &ParticipantContext::builder()
-            .identifier("participant1")
-            .audience("test_audience")
-            .build(),
-        Operation::builder()
-            .scope("test_scope")
-            .action("read")
-            .resource("/api/users/123")
-            .build(),
-    ).await;
+    let result = evaluator
+        .evaluate(
+            &ParticipantContext::builder().id("participant1").build(),
+            Operation::builder()
+                .scope("test_scope")
+                .action("read")
+                .resource("/api/users/123")
+                .build(),
+        )
+        .await;
     assert!(result.is_ok());
     assert!(result.unwrap());
 
     // Should not match the pattern
-    let result = evaluator.evaluate(
-        &ParticipantContext::builder()
-            .identifier("participant1")
-            .audience("test_audience")
-            .build(),
-        Operation::builder()
-            .scope("test_scope")
-            .action("read")
-            .resource("/api/posts/123")
-            .build(),
-    ).await;
+    let result = evaluator
+        .evaluate(
+            &ParticipantContext::builder().id("participant1").build(),
+            Operation::builder()
+                .scope("test_scope")
+                .action("read")
+                .resource("/api/posts/123")
+                .build(),
+        )
+        .await;
     assert!(result.is_ok());
     assert!(!result.unwrap());
 }
@@ -223,17 +215,16 @@ async fn test_evaluate_multiple_actions_in_rule() {
 
     // All three actions should be authorized
     for action in &["read", "write", "delete"] {
-        let result = evaluator.evaluate(
-            &ParticipantContext::builder()
-                .identifier("participant1")
-                .audience("test_audience")
-                .build(),
-            Operation::builder()
-                .scope("test_scope")
-                .action(*action)
-                .resource("resource1")
-                .build(),
-        ).await;
+        let result = evaluator
+            .evaluate(
+                &ParticipantContext::builder().id("participant1").build(),
+                Operation::builder()
+                    .scope("test_scope")
+                    .action(*action)
+                    .resource("resource1")
+                    .build(),
+            )
+            .await;
         assert!(result.is_ok());
         assert!(result.unwrap(), "Action {} should be authorized", action);
     }
@@ -259,47 +250,44 @@ async fn test_evaluate_multiple_rules() {
     setup_rules(&evaluator, "participant1", rules).await;
 
     // First rule should match
-    let result = evaluator.evaluate(
-        &ParticipantContext::builder()
-            .identifier("participant1")
-            .audience("test_audience")
-            .build(),
-        Operation::builder()
-            .scope("test_scope")
-            .action("read")
-            .resource("/api/users/456")
-            .build(),
-    ).await;
+    let result = evaluator
+        .evaluate(
+            &ParticipantContext::builder().id("participant1").build(),
+            Operation::builder()
+                .scope("test_scope")
+                .action("read")
+                .resource("/api/users/456")
+                .build(),
+        )
+        .await;
     assert!(result.is_ok());
     assert!(result.unwrap());
 
     // Second rule should match
-    let result = evaluator.evaluate(
-        &ParticipantContext::builder()
-            .identifier("participant1")
-            .audience("test_audience")
-            .build(),
-        Operation::builder()
-            .scope("test_scope")
-            .action("write")
-            .resource("/api/posts/789")
-            .build(),
-    ).await;
+    let result = evaluator
+        .evaluate(
+            &ParticipantContext::builder().id("participant1").build(),
+            Operation::builder()
+                .scope("test_scope")
+                .action("write")
+                .resource("/api/posts/789")
+                .build(),
+        )
+        .await;
     assert!(result.is_ok());
     assert!(result.unwrap());
 
     // No rule should match (wrong action for resource)
-    let result = evaluator.evaluate(
-        &ParticipantContext::builder()
-            .identifier("participant1")
-            .audience("test_audience")
-            .build(),
-        Operation::builder()
-            .scope("test_scope")
-            .action("write")
-            .resource("/api/users/456")
-            .build(),
-    ).await;
+    let result = evaluator
+        .evaluate(
+            &ParticipantContext::builder().id("participant1").build(),
+            Operation::builder()
+                .scope("test_scope")
+                .action("write")
+                .resource("/api/users/456")
+                .build(),
+        )
+        .await;
     assert!(result.is_ok());
     assert!(!result.unwrap());
 }
@@ -337,10 +325,7 @@ fn test_rule_matches_resource() {
 #[tokio::test]
 async fn test_get_rules_no_rules() {
     let evaluator = create_test_evaluator();
-    let ctx = ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("test-audience")
-        .build();
+    let ctx = ParticipantContext::builder().id("participant1").build();
 
     let result = evaluator.get_rules(&ctx).await;
     assert!(result.is_ok());
@@ -350,10 +335,7 @@ async fn test_get_rules_no_rules() {
 #[tokio::test]
 async fn test_get_rules_single_rule() {
     let evaluator = create_test_evaluator();
-    let ctx = ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("test-audience")
-        .build();
+    let ctx = ParticipantContext::builder().id("participant1").build();
     let rule = Rule::new(
         "scope1".to_string(),
         vec!["read".to_string()],
@@ -374,14 +356,21 @@ async fn test_get_rules_single_rule() {
 #[tokio::test]
 async fn test_get_rules_multiple_scopes() {
     let evaluator = create_test_evaluator();
-    let ctx = ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("test-audience")
-        .build();
+    let ctx = ParticipantContext::builder().id("participant1").build();
 
     let rules = vec![
-        Rule::new("scope1".to_string(), vec!["read".to_string()], "^resource1$".to_string()).unwrap(),
-        Rule::new("scope2".to_string(), vec!["write".to_string()], "^resource2$".to_string()).unwrap(),
+        Rule::new(
+            "scope1".to_string(),
+            vec!["read".to_string()],
+            "^resource1$".to_string(),
+        )
+        .unwrap(),
+        Rule::new(
+            "scope2".to_string(),
+            vec!["write".to_string()],
+            "^resource2$".to_string(),
+        )
+        .unwrap(),
     ];
     setup_rules(&evaluator, "participant1", rules).await;
 
@@ -393,14 +382,21 @@ async fn test_get_rules_multiple_scopes() {
 #[tokio::test]
 async fn test_get_rules_same_scope() {
     let evaluator = create_test_evaluator();
-    let ctx = ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("test-audience")
-        .build();
+    let ctx = ParticipantContext::builder().id("participant1").build();
 
     let rules = vec![
-        Rule::new("scope1".to_string(), vec!["read".to_string()], "^resource1$".to_string()).unwrap(),
-        Rule::new("scope1".to_string(), vec!["write".to_string()], "^resource2$".to_string()).unwrap(),
+        Rule::new(
+            "scope1".to_string(),
+            vec!["read".to_string()],
+            "^resource1$".to_string(),
+        )
+        .unwrap(),
+        Rule::new(
+            "scope1".to_string(),
+            vec!["write".to_string()],
+            "^resource2$".to_string(),
+        )
+        .unwrap(),
     ];
     setup_rules(&evaluator, "participant1", rules).await;
 
@@ -412,10 +408,7 @@ async fn test_get_rules_same_scope() {
 #[tokio::test]
 async fn test_save_rule() {
     let evaluator = create_test_evaluator();
-    let ctx = ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("test-audience")
-        .build();
+    let ctx = ParticipantContext::builder().id("participant1").build();
     let rule = Rule::new(
         "scope1".to_string(),
         vec!["read".to_string()],
@@ -433,13 +426,20 @@ async fn test_save_rule() {
 #[tokio::test]
 async fn test_save_multiple_rules_same_participant() {
     let evaluator = create_test_evaluator();
-    let ctx = ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("test-audience")
-        .build();
+    let ctx = ParticipantContext::builder().id("participant1").build();
 
-    let rule1 = Rule::new("scope1".to_string(), vec!["read".to_string()], "^resource1$".to_string()).unwrap();
-    let rule2 = Rule::new("scope2".to_string(), vec!["write".to_string()], "^resource2$".to_string()).unwrap();
+    let rule1 = Rule::new(
+        "scope1".to_string(),
+        vec!["read".to_string()],
+        "^resource1$".to_string(),
+    )
+    .unwrap();
+    let rule2 = Rule::new(
+        "scope2".to_string(),
+        vec!["write".to_string()],
+        "^resource2$".to_string(),
+    )
+    .unwrap();
 
     evaluator.save_rule(&ctx, rule1).await.unwrap();
     evaluator.save_rule(&ctx, rule2).await.unwrap();
@@ -451,16 +451,15 @@ async fn test_save_multiple_rules_same_participant() {
 #[tokio::test]
 async fn test_save_rules_different_participants() {
     let evaluator = create_test_evaluator();
-    let ctx1 = ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("test-audience")
-        .build();
-    let ctx2 = ParticipantContext::builder()
-        .identifier("participant2")
-        .audience("test-audience")
-        .build();
+    let ctx1 = ParticipantContext::builder().id("participant1").build();
+    let ctx2 = ParticipantContext::builder().id("participant2").build();
 
-    let rule = Rule::new("scope1".to_string(), vec!["read".to_string()], "^resource1$".to_string()).unwrap();
+    let rule = Rule::new(
+        "scope1".to_string(),
+        vec!["read".to_string()],
+        "^resource1$".to_string(),
+    )
+    .unwrap();
 
     evaluator.save_rule(&ctx1, rule.clone()).await.unwrap();
     evaluator.save_rule(&ctx2, rule).await.unwrap();
@@ -472,10 +471,7 @@ async fn test_save_rules_different_participants() {
 #[tokio::test]
 async fn test_remove_rule_exists() {
     let evaluator = create_test_evaluator();
-    let ctx = ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("test-audience")
-        .build();
+    let ctx = ParticipantContext::builder().id("participant1").build();
     let rule = Rule::new(
         "scope1".to_string(),
         vec!["read".to_string()],
@@ -494,10 +490,7 @@ async fn test_remove_rule_exists() {
 #[tokio::test]
 async fn test_remove_rule_not_exists() {
     let evaluator = create_test_evaluator();
-    let ctx = ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("test-audience")
-        .build();
+    let ctx = ParticipantContext::builder().id("participant1").build();
     let rule = Rule::new(
         "scope1".to_string(),
         vec!["read".to_string()],
@@ -512,10 +505,7 @@ async fn test_remove_rule_not_exists() {
 #[tokio::test]
 async fn test_remove_rule_participant_not_exists() {
     let evaluator = create_test_evaluator();
-    let ctx = ParticipantContext::builder()
-        .identifier("unknown")
-        .audience("test-audience")
-        .build();
+    let ctx = ParticipantContext::builder().id("unknown").build();
     let rule = Rule::new(
         "scope1".to_string(),
         vec!["read".to_string()],
@@ -530,13 +520,20 @@ async fn test_remove_rule_participant_not_exists() {
 #[tokio::test]
 async fn test_remove_rule_multiple_in_scope() {
     let evaluator = create_test_evaluator();
-    let ctx = ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("test-audience")
-        .build();
+    let ctx = ParticipantContext::builder().id("participant1").build();
 
-    let rule1 = Rule::new("scope1".to_string(), vec!["read".to_string()], "^resource1$".to_string()).unwrap();
-    let rule2 = Rule::new("scope1".to_string(), vec!["write".to_string()], "^resource2$".to_string()).unwrap();
+    let rule1 = Rule::new(
+        "scope1".to_string(),
+        vec!["read".to_string()],
+        "^resource1$".to_string(),
+    )
+    .unwrap();
+    let rule2 = Rule::new(
+        "scope1".to_string(),
+        vec!["write".to_string()],
+        "^resource2$".to_string(),
+    )
+    .unwrap();
 
     evaluator.save_rule(&ctx, rule1.clone()).await.unwrap();
     evaluator.save_rule(&ctx, rule2).await.unwrap();
@@ -549,13 +546,20 @@ async fn test_remove_rule_multiple_in_scope() {
 #[tokio::test]
 async fn test_remove_last_rule_cleans_scope() {
     let evaluator = create_test_evaluator();
-    let ctx = ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("test-audience")
-        .build();
+    let ctx = ParticipantContext::builder().id("participant1").build();
 
-    let rule1 = Rule::new("scope1".to_string(), vec!["read".to_string()], "^resource1$".to_string()).unwrap();
-    let rule2 = Rule::new("scope2".to_string(), vec!["write".to_string()], "^resource2$".to_string()).unwrap();
+    let rule1 = Rule::new(
+        "scope1".to_string(),
+        vec!["read".to_string()],
+        "^resource1$".to_string(),
+    )
+    .unwrap();
+    let rule2 = Rule::new(
+        "scope2".to_string(),
+        vec!["write".to_string()],
+        "^resource2$".to_string(),
+    )
+    .unwrap();
 
     evaluator.save_rule(&ctx, rule1.clone()).await.unwrap();
     evaluator.save_rule(&ctx, rule2).await.unwrap();
@@ -580,10 +584,7 @@ async fn test_remove_last_rule_cleans_scope() {
 #[tokio::test]
 async fn test_remove_last_rule_cleans_participant() {
     let evaluator = create_test_evaluator();
-    let ctx = ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("test-audience")
-        .build();
+    let ctx = ParticipantContext::builder().id("participant1").build();
     let rule = Rule::new(
         "scope1".to_string(),
         vec!["read".to_string()],
@@ -608,10 +609,7 @@ async fn test_remove_last_rule_cleans_participant() {
 #[tokio::test]
 async fn test_remove_rules_single_participant() {
     let evaluator = create_test_evaluator();
-    let ctx = ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("test-audience")
-        .build();
+    let ctx = ParticipantContext::builder().id("participant1").build();
 
     // Add multiple rules across different scopes
     let rule1 = Rule::new(
@@ -654,10 +652,7 @@ async fn test_remove_rules_single_participant() {
 #[tokio::test]
 async fn test_remove_rules_no_rules() {
     let evaluator = create_test_evaluator();
-    let ctx = ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("test-audience")
-        .build();
+    let ctx = ParticipantContext::builder().id("participant1").build();
 
     // Remove rules when no rules exist - should be a no-op
     let result = evaluator.remove_rules(&ctx).await;
@@ -671,15 +666,9 @@ async fn test_remove_rules_no_rules() {
 #[tokio::test]
 async fn test_remove_rules_isolation() {
     let evaluator = create_test_evaluator();
-    let ctx1 = ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("test-audience")
-        .build();
+    let ctx1 = ParticipantContext::builder().id("participant1").build();
 
-    let ctx2 = ParticipantContext::builder()
-        .identifier("participant2")
-        .audience("test-audience")
-        .build();
+    let ctx2 = ParticipantContext::builder().id("participant2").build();
 
     // Add rules for both participants
     let rule1 = Rule::new(
@@ -714,10 +703,7 @@ async fn test_remove_rules_isolation() {
 #[tokio::test]
 async fn test_remove_rules_then_read() {
     let evaluator = create_test_evaluator();
-    let ctx = ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("test-audience")
-        .build();
+    let ctx = ParticipantContext::builder().id("participant1").build();
 
     let rule = Rule::new(
         "scope1".to_string(),
@@ -742,10 +728,7 @@ async fn test_remove_rules_then_read() {
 #[tokio::test]
 async fn test_remove_rules_affects_authorization() {
     let evaluator = create_test_evaluator();
-    let ctx = ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("test-audience")
-        .build();
+    let ctx = ParticipantContext::builder().id("participant1").build();
 
     let rule = Rule::new(
         "test_scope".to_string(),
@@ -774,16 +757,28 @@ async fn test_remove_rules_affects_authorization() {
 #[tokio::test]
 async fn test_remove_rules_multiple_scopes() {
     let evaluator = create_test_evaluator();
-    let ctx = ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("test-audience")
-        .build();
+    let ctx = ParticipantContext::builder().id("participant1").build();
 
     // Add rules in multiple scopes
     let rules = vec![
-        Rule::new("scope1".to_string(), vec!["read".to_string()], "^resource1$".to_string()).unwrap(),
-        Rule::new("scope2".to_string(), vec!["write".to_string()], "^resource2$".to_string()).unwrap(),
-        Rule::new("scope3".to_string(), vec!["delete".to_string()], "^resource3$".to_string()).unwrap(),
+        Rule::new(
+            "scope1".to_string(),
+            vec!["read".to_string()],
+            "^resource1$".to_string(),
+        )
+        .unwrap(),
+        Rule::new(
+            "scope2".to_string(),
+            vec!["write".to_string()],
+            "^resource2$".to_string(),
+        )
+        .unwrap(),
+        Rule::new(
+            "scope3".to_string(),
+            vec!["delete".to_string()],
+            "^resource3$".to_string(),
+        )
+        .unwrap(),
     ];
 
     for rule in rules {
@@ -803,15 +798,27 @@ async fn test_remove_rules_multiple_scopes() {
 #[tokio::test]
 async fn test_remove_rule_incremental_cleanup() {
     let evaluator = create_test_evaluator();
-    let ctx = ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("test-audience")
-        .build();
+    let ctx = ParticipantContext::builder().id("participant1").build();
 
     // Add 3 rules to the same scope
-    let rule1 = Rule::new("scope1".to_string(), vec!["read".to_string()], "^resource1$".to_string()).unwrap();
-    let rule2 = Rule::new("scope1".to_string(), vec!["write".to_string()], "^resource2$".to_string()).unwrap();
-    let rule3 = Rule::new("scope1".to_string(), vec!["delete".to_string()], "^resource3$".to_string()).unwrap();
+    let rule1 = Rule::new(
+        "scope1".to_string(),
+        vec!["read".to_string()],
+        "^resource1$".to_string(),
+    )
+    .unwrap();
+    let rule2 = Rule::new(
+        "scope1".to_string(),
+        vec!["write".to_string()],
+        "^resource2$".to_string(),
+    )
+    .unwrap();
+    let rule3 = Rule::new(
+        "scope1".to_string(),
+        vec!["delete".to_string()],
+        "^resource3$".to_string(),
+    )
+    .unwrap();
 
     evaluator.save_rule(&ctx, rule1.clone()).await.unwrap();
     evaluator.save_rule(&ctx, rule2.clone()).await.unwrap();
@@ -845,16 +852,33 @@ async fn test_remove_rule_incremental_cleanup() {
 #[tokio::test]
 async fn test_remove_rule_keeps_other_scopes() {
     let evaluator = create_test_evaluator();
-    let ctx = ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("test-audience")
-        .build();
+    let ctx = ParticipantContext::builder().id("participant1").build();
 
     // Add rules to multiple scopes
-    let rule1_scope1 = Rule::new("scope1".to_string(), vec!["read".to_string()], "^resource1$".to_string()).unwrap();
-    let rule2_scope1 = Rule::new("scope1".to_string(), vec!["write".to_string()], "^resource2$".to_string()).unwrap();
-    let rule_scope2 = Rule::new("scope2".to_string(), vec!["delete".to_string()], "^resource3$".to_string()).unwrap();
-    let rule_scope3 = Rule::new("scope3".to_string(), vec!["admin".to_string()], "^resource4$".to_string()).unwrap();
+    let rule1_scope1 = Rule::new(
+        "scope1".to_string(),
+        vec!["read".to_string()],
+        "^resource1$".to_string(),
+    )
+    .unwrap();
+    let rule2_scope1 = Rule::new(
+        "scope1".to_string(),
+        vec!["write".to_string()],
+        "^resource2$".to_string(),
+    )
+    .unwrap();
+    let rule_scope2 = Rule::new(
+        "scope2".to_string(),
+        vec!["delete".to_string()],
+        "^resource3$".to_string(),
+    )
+    .unwrap();
+    let rule_scope3 = Rule::new(
+        "scope3".to_string(),
+        vec!["admin".to_string()],
+        "^resource4$".to_string(),
+    )
+    .unwrap();
 
     evaluator.save_rule(&ctx, rule1_scope1.clone()).await.unwrap();
     evaluator.save_rule(&ctx, rule2_scope1.clone()).await.unwrap();
@@ -883,15 +907,27 @@ async fn test_remove_rule_keeps_other_scopes() {
 #[tokio::test]
 async fn test_remove_rules_cleans_all_internal_state() {
     let evaluator = create_test_evaluator();
-    let ctx = ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("test-audience")
-        .build();
+    let ctx = ParticipantContext::builder().id("participant1").build();
 
     // Add multiple rules across multiple scopes
-    let rule1 = Rule::new("scope1".to_string(), vec!["read".to_string()], "^resource1$".to_string()).unwrap();
-    let rule2 = Rule::new("scope2".to_string(), vec!["write".to_string()], "^resource2$".to_string()).unwrap();
-    let rule3 = Rule::new("scope3".to_string(), vec!["delete".to_string()], "^resource3$".to_string()).unwrap();
+    let rule1 = Rule::new(
+        "scope1".to_string(),
+        vec!["read".to_string()],
+        "^resource1$".to_string(),
+    )
+    .unwrap();
+    let rule2 = Rule::new(
+        "scope2".to_string(),
+        vec!["write".to_string()],
+        "^resource2$".to_string(),
+    )
+    .unwrap();
+    let rule3 = Rule::new(
+        "scope3".to_string(),
+        vec!["delete".to_string()],
+        "^resource3$".to_string(),
+    )
+    .unwrap();
 
     evaluator.save_rule(&ctx, rule1).await.unwrap();
     evaluator.save_rule(&ctx, rule2).await.unwrap();
@@ -914,18 +950,22 @@ async fn test_remove_rules_cleans_all_internal_state() {
 #[tokio::test]
 async fn test_multiple_participants_isolation() {
     let evaluator = create_test_evaluator();
-    let ctx1 = ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("test-audience")
-        .build();
-    let ctx2 = ParticipantContext::builder()
-        .identifier("participant2")
-        .audience("test-audience")
-        .build();
+    let ctx1 = ParticipantContext::builder().id("participant1").build();
+    let ctx2 = ParticipantContext::builder().id("participant2").build();
 
     // Add rules for both participants
-    let rule1 = Rule::new("scope1".to_string(), vec!["read".to_string()], "^resource1$".to_string()).unwrap();
-    let rule2 = Rule::new("scope1".to_string(), vec!["write".to_string()], "^resource2$".to_string()).unwrap();
+    let rule1 = Rule::new(
+        "scope1".to_string(),
+        vec!["read".to_string()],
+        "^resource1$".to_string(),
+    )
+    .unwrap();
+    let rule2 = Rule::new(
+        "scope1".to_string(),
+        vec!["write".to_string()],
+        "^resource2$".to_string(),
+    )
+    .unwrap();
 
     evaluator.save_rule(&ctx1, rule1.clone()).await.unwrap();
     evaluator.save_rule(&ctx2, rule2).await.unwrap();
@@ -947,17 +987,24 @@ async fn test_multiple_participants_isolation() {
 #[tokio::test]
 async fn test_remove_nonexistent_rule_no_impact() {
     let evaluator = create_test_evaluator();
-    let ctx = ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("test-audience")
-        .build();
+    let ctx = ParticipantContext::builder().id("participant1").build();
 
     // Add one rule
-    let rule1 = Rule::new("scope1".to_string(), vec!["read".to_string()], "^resource1$".to_string()).unwrap();
+    let rule1 = Rule::new(
+        "scope1".to_string(),
+        vec!["read".to_string()],
+        "^resource1$".to_string(),
+    )
+    .unwrap();
     evaluator.save_rule(&ctx, rule1).await.unwrap();
 
     // Try to remove a rule that doesn't exist
-    let nonexistent_rule = Rule::new("scope1".to_string(), vec!["write".to_string()], "^resource2$".to_string()).unwrap();
+    let nonexistent_rule = Rule::new(
+        "scope1".to_string(),
+        vec!["write".to_string()],
+        "^resource2$".to_string(),
+    )
+    .unwrap();
     evaluator.remove_rule(&ctx, nonexistent_rule).await.unwrap();
 
     // Verify the existing rule is not affected
@@ -969,12 +1016,14 @@ async fn test_remove_nonexistent_rule_no_impact() {
 #[tokio::test]
 async fn test_remove_rule_from_nonexistent_participant() {
     let evaluator = create_test_evaluator();
-    let ctx = ParticipantContext::builder()
-        .identifier("nonexistent_participant")
-        .audience("test-audience")
-        .build();
+    let ctx = ParticipantContext::builder().id("nonexistent_participant").build();
 
-    let rule = Rule::new("scope1".to_string(), vec!["read".to_string()], "^resource1$".to_string()).unwrap();
+    let rule = Rule::new(
+        "scope1".to_string(),
+        vec!["read".to_string()],
+        "^resource1$".to_string(),
+    )
+    .unwrap();
 
     // Should not error, just no-op
     evaluator.remove_rule(&ctx, rule).await.unwrap();
@@ -987,17 +1036,24 @@ async fn test_remove_rule_from_nonexistent_participant() {
 #[tokio::test]
 async fn test_remove_rule_from_nonexistent_scope() {
     let evaluator = create_test_evaluator();
-    let ctx = ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("test-audience")
-        .build();
+    let ctx = ParticipantContext::builder().id("participant1").build();
 
     // Add a rule in scope1
-    let rule1 = Rule::new("scope1".to_string(), vec!["read".to_string()], "^resource1$".to_string()).unwrap();
+    let rule1 = Rule::new(
+        "scope1".to_string(),
+        vec!["read".to_string()],
+        "^resource1$".to_string(),
+    )
+    .unwrap();
     evaluator.save_rule(&ctx, rule1).await.unwrap();
 
     // Try to remove a rule from scope2 (doesn't exist)
-    let rule2 = Rule::new("scope2".to_string(), vec!["write".to_string()], "^resource2$".to_string()).unwrap();
+    let rule2 = Rule::new(
+        "scope2".to_string(),
+        vec!["write".to_string()],
+        "^resource2$".to_string(),
+    )
+    .unwrap();
     evaluator.remove_rule(&ctx, rule2).await.unwrap();
 
     // Verify scope1 is unaffected
@@ -1010,10 +1066,7 @@ async fn test_remove_rule_from_nonexistent_scope() {
 #[tokio::test]
 async fn test_remove_rules_from_nonexistent_participant() {
     let evaluator = create_test_evaluator();
-    let ctx = ParticipantContext::builder()
-        .identifier("nonexistent_participant")
-        .audience("test-audience")
-        .build();
+    let ctx = ParticipantContext::builder().id("nonexistent_participant").build();
 
     // Should not error, just no-op
     evaluator.remove_rules(&ctx).await.unwrap();
@@ -1026,12 +1079,14 @@ async fn test_remove_rules_from_nonexistent_participant() {
 #[tokio::test]
 async fn test_readd_after_cleanup() {
     let evaluator = create_test_evaluator();
-    let ctx = ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("test-audience")
-        .build();
+    let ctx = ParticipantContext::builder().id("participant1").build();
 
-    let rule = Rule::new("scope1".to_string(), vec!["read".to_string()], "^resource1$".to_string()).unwrap();
+    let rule = Rule::new(
+        "scope1".to_string(),
+        vec!["read".to_string()],
+        "^resource1$".to_string(),
+    )
+    .unwrap();
 
     // Add, remove, and add again
     evaluator.save_rule(&ctx, rule.clone()).await.unwrap();
@@ -1049,20 +1104,42 @@ async fn test_readd_after_cleanup() {
 #[tokio::test]
 async fn test_complex_multi_scope_multi_rule_cleanup() {
     let evaluator = create_test_evaluator();
-    let ctx = ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("test-audience")
-        .build();
+    let ctx = ParticipantContext::builder().id("participant1").build();
 
     // Add multiple rules across multiple scopes
     let rules_scope1 = vec![
-        Rule::new("scope1".to_string(), vec!["read".to_string()], "^resource1$".to_string()).unwrap(),
-        Rule::new("scope1".to_string(), vec!["write".to_string()], "^resource2$".to_string()).unwrap(),
-        Rule::new("scope1".to_string(), vec!["delete".to_string()], "^resource3$".to_string()).unwrap(),
+        Rule::new(
+            "scope1".to_string(),
+            vec!["read".to_string()],
+            "^resource1$".to_string(),
+        )
+        .unwrap(),
+        Rule::new(
+            "scope1".to_string(),
+            vec!["write".to_string()],
+            "^resource2$".to_string(),
+        )
+        .unwrap(),
+        Rule::new(
+            "scope1".to_string(),
+            vec!["delete".to_string()],
+            "^resource3$".to_string(),
+        )
+        .unwrap(),
     ];
     let rules_scope2 = vec![
-        Rule::new("scope2".to_string(), vec!["read".to_string()], "^resource4$".to_string()).unwrap(),
-        Rule::new("scope2".to_string(), vec!["write".to_string()], "^resource5$".to_string()).unwrap(),
+        Rule::new(
+            "scope2".to_string(),
+            vec!["read".to_string()],
+            "^resource4$".to_string(),
+        )
+        .unwrap(),
+        Rule::new(
+            "scope2".to_string(),
+            vec!["write".to_string()],
+            "^resource5$".to_string(),
+        )
+        .unwrap(),
     ];
 
     for rule in &rules_scope1 {

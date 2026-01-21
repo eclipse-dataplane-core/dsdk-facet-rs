@@ -190,7 +190,7 @@ fn test_parse_endpoint_with_tls() {
         }))
         .participant_context_resolver(Arc::new(StaticParticipantContextResolver {
             participant_context: ParticipantContext::builder()
-                .identifier("test")
+                .id("test")
                 .audience("test")
                 .build(),
         }))
@@ -324,7 +324,7 @@ fn create_test_proxy(upstream_style: UpstreamStyle, proxy_domain: Option<String>
         }))
         .participant_context_resolver(Arc::new(StaticParticipantContextResolver {
             participant_context: ParticipantContext::builder()
-                .identifier("test")
+                .id("test")
                 .audience("test")
                 .build(),
         }))
@@ -342,7 +342,7 @@ fn test_context_caching() {
 
     // Verify initial state
     assert!(ctx.parsed_request.is_none(), "Initially parsed_request should be None");
-    assert_eq!(ctx.participant_context.identifier, "anonymous");
+    assert_eq!(ctx.participant_context.id, "anonymous");
     assert_eq!(ctx.participant_context.audience, "anonymous");
 
     // Simulate parsing and caching (what upstream_peer does)

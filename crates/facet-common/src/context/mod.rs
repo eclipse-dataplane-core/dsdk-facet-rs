@@ -15,9 +15,15 @@ use bon::Builder;
 /// Participant data.
 #[derive(Builder, Clone, Debug, PartialEq)]
 pub struct ParticipantContext {
+    // The internal participant context ID, a UUID.
     #[builder(into)]
+    pub id: String,
+
+    // The external participant context identifier, typically a Web DID.
+    #[builder(into, default = "anonymous")]
     pub identifier: String,
 
-    #[builder(into)]
+    // The audience the context uses for validating tokens presented to it, typically the same as the identifier.
+    #[builder(into, default = "anonymous")]
     pub audience: String,
 }

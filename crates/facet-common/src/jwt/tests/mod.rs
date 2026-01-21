@@ -119,7 +119,7 @@ fn test_token_generation_validation(#[case] key_format: KeyFormat) {
         .build();
 
     let pc = &ParticipantContext::builder()
-        .identifier("participant1")
+        .id("participant1")
         .audience("audience1")
         .build();
 
@@ -168,7 +168,7 @@ fn test_expired_token_validation_pem_eddsa() {
         .build();
 
     let pc = &ParticipantContext::builder()
-        .identifier("participant-1")
+        .id("participant-1")
         .audience("audience-123")
         .build();
 
@@ -209,7 +209,7 @@ fn test_leeway_allows_recently_expired_token_pem_eddsa() {
         .build();
 
     let pc = &ParticipantContext::builder()
-        .identifier("participant1")
+        .id("participant1")
         .audience("audience1")
         .build();
 
@@ -255,7 +255,7 @@ fn test_leeway_rejects_token_expired_beyond_leeway_pem_eddsa() {
         .build();
 
     let pc = &ParticipantContext::builder()
-        .identifier("participant-1")
+        .id("participant-1")
         .audience("audience-123")
         .build();
 
@@ -300,7 +300,7 @@ fn test_invalid_signature_pem_eddsa() {
         .build();
 
     let pc = &ParticipantContext::builder()
-        .identifier("participant-1")
+        .id("participant-1")
         .audience("audience-123")
         .build();
 
@@ -332,7 +332,7 @@ fn test_malformed_token_pem_eddsa() {
     );
 
     let pc = &ParticipantContext::builder()
-        .identifier("participant1")
+        .id("participant1")
         .audience("audience1")
         .build();
 
@@ -363,7 +363,7 @@ fn test_malformed_token_pem_eddsa() {
 #[test]
 fn test_mismatched_key_format_pem_eddsa() {
     let pc = &ParticipantContext::builder()
-        .identifier("participant-1")
+        .id("participant-1")
         .audience("audience-123")
         .build();
 
@@ -429,7 +429,7 @@ fn test_rsa_token_generation_validation_pem() {
         .build();
 
     let pc = &ParticipantContext::builder()
-        .identifier("participant1")
+        .id("participant1")
         .audience("audience1")
         .build();
 
@@ -478,7 +478,7 @@ fn test_audience_mismatch_pem_eddsa() {
         .build();
 
     let pc_generate = &ParticipantContext::builder()
-        .identifier("participant-1")
+        .id("participant-1")
         .audience("audience-123")
         .build();
 
@@ -494,7 +494,7 @@ fn test_audience_mismatch_pem_eddsa() {
 
     // Try to verify with a different audience
     let pc_verify = &ParticipantContext::builder()
-        .identifier("participant-1")
+        .id("participant-1")
         .audience("different-audience")
         .build();
 
@@ -528,7 +528,7 @@ fn test_algorithm_mismatch_pem() {
         .build();
 
     let pc = &ParticipantContext::builder()
-        .identifier("participant-1")
+        .id("participant-1")
         .audience("audience-123")
         .build();
 
@@ -572,7 +572,7 @@ fn test_not_before_validation_pem_eddsa() {
         .build();
 
     let pc = &ParticipantContext::builder()
-        .identifier("participant-1")
+        .id("participant-1")
         .audience("audience-123")
         .build();
 
@@ -615,7 +615,7 @@ fn test_not_before_with_leeway_pem_eddsa() {
         .build();
 
     let pc = &ParticipantContext::builder()
-        .identifier("participant-1")
+        .id("participant-1")
         .audience("audience-123")
         .build();
 
@@ -662,7 +662,7 @@ fn test_not_before_beyond_leeway_pem_eddsa() {
         .build();
 
     let pc = &ParticipantContext::builder()
-        .identifier("participant-1")
+        .id("participant-1")
         .audience("audience-123")
         .build();
 
@@ -711,7 +711,7 @@ fn test_generator_sets_iat_automatically_pem_eddsa() {
         .build();
 
     let pc = &ParticipantContext::builder()
-        .identifier("participant-1")
+        .id("participant-1")
         .audience("audience-123")
         .build();
 
@@ -768,8 +768,7 @@ fn test_kid_and_iss_are_set_correctly_in_generated_token() {
         .build();
 
     let pc = &ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("audience1")
+        .id("participant1")
         .build();
 
     let token = generator

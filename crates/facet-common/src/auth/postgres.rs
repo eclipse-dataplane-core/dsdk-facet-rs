@@ -105,7 +105,7 @@ impl RuleStore for PostgresAuthorizationEvaluator {
              FROM authorization_rules
              WHERE participant_identifier = $1",
         )
-        .bind(&participant_context.identifier)
+        .bind(&participant_context.id)
         .fetch_all(&self.pool)
         .await
         .map_err(|e| AuthorizationError::StoreError(format!("Failed to fetch rules: {}", e)))?;
@@ -116,7 +116,7 @@ impl RuleStore for PostgresAuthorizationEvaluator {
             let rule = Rule::new(scope, actions, resource).map_err(|e| {
                 AuthorizationError::StoreError(format!(
                     "Failed loading rule for participant {}: {}",
-                    participant_context.identifier, e
+                    participant_context.id, e
                 ))
             })?;
             rules.push(rule);
@@ -134,7 +134,7 @@ impl RuleStore for PostgresAuthorizationEvaluator {
              ON CONFLICT (participant_identifier, scope, resource)
              DO UPDATE SET actions = EXCLUDED.actions",
         )
-        .bind(&participant_context.identifier)
+        .bind(&participant_context.id)
         .bind(&rule.scope)
         .bind(&rule.resource)
         .bind(&actions_str)
@@ -156,7 +156,7 @@ impl RuleStore for PostgresAuthorizationEvaluator {
                AND scope = $2
                AND resource = $3",
         )
-        .bind(&participant_context.identifier)
+        .bind(&participant_context.id)
         .bind(&rule.scope)
         .bind(&rule.resource)
         .execute(&self.pool)
@@ -168,7 +168,7 @@ impl RuleStore for PostgresAuthorizationEvaluator {
 
     async fn remove_rules(&self, participant_context: &ParticipantContext) -> Result<(), AuthorizationError> {
         sqlx::query("DELETE FROM authorization_rules WHERE participant_identifier = $1")
-            .bind(&participant_context.identifier)
+            .bind(&participant_context.id)
             .execute(&self.pool)
             .await
             .map_err(|e| AuthorizationError::StoreError(format!("Failed to remove rules: {}", e)))?;
@@ -189,7 +189,7 @@ impl AuthorizationEvaluator for PostgresAuthorizationEvaluator {
              FROM authorization_rules
              WHERE participant_identifier = $1 AND scope = $2",
         )
-        .bind(&participant_context.identifier)
+        .bind(&participant_context.id)
         .bind(&operation.scope)
         .fetch_all(&self.pool)
         .await
@@ -206,7 +206,7 @@ impl AuthorizationEvaluator for PostgresAuthorizationEvaluator {
             let rule = Rule::new(operation.scope.clone(), actions, resource).map_err(|e| {
                 AuthorizationError::StoreError(format!(
                     "Failed loading rule for participant {}: {}",
-                    participant_context.identifier, e
+                    participant_context.id, e
                 ))
             })?;
 

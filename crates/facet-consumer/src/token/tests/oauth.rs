@@ -60,7 +60,7 @@ async fn test_refresh_token_success() {
         .await;
 
     let pc = &ParticipantContext::builder()
-        .identifier("test-participant")
+        .id("test-participant")
         .audience("test-audience")
         .build();
 

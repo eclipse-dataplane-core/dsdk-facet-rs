@@ -39,7 +39,7 @@ async fn test_s3_proxy_end_to_end_with_postgres() {
     let participant_id = "user123";
     let scope = "agreement-456";
     let participant_context = ParticipantContext::builder()
-        .identifier(participant_id)
+        .id(participant_id)
         .audience("s3-proxy")
         .build();
 

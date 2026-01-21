@@ -99,7 +99,7 @@ impl TokenClient for OAuth2TokenClient {
             .unwrap_or_else(|| refresh_token.to_string());
 
         Ok(TokenData {
-            participant_context: participant_context.identifier.clone(),
+            participant_context: participant_context.id.clone(),
             identifier: endpoint_identifier.to_string(),
             token: token_response.access_token,
             refresh_token: new_refresh_token,

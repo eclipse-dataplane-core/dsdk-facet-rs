@@ -41,7 +41,7 @@ impl AuthorizationEvaluator for MemoryAuthorizationEvaluator {
             .map_err(|e| AuthorizationError::StoreError(format!("Failed to acquire lock: {}", e)))?;
 
         // Check if rules exist for this participant
-        let Some(participant_rules) = rules.get(&participant_context.identifier) else {
+        let Some(participant_rules) = rules.get(&participant_context.id) else {
             // No grant rules defined for this participant, not authorized
             return Ok(false);
         };
@@ -67,7 +67,7 @@ impl RuleStore for MemoryAuthorizationEvaluator {
             .read()
             .map_err(|e| AuthorizationError::StoreError(format!("Failed to acquire lock: {}", e)))?;
 
-        let Some(participant_rules) = rules.get(&participant_context.identifier) else {
+        let Some(participant_rules) = rules.get(&participant_context.id) else {
             return Ok(Vec::new());
         };
 
@@ -86,7 +86,7 @@ impl RuleStore for MemoryAuthorizationEvaluator {
             .map_err(|e| AuthorizationError::StoreError(format!("Failed to acquire lock: {}", e)))?;
 
         rules
-            .entry(participant_context.identifier.clone())
+            .entry(participant_context.id.clone())
             .or_insert_with(HashMap::new)
             .entry(rule.scope.clone())
             .or_insert_with(Vec::new)
@@ -105,7 +105,7 @@ impl RuleStore for MemoryAuthorizationEvaluator {
             .write()
             .map_err(|e| AuthorizationError::StoreError(format!("Failed to acquire lock: {}", e)))?;
 
-        let Some(participant_rules) = rules.get_mut(&participant_context.identifier) else {
+        let Some(participant_rules) = rules.get_mut(&participant_context.id) else {
             return Ok(());
         };
 
@@ -120,7 +120,7 @@ impl RuleStore for MemoryAuthorizationEvaluator {
         }
 
         if participant_rules.is_empty() {
-            rules.remove(&participant_context.identifier);
+            rules.remove(&participant_context.id);
         }
 
         Ok(())
@@ -131,7 +131,7 @@ impl RuleStore for MemoryAuthorizationEvaluator {
             .rules
             .write()
             .map_err(|e| AuthorizationError::StoreError(format!("Failed to acquire lock: {}", e)))?; 
-        rules.remove(&participant_context.identifier);
+        rules.remove(&participant_context.id);
         Ok(())
     }
 }

@@ -63,10 +63,7 @@ async fn create_store_with_tokens() -> MemoryTokenStore {
 async fn test_new_store_is_empty() {
     let store = MemoryTokenStore::new();
 
-    let pc = &ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("audience1")
-        .build();
+    let pc = &ParticipantContext::builder().id("participant1").build();
 
     let data = store.get_token(pc, "nonexistent").await;
     assert!(data.is_err());
@@ -88,10 +85,7 @@ async fn test_save_token_success() {
     let result = store.save_token(test_data.clone()).await;
     assert!(result.is_ok(), "save_token should return Ok");
 
-    let pc = &ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("audience1")
-        .build();
+    let pc = &ParticipantContext::builder().id("participant1").build();
 
     let retrieved = store
         .get_token(pc, "provider1")
@@ -111,10 +105,7 @@ async fn test_save_token_success() {
 async fn test_save_multiple_tokens() {
     let store = create_store_with_tokens().await;
 
-    let pc = &ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("audience1")
-        .build();
+    let pc = &ParticipantContext::builder().id("participant1").build();
 
     assert_eq!(store.get_token(pc, "provider1").await.unwrap().token, "token1");
     assert_eq!(store.get_token(pc, "provider2").await.unwrap().token, "token2");
@@ -152,10 +143,7 @@ async fn test_save_token_upserts_on_duplicate() {
     // Second save with the same identifier should succeed and update
     store.save_token(token_data2).await.unwrap();
 
-    let pc1 = &ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("audience1")
-        .build();
+    let pc1 = &ParticipantContext::builder().id("participant1").build();
 
     // Verify the token was updated to new values
     let retrieved = store.get_token(pc1, "provider1").await.unwrap();
@@ -193,10 +181,7 @@ async fn test_remove_tokens_used_before_success() {
 
     assert_eq!(removed, 1);
 
-    let pc = &ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("audience1")
-        .build();
+    let pc = &ParticipantContext::builder().id("participant1").build();
 
     assert!(store.get_token(pc, "provider1").await.is_err());
 }
@@ -227,13 +212,10 @@ async fn test_context_isolation_save() {
     store.save_token(token_p1).await.unwrap();
     store.save_token(token_p2).await.unwrap();
 
-    let pc1 = &ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("audience1")
-        .build();
+    let pc1 = &ParticipantContext::builder().id("participant1").build();
 
     let pc2 = &ParticipantContext::builder()
-        .identifier("participant2")
+        .id("participant2")
         .audience("audience2")
         .build();
 
@@ -244,7 +226,7 @@ async fn test_context_isolation_save() {
     assert_eq!(retrieved_p2.token, "token_p2");
 
     let pc3 = &ParticipantContext::builder()
-        .identifier("participant3")
+        .id("participant3")
         .audience("audience3")
         .build();
 
@@ -279,13 +261,10 @@ async fn test_context_isolation_get() {
     store.save_token(token_p1).await.unwrap();
     store.save_token(token_p2).await.unwrap();
 
-    let pc1 = &ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("audience1")
-        .build();
+    let pc1 = &ParticipantContext::builder().id("participant1").build();
 
     let pc2 = &ParticipantContext::builder()
-        .identifier("participant2")
+        .id("participant2")
         .audience("audience2")
         .build();
 
@@ -298,7 +277,7 @@ async fn test_context_isolation_get() {
     assert_eq!(p2_result.token, "token_p2");
 
     let pc3 = &ParticipantContext::builder()
-        .identifier("participant3")
+        .id("participant3")
         .audience("audience3")
         .build();
 
@@ -345,13 +324,10 @@ async fn test_context_isolation_update() {
 
     store.update_token(updated_p1).await.unwrap();
 
-    let pc1 = &ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("audience1")
-        .build();
+    let pc1 = &ParticipantContext::builder().id("participant1").build();
 
     let pc2 = &ParticipantContext::builder()
-        .identifier("participant2")
+        .id("participant2")
         .audience("audience2")
         .build();
 
@@ -404,13 +380,10 @@ async fn test_context_isolation_remove() {
 
     store.remove_token("participant1", "provider").await.unwrap();
 
-    let pc1 = &ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("audience1")
-        .build();
+    let pc1 = &ParticipantContext::builder().id("participant1").build();
 
     let pc2 = &ParticipantContext::builder()
-        .identifier("participant2")
+        .id("participant2")
         .audience("audience2")
         .build();
 

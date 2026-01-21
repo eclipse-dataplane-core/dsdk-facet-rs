@@ -14,8 +14,7 @@ mod common;
 
 use crate::common::setup_postgres_container;
 use facet_common::auth::{
-    AuthorizationError, AuthorizationEvaluator, Operation, PostgresAuthorizationEvaluator, Rule,
-    RuleStore,
+    AuthorizationError, AuthorizationEvaluator, Operation, PostgresAuthorizationEvaluator, Rule, RuleStore,
 };
 use facet_common::context::ParticipantContext;
 use std::sync::Arc;
@@ -30,10 +29,7 @@ async fn test_postgres_auth_initialize_idempotent() {
     evaluator.initialize().await.unwrap();
 
     // Should be able to use the evaluator
-    let ctx = ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("test-audience")
-        .build();
+    let ctx = ParticipantContext::builder().id("participant1").build();
 
     let rule = Rule::new(
         "test_scope".to_string(),
@@ -51,10 +47,7 @@ async fn test_postgres_auth_save_and_get_single_rule() {
     let evaluator = PostgresAuthorizationEvaluator::new(pool);
     evaluator.initialize().await.unwrap();
 
-    let ctx = ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("test-audience")
-        .build();
+    let ctx = ParticipantContext::builder().id("participant1").build();
 
     let rule = Rule::new(
         "test_scope".to_string(),
@@ -78,10 +71,7 @@ async fn test_postgres_auth_save_multiple_rules_same_participant() {
     let evaluator = PostgresAuthorizationEvaluator::new(pool);
     evaluator.initialize().await.unwrap();
 
-    let ctx = ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("test-audience")
-        .build();
+    let ctx = ParticipantContext::builder().id("participant1").build();
 
     let rule1 = Rule::new(
         "scope1".to_string(),
@@ -118,15 +108,9 @@ async fn test_postgres_auth_save_rules_different_participants() {
     let evaluator = PostgresAuthorizationEvaluator::new(pool);
     evaluator.initialize().await.unwrap();
 
-    let ctx1 = ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("test-audience")
-        .build();
+    let ctx1 = ParticipantContext::builder().id("participant1").build();
 
-    let ctx2 = ParticipantContext::builder()
-        .identifier("participant2")
-        .audience("test-audience")
-        .build();
+    let ctx2 = ParticipantContext::builder().id("participant2").build();
 
     let rule1 = Rule::new(
         "scope1".to_string(),
@@ -160,10 +144,7 @@ async fn test_postgres_auth_get_rules_no_rules() {
     let evaluator = PostgresAuthorizationEvaluator::new(pool);
     evaluator.initialize().await.unwrap();
 
-    let ctx = ParticipantContext::builder()
-        .identifier("nonexistent")
-        .audience("test-audience")
-        .build();
+    let ctx = ParticipantContext::builder().id("nonexistent").build();
 
     let rules = evaluator.get_rules(&ctx).await.unwrap();
     assert_eq!(rules.len(), 0);
@@ -175,10 +156,7 @@ async fn test_postgres_auth_remove_rule() {
     let evaluator = PostgresAuthorizationEvaluator::new(pool);
     evaluator.initialize().await.unwrap();
 
-    let ctx = ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("test-audience")
-        .build();
+    let ctx = ParticipantContext::builder().id("participant1").build();
 
     let rule = Rule::new(
         "test_scope".to_string(),
@@ -204,10 +182,7 @@ async fn test_postgres_auth_remove_rule_nonexistent() {
     let evaluator = PostgresAuthorizationEvaluator::new(pool);
     evaluator.initialize().await.unwrap();
 
-    let ctx = ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("test-audience")
-        .build();
+    let ctx = ParticipantContext::builder().id("participant1").build();
 
     let rule = Rule::new(
         "test_scope".to_string(),
@@ -227,10 +202,7 @@ async fn test_postgres_auth_remove_specific_rule_multiple_exist() {
     let evaluator = PostgresAuthorizationEvaluator::new(pool);
     evaluator.initialize().await.unwrap();
 
-    let ctx = ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("test-audience")
-        .build();
+    let ctx = ParticipantContext::builder().id("participant1").build();
 
     let rule1 = Rule::new(
         "scope1".to_string(),
@@ -262,10 +234,7 @@ async fn test_postgres_auth_evaluate_authorized_exact_match() {
     let evaluator = PostgresAuthorizationEvaluator::new(pool);
     evaluator.initialize().await.unwrap();
 
-    let ctx = ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("test-audience")
-        .build();
+    let ctx = ParticipantContext::builder().id("participant1").build();
 
     let rule = Rule::new(
         "test_scope".to_string(),
@@ -292,10 +261,7 @@ async fn test_postgres_auth_evaluate_no_rules_for_participant() {
     let evaluator = PostgresAuthorizationEvaluator::new(pool);
     evaluator.initialize().await.unwrap();
 
-    let ctx = ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("test-audience")
-        .build();
+    let ctx = ParticipantContext::builder().id("participant1").build();
 
     let operation = Operation::builder()
         .scope("test_scope")
@@ -313,10 +279,7 @@ async fn test_postgres_auth_evaluate_wrong_scope() {
     let evaluator = PostgresAuthorizationEvaluator::new(pool);
     evaluator.initialize().await.unwrap();
 
-    let ctx = ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("test-audience")
-        .build();
+    let ctx = ParticipantContext::builder().id("participant1").build();
 
     let rule = Rule::new(
         "scope1".to_string(),
@@ -343,10 +306,7 @@ async fn test_postgres_auth_evaluate_wrong_action() {
     let evaluator = PostgresAuthorizationEvaluator::new(pool);
     evaluator.initialize().await.unwrap();
 
-    let ctx = ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("test-audience")
-        .build();
+    let ctx = ParticipantContext::builder().id("participant1").build();
 
     let rule = Rule::new(
         "test_scope".to_string(),
@@ -373,10 +333,7 @@ async fn test_postgres_auth_evaluate_wrong_resource() {
     let evaluator = PostgresAuthorizationEvaluator::new(pool);
     evaluator.initialize().await.unwrap();
 
-    let ctx = ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("test-audience")
-        .build();
+    let ctx = ParticipantContext::builder().id("participant1").build();
 
     let rule = Rule::new(
         "test_scope".to_string(),
@@ -403,10 +360,7 @@ async fn test_postgres_auth_evaluate_regex_pattern() {
     let evaluator = PostgresAuthorizationEvaluator::new(pool);
     evaluator.initialize().await.unwrap();
 
-    let ctx = ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("test-audience")
-        .build();
+    let ctx = ParticipantContext::builder().id("participant1").build();
 
     let rule = Rule::new(
         "test_scope".to_string(),
@@ -447,10 +401,7 @@ async fn test_postgres_auth_evaluate_multiple_actions() {
     let evaluator = PostgresAuthorizationEvaluator::new(pool);
     evaluator.initialize().await.unwrap();
 
-    let ctx = ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("test-audience")
-        .build();
+    let ctx = ParticipantContext::builder().id("participant1").build();
 
     let rule = Rule::new(
         "test_scope".to_string(),
@@ -498,10 +449,7 @@ async fn test_postgres_auth_evaluate_multiple_rules() {
     let evaluator = PostgresAuthorizationEvaluator::new(pool);
     evaluator.initialize().await.unwrap();
 
-    let ctx = ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("test-audience")
-        .build();
+    let ctx = ParticipantContext::builder().id("participant1").build();
 
     let rule1 = Rule::new(
         "test_scope".to_string(),
@@ -551,10 +499,7 @@ async fn test_postgres_auth_update_existing_rule() {
     let evaluator = PostgresAuthorizationEvaluator::new(pool);
     evaluator.initialize().await.unwrap();
 
-    let ctx = ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("test-audience")
-        .build();
+    let ctx = ParticipantContext::builder().id("participant1").build();
 
     // Save initial rule with only "read" action
     let rule1 = Rule::new(
@@ -596,10 +541,7 @@ async fn test_postgres_auth_concurrent_save_rules() {
     for i in 0..10 {
         let evaluator_clone = evaluator.clone();
         let handle = tokio::spawn(async move {
-            let ctx = ParticipantContext::builder()
-                .identifier(format!("participant{}", i))
-                .audience("test-audience")
-                .build();
+            let ctx = ParticipantContext::builder().id(format!("participant{}", i)).build();
 
             let rule = Rule::new(
                 format!("scope{}", i),
@@ -620,10 +562,7 @@ async fn test_postgres_auth_concurrent_save_rules() {
 
     // Verify all rules were saved
     for i in 0..10 {
-        let ctx = ParticipantContext::builder()
-            .identifier(format!("participant{}", i))
-            .audience("test-audience")
-            .build();
+        let ctx = ParticipantContext::builder().id(format!("participant{}", i)).build();
         let rules = evaluator.get_rules(&ctx).await.unwrap();
         assert_eq!(rules.len(), 1);
     }
@@ -635,10 +574,7 @@ async fn test_postgres_auth_concurrent_evaluations() {
     let evaluator = Arc::new(PostgresAuthorizationEvaluator::new(pool));
     evaluator.initialize().await.unwrap();
 
-    let ctx = ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("test-audience")
-        .build();
+    let ctx = ParticipantContext::builder().id("participant1").build();
 
     let rule = Rule::new(
         "test_scope".to_string(),
@@ -674,7 +610,6 @@ async fn test_postgres_auth_concurrent_evaluations() {
     }
 }
 
-
 #[tokio::test]
 async fn test_postgres_auth_with_long_identifiers() {
     let (pool, _container) = setup_postgres_container().await;
@@ -684,17 +619,9 @@ async fn test_postgres_auth_with_long_identifiers() {
     let long_identifier = "a".repeat(255);
     let long_scope = "b".repeat(255);
 
-    let ctx = ParticipantContext::builder()
-        .identifier(&long_identifier)
-        .audience("test-audience")
-        .build();
+    let ctx = ParticipantContext::builder().id(&long_identifier).build();
 
-    let rule = Rule::new(
-        long_scope.clone(),
-        vec!["read".to_string()],
-        "^resource1$".to_string(),
-    )
-    .unwrap();
+    let rule = Rule::new(long_scope.clone(), vec!["read".to_string()], "^resource1$".to_string()).unwrap();
 
     evaluator.save_rule(&ctx, rule).await.unwrap();
 
@@ -714,15 +641,9 @@ async fn test_postgres_auth_different_participants_isolated() {
     let evaluator = PostgresAuthorizationEvaluator::new(pool);
     evaluator.initialize().await.unwrap();
 
-    let ctx1 = ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("test-audience")
-        .build();
+    let ctx1 = ParticipantContext::builder().id("participant1").build();
 
-    let ctx2 = ParticipantContext::builder()
-        .identifier("participant2")
-        .audience("test-audience")
-        .build();
+    let ctx2 = ParticipantContext::builder().id("participant2").build();
 
     let rule = Rule::new(
         "test_scope".to_string(),
@@ -752,18 +673,11 @@ async fn test_postgres_auth_actions_persisted_as_csv() {
     let evaluator = PostgresAuthorizationEvaluator::new(pool.clone());
     evaluator.initialize().await.unwrap();
 
-    let ctx = ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("test-audience")
-        .build();
+    let ctx = ParticipantContext::builder().id("participant1").build();
 
     let rule = Rule::new(
         "test_scope".to_string(),
-        vec![
-            "action1".to_string(),
-            "action2".to_string(),
-            "action3".to_string(),
-        ],
+        vec!["action1".to_string(), "action2".to_string(), "action3".to_string()],
         "^resource1$".to_string(),
     )
     .unwrap();
@@ -791,10 +705,7 @@ async fn test_postgres_auth_regex_compilation_on_retrieval() {
     let evaluator = PostgresAuthorizationEvaluator::new(pool);
     evaluator.initialize().await.unwrap();
 
-    let ctx = ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("test-audience")
-        .build();
+    let ctx = ParticipantContext::builder().id("participant1").build();
 
     let rule = Rule::new(
         "test_scope".to_string(),
@@ -820,10 +731,7 @@ async fn test_postgres_auth_invalid_regex_error() {
     let evaluator = PostgresAuthorizationEvaluator::new(pool.clone());
     evaluator.initialize().await.unwrap();
 
-    let ctx = ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("test-audience")
-        .build();
+    let ctx = ParticipantContext::builder().id("participant1").build();
 
     // Manually insert an invalid regex into the database
     sqlx::query(
@@ -859,12 +767,12 @@ async fn test_postgres_auth_complex_real_world_scenario() {
     // User2 has admin access to bucket2/*
 
     let user1 = ParticipantContext::builder()
-        .identifier("user1@example.com")
+        .id("user1@example.com")
         .audience("s3-api")
         .build();
 
     let user2 = ParticipantContext::builder()
-        .identifier("user2@example.com")
+        .id("user2@example.com")
         .audience("s3-api")
         .build();
 
@@ -993,10 +901,7 @@ async fn test_postgres_auth_remove_rules_single_participant() {
     let evaluator = PostgresAuthorizationEvaluator::new(pool);
     evaluator.initialize().await.unwrap();
 
-    let ctx = ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("test-audience")
-        .build();
+    let ctx = ParticipantContext::builder().id("participant1").build();
 
     // Add multiple rules across different scopes
     let rule1 = Rule::new(
@@ -1042,10 +947,7 @@ async fn test_postgres_auth_remove_rules_no_rules() {
     let evaluator = PostgresAuthorizationEvaluator::new(pool);
     evaluator.initialize().await.unwrap();
 
-    let ctx = ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("test-audience")
-        .build();
+    let ctx = ParticipantContext::builder().id("participant1").build();
 
     // Remove rules when no rules exist - should be a no-op
     let result = evaluator.remove_rules(&ctx).await;
@@ -1062,15 +964,9 @@ async fn test_postgres_auth_remove_rules_isolation() {
     let evaluator = PostgresAuthorizationEvaluator::new(pool);
     evaluator.initialize().await.unwrap();
 
-    let ctx1 = ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("test-audience")
-        .build();
+    let ctx1 = ParticipantContext::builder().id("participant1").build();
 
-    let ctx2 = ParticipantContext::builder()
-        .identifier("participant2")
-        .audience("test-audience")
-        .build();
+    let ctx2 = ParticipantContext::builder().id("participant2").build();
 
     // Add rules for both participants
     let rule1 = Rule::new(
@@ -1108,10 +1004,7 @@ async fn test_postgres_auth_remove_rules_then_readd() {
     let evaluator = PostgresAuthorizationEvaluator::new(pool);
     evaluator.initialize().await.unwrap();
 
-    let ctx = ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("test-audience")
-        .build();
+    let ctx = ParticipantContext::builder().id("participant1").build();
 
     let rule = Rule::new(
         "scope1".to_string(),
@@ -1139,10 +1032,7 @@ async fn test_postgres_auth_remove_rules_affects_authorization() {
     let evaluator = PostgresAuthorizationEvaluator::new(pool);
     evaluator.initialize().await.unwrap();
 
-    let ctx = ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("test-audience")
-        .build();
+    let ctx = ParticipantContext::builder().id("participant1").build();
 
     let rule = Rule::new(
         "test_scope".to_string(),

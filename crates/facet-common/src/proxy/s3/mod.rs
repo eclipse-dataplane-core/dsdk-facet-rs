@@ -283,8 +283,7 @@ impl ProxyHttp for S3Proxy {
     fn new_ctx(&self) -> Self::CTX {
         S3ProxyContext {
             participant_context: ParticipantContext::builder()
-                .identifier("anonymous")
-                .audience("anonymous")
+                .id("anonymous")
                 .build(),
             parsed_request: None,
         }
@@ -297,7 +296,7 @@ impl ProxyHttp for S3Proxy {
         // Resolve participant context
         ctx.participant_context = self.participant_context_resolver.resolve(path)?;
 
-        // Parse incoming request to extract bucket and key (PARSE ONCE)
+        // Parse incoming request to extract bucket and key
         let parsed = self.parse_incoming_request(host, path)?;
 
         // Construct upstream peer based on style
@@ -371,7 +370,7 @@ impl ProxyHttp for S3Proxy {
             .map_err(|e| {
                 internal_error(format!(
                     "Authorization evaluation failed for participant {}: {}",
-                    ctx.participant_context.identifier, e
+                    ctx.participant_context.id, e
                 ))
             })?;
 

@@ -131,7 +131,7 @@ impl TokenStore for PostgresTokenStore {
             "SELECT participant_context, identifier, token, token_nonce, refresh_token, refresh_token_nonce, expires_at, refresh_endpoint
          FROM tokens WHERE participant_context = $1 AND identifier = $2",
         )
-            .bind(participant_context.identifier.clone())
+            .bind(participant_context.id.clone())
             .bind(identifier)
             .fetch_optional(&mut *tx)
             .await
@@ -139,7 +139,7 @@ impl TokenStore for PostgresTokenStore {
             .ok_or_else(|| TokenError::token_not_found(identifier))?;
 
         // Verify the participant context matches (defense in depth)
-        if record.participant_context != participant_context.identifier {
+        if record.participant_context != participant_context.id {
             return Err(TokenError::token_not_found(identifier));
         }
 
@@ -163,7 +163,7 @@ impl TokenStore for PostgresTokenStore {
 
         // Update last_accessed within the transaction for atomicity
         sqlx::query("UPDATE tokens SET last_accessed = $3 WHERE participant_context = $1 AND identifier = $2")
-            .bind(participant_context.identifier.clone())
+            .bind(participant_context.id.clone())
             .bind(identifier)
             .bind(now)
             .execute(&mut *tx)

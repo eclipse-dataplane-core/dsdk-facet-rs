@@ -72,7 +72,7 @@ async fn test_api_end_to_end_with_refresh() {
     // Create a bearer token verifier that verifies the JWT signature and claims
     let public_key = keypair.public_key.clone();
     let verification_context = ParticipantContext::builder()
-        .identifier("mock-verifier")
+        .id("mock-verifier")
         .audience("token1") // Must match the audience in the JWT (endpoint_identifier)
         .build();
     let bearer_verifier = BearerTokenVerifier::new(public_key, verification_context, DID.to_string());
@@ -110,7 +110,7 @@ async fn test_api_end_to_end_with_refresh() {
         .build();
 
     let pc1 = &ParticipantContext::builder()
-        .identifier("participant1")
+        .id("participant1")
         .audience("audience1")
         .build();
 

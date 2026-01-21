@@ -65,10 +65,7 @@ async fn test_postgres_save_and_get_token() {
         refresh_endpoint: "https://auth.example.com/refresh".to_string(),
     };
 
-    let pc = &ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("audience1")
-        .build();
+    let pc = &ParticipantContext::builder().id("participant1").build();
 
     store.save_token(token_data.clone()).await.unwrap();
     let retrieved = store.get_token(pc, "provider1").await.unwrap();
@@ -92,10 +89,7 @@ async fn test_postgres_get_nonexistent_token() {
         .build();
     store.initialize().await.unwrap();
 
-    let pc = &ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("audience1")
-        .build();
+    let pc = &ParticipantContext::builder().id("participant1").build();
 
     let result = store.get_token(pc, "nonexistent").await;
     assert!(result.is_err());
@@ -141,10 +135,7 @@ async fn test_postgres_save_token_upserts_on_duplicate() {
     // Second save with the same identifier should succeed and update
     store.save_token(token_data2).await.unwrap();
 
-    let pc = &ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("audience1")
-        .build();
+    let pc = &ParticipantContext::builder().id("participant1").build();
 
     // Verify the token was updated to new values
     let retrieved = store.get_token(pc, "provider1").await.unwrap();
@@ -190,10 +181,7 @@ async fn test_postgres_update_token_success() {
 
     store.update_token(updated_data).await.unwrap();
 
-    let pc = &ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("audience1")
-        .build();
+    let pc = &ParticipantContext::builder().id("participant1").build();
 
     let retrieved = store.get_token(pc, "provider1").await.unwrap();
     assert_eq!(retrieved.token, "token_updated");
@@ -253,10 +241,7 @@ async fn test_postgres_remove_token_success() {
     store.save_token(token_data).await.unwrap();
     store.remove_token("participant1", "provider1").await.unwrap();
 
-    let pc = &ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("audience1")
-        .build();
+    let pc = &ParticipantContext::builder().id("participant1").build();
 
     let result = store.get_token(pc, "provider1").await;
     assert!(result.is_err());
@@ -315,10 +300,7 @@ async fn test_postgres_multiple_tokens() {
     store.save_token(token1).await.unwrap();
     store.save_token(token2).await.unwrap();
 
-    let pc = &ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("audience1")
-        .build();
+    let pc = &ParticipantContext::builder().id("participant1").build();
 
     let retrieved1 = store.get_token(pc, "provider1").await.unwrap();
     let retrieved2 = store.get_token(pc, "provider2").await.unwrap();
@@ -349,10 +331,7 @@ async fn test_postgres_token_with_special_characters() {
         refresh_endpoint: "https://auth.example.com/token?param=value&other=123".to_string(),
     };
 
-    let pc = &ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("audience1")
-        .build();
+    let pc = &ParticipantContext::builder().id("participant1").build();
 
     store.save_token(token_data).await.unwrap();
     let retrieved = store.get_token(pc, "provider1").await.unwrap();
@@ -386,10 +365,7 @@ async fn test_postgres_token_with_long_values() {
 
     store.save_token(token_data).await.unwrap();
 
-    let pc = &ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("audience1")
-        .build();
+    let pc = &ParticipantContext::builder().id("participant1").build();
 
     let retrieved = store.get_token(pc, "provider1").await.unwrap();
 
@@ -433,10 +409,7 @@ async fn test_postgres_save_get_update_remove_flow() {
 
     store.update_token(updated_data).await.unwrap();
 
-    let pc = &ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("audience1")
-        .build();
+    let pc = &ParticipantContext::builder().id("participant1").build();
 
     let retrieved = store.get_token(pc, "provider1").await.unwrap();
     assert_eq!(retrieved.token, "token2");
@@ -474,10 +447,7 @@ async fn test_postgres_last_accessed_timestamp_recorded() {
     // Advance time and access the token
     mock_clock.advance(TimeDelta::seconds(100));
 
-    let pc = &ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("audience1")
-        .build();
+    let pc = &ParticipantContext::builder().id("participant1").build();
 
     let _retrieved = store.get_token(pc, "provider1").await.unwrap();
 
@@ -523,10 +493,7 @@ async fn test_postgres_deterministic_timestamps() {
 
     store.save_token(token2).await.unwrap();
 
-    let pc = &ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("audience1")
-        .build();
+    let pc = &ParticipantContext::builder().id("participant1").build();
 
     // Verify both tokens exist with their respective timestamps
     let retrieved1 = store.get_token(pc, "provider1").await.unwrap();
@@ -576,10 +543,7 @@ async fn test_postgres_tokens_are_encrypted_at_rest() {
     assert!(!raw_record.0.is_empty());
     assert!(!raw_record.1.is_empty());
 
-    let pc = &ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("audience1")
-        .build();
+    let pc = &ParticipantContext::builder().id("participant1").build();
 
     // Verify we can still retrieve and decrypt properly
     let retrieved = store.get_token(pc, "provider1").await.unwrap();
@@ -622,13 +586,10 @@ async fn test_context_isolation_save() {
     store.save_token(token_p1).await.unwrap();
     store.save_token(token_p2).await.unwrap();
 
-    let pc1 = &ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("audience1")
-        .build();
+    let pc1 = &ParticipantContext::builder().id("participant1").build();
 
     let pc2 = &ParticipantContext::builder()
-        .identifier("participant2")
+        .id("participant2")
         .audience("audience2")
         .build();
 
@@ -639,7 +600,7 @@ async fn test_context_isolation_save() {
     assert_eq!(retrieved_p2.token, "token_p2");
 
     let pc3 = &ParticipantContext::builder()
-        .identifier("participant3")
+        .id("participant3")
         .audience("audience3")
         .build();
 
@@ -683,13 +644,10 @@ async fn test_context_isolation_get() {
     store.save_token(token_p1).await.unwrap();
     store.save_token(token_p2).await.unwrap();
 
-    let pc1 = &ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("audience1")
-        .build();
+    let pc1 = &ParticipantContext::builder().id("participant1").build();
 
     let pc2 = &ParticipantContext::builder()
-        .identifier("participant2")
+        .id("participant2")
         .audience("audience2")
         .build();
 
@@ -702,7 +660,7 @@ async fn test_context_isolation_get() {
     assert_eq!(p2_result.token, "token_p2");
 
     let pc3 = &ParticipantContext::builder()
-        .identifier("participant3")
+        .id("participant3")
         .audience("audience3")
         .build();
 
@@ -758,13 +716,10 @@ async fn test_context_isolation_update() {
 
     store.update_token(updated_p1).await.unwrap();
 
-    let pc1 = &ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("audience1")
-        .build();
+    let pc1 = &ParticipantContext::builder().id("participant1").build();
 
     let pc2 = &ParticipantContext::builder()
-        .identifier("participant2")
+        .id("participant2")
         .audience("audience2")
         .build();
 
@@ -826,13 +781,10 @@ async fn test_context_isolation_remove() {
 
     store.remove_token("participant1", "provider").await.unwrap();
 
-    let pc1 = &ParticipantContext::builder()
-        .identifier("participant1")
-        .audience("audience1")
-        .build();
+    let pc1 = &ParticipantContext::builder().id("participant1").build();
 
     let pc2 = &ParticipantContext::builder()
-        .identifier("participant2")
+        .id("participant2")
         .audience("audience2")
         .build();
 

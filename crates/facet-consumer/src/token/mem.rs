@@ -78,12 +78,12 @@ impl TokenStore for MemoryTokenStore {
         identifier: &str,
     ) -> Result<TokenData, TokenError> {
         let mut guard = self.tokens.write().await;
-        let key = (participant_context.identifier.clone(), identifier.to_string());
+        let key = (participant_context.id.clone(), identifier.to_string());
 
         let record = guard.get(&key).ok_or_else(|| TokenError::token_not_found(identifier))?;
 
         // Verify participant context matches (defense in depth)
-        if record.participant_context != participant_context.identifier {
+        if record.participant_context != participant_context.id {
             return Err(TokenError::token_not_found(identifier));
         }
 

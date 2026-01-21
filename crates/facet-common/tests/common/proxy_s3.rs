@@ -78,7 +78,7 @@ impl ProxyConfig {
 
         let participant_context_resolver = Arc::new(StaticParticipantContextResolver {
             participant_context: ParticipantContext::builder()
-                .identifier(participant_id)
+                .id(participant_id)
                 .audience("s3-proxy")
                 .build(),
         });
@@ -119,7 +119,7 @@ impl ProxyConfig {
 
         let participant_context_resolver = Arc::new(StaticParticipantContextResolver {
             participant_context: ParticipantContext::builder()
-                .identifier("proxy")
+                .id("proxy")
                 .audience("s3-proxy")
                 .build(),
         });
@@ -133,7 +133,7 @@ impl ProxyConfig {
         let rule = facet_common::auth::Rule::new(scope, vec!["s3:GetObject".to_string()], ".*".to_string())
             .expect("Failed to create authorization rule");
         let ctx = &ParticipantContext::builder()
-            .identifier("proxy")
+            .id("proxy")
             .audience("test-audience")
             .build();
 
@@ -162,7 +162,7 @@ impl ProxyConfig {
     ) -> Self {
         let participant_context_resolver = Arc::new(StaticParticipantContextResolver {
             participant_context: ParticipantContext::builder()
-                .identifier("test-user")
+                .id("test-user")
                 .audience("test-audience")
                 .build(),
         });
@@ -254,7 +254,7 @@ pub async fn add_auth_rule(
     .unwrap();
 
     let ctx = &ParticipantContext::builder()
-        .identifier(participant_id)
+        .id(participant_id)
         .audience("test-audience")
         .build();
 
