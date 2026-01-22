@@ -14,7 +14,7 @@ mod common;
 
 use crate::common::setup_postgres_container;
 use chrono::{TimeDelta, Utc};
-use facet_common::util::{Clock, MockClock};
+use facet_common::util::clock::{Clock, MockClock};
 use facet_consumer::lock::postgres::PostgresLockManager;
 use facet_consumer::lock::LockError::{LockAlreadyHeld, LockNotFound};
 use facet_consumer::lock::{LockManager, UnlockOps};

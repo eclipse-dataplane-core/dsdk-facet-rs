@@ -16,7 +16,7 @@ mod tests;
 pub mod jwtutils;
 
 use crate::context::ParticipantContext;
-use crate::util::{Clock, default_clock};
+use crate::util::clock::{Clock, default_clock};
 use bon::Builder;
 use jsonwebtoken::dangerous::insecure_decode;
 use jsonwebtoken::errors::ErrorKind;

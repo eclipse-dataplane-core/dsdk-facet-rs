@@ -13,7 +13,7 @@
 use crate::token::{MemoryTokenStore, TokenData, TokenError, TokenStore};
 use chrono::{TimeDelta, Utc};
 use facet_common::context::ParticipantContext;
-use facet_common::util::{Clock, MockClock};
+use facet_common::util::clock::{Clock, MockClock};
 use std::sync::Arc;
 
 async fn create_store_with_tokens() -> MemoryTokenStore {

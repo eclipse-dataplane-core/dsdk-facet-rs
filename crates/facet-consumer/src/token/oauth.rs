@@ -16,7 +16,7 @@ use bon::Builder;
 use chrono::TimeDelta;
 use facet_common::context::ParticipantContext;
 use facet_common::jwt::{JwtGenerator, LocalJwtGenerator, TokenClaims};
-use facet_common::util::{Clock, default_clock};
+use facet_common::util::clock::{Clock, default_clock};
 use reqwest::Client;
 use serde::Deserialize;
 use serde_json::{Map, Value};

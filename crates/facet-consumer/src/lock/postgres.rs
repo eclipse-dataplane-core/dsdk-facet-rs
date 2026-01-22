@@ -14,7 +14,7 @@ use crate::lock::{LockError, LockGuard, LockManager, UnlockOps};
 use async_trait::async_trait;
 use bon::Builder;
 use chrono::TimeDelta;
-use facet_common::util::{default_clock, Clock};
+use facet_common::util::clock::{default_clock, Clock};
 use rand::Rng;
 use sqlx::PgPool;
 use std::sync::Arc;

@@ -28,7 +28,7 @@ use bon::Builder;
 use chrono::{DateTime, TimeDelta, Utc};
 use facet_common::context::ParticipantContext;
 use facet_common::jwt::JwtGenerationError;
-use facet_common::util::{Clock, default_clock};
+use facet_common::util::clock::{Clock, default_clock};
 use std::sync::Arc;
 use thiserror::Error;
 

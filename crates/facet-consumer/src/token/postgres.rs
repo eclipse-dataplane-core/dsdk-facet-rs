@@ -14,7 +14,8 @@ use crate::token::{TokenData, TokenError, TokenStore};
 use async_trait::async_trait;
 use bon::Builder;
 use chrono::DateTime;
-use facet_common::util::{decrypt, default_clock, encrypt, Clock};
+use facet_common::util::clock::{default_clock, Clock};
+use facet_common::util::encryption::{decrypt, encrypt};
 use sodiumoxide::crypto::secretbox;
 use sqlx::PgPool;
 use std::sync::Arc;
@@ -49,7 +50,7 @@ use facet_common::context::ParticipantContext;
 /// let pool = PgPool::connect("").await?;
 /// let password = std::env::var("ENCRYPTION_PASSWORD")?;
 /// let salt_hex = std::env::var("ENCRYPTION_SALT")?;
-/// let key = facet_common::util::encryption_key(&password, &salt_hex)?;
+/// let key = facet_common::util::encryption::encryption_key(&password, &salt_hex)?;
 ///
 /// let store = PostgresTokenStore::builder()
 ///     .pool(pool)

@@ -14,7 +14,7 @@ use crate::token::tests::mocks::{MockLockManager, MockTokenClient, MockTokenStor
 use crate::token::{TokenClientApi, TokenData, TokenError};
 use chrono::{TimeDelta, Utc};
 use facet_common::context::ParticipantContext;
-use facet_common::util::MockClock;
+use facet_common::util::clock::MockClock;
 use mockall::predicate::eq;
 use std::sync::Arc;
 

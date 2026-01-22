@@ -13,7 +13,7 @@
 use crate::lock::{LockError, LockGuard, LockManager, UnlockOps};
 use async_trait::async_trait;
 use chrono::{DateTime, TimeDelta, Utc};
-use facet_common::util::{default_clock, Clock};
+use facet_common::util::clock::{default_clock, Clock};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 

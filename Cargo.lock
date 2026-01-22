@@ -1653,6 +1653,7 @@ dependencies = [
  "hex",
  "http 1.4.0",
  "jsonwebtoken",
+ "log",
  "pingora",
  "pingora-core",
  "pingora-http",
@@ -1672,6 +1673,8 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "url",
+ "uuid",
+ "wiremock",
 ]
 
 [[package]]
@@ -3944,6 +3947,7 @@ dependencies = [
  "pin-project-lite",
  "quinn",
  "rustls 0.23.36",
+ "rustls-native-certs",
  "rustls-pki-types",
  "serde",
  "serde_json",
@@ -5007,6 +5011,7 @@ dependencies = [
  "memchr",
  "parse-display",
  "pin-project-lite",
+ "reqwest",
  "serde",
  "serde_json",
  "serde_with",
