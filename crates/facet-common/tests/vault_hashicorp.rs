@@ -13,12 +13,20 @@
 mod common;
 
 use crate::common::{create_network, setup_keycloak_container, setup_vault_container};
+use facet_common::context::ParticipantContext;
 use facet_common::vault::hashicorp::{HashicorpVaultClient, HashicorpVaultConfig};
 use facet_common::vault::VaultClient;
 
-/// Comprehensive integration test for HashicorpVaultClient covering CRUD operations,
-/// error handling, configuration variants, and health checks.
-///
+fn create_test_context() -> ParticipantContext {
+    ParticipantContext {
+        id: "test-id".to_string(),
+        identifier: "test-identifier".to_string(),
+        audience: "test-audience".to_string(),
+    }
+}
+
+/// Integration tests for HashicorpVaultClient 
+/// 
 /// All scenarios are combined in a single test to amortize the expensive container
 /// startup time (Vault + Keycloak).
 ///
@@ -52,6 +60,7 @@ async fn test_vault_client_integration() {
     // SCENARIO 1: CRUD Operations with Soft Delete (Default)
     // ============================================================================
     {
+        let ctx = create_test_context();
         let config = HashicorpVaultConfig::builder()
             .vault_url(&vault_url)
             .client_id(&keycloak_setup.client_id)
@@ -65,54 +74,54 @@ async fn test_vault_client_integration() {
 
         // Test: Store a secret
         client
-            .store_secret("test/path", "my-secret-value")
+            .store_secret(&ctx, "test/path", "my-secret-value")
             .await
             .expect("Failed to store secret");
 
         // Test: Resolve the secret
         let retrieved = client
-            .resolve_secret("test/path")
+            .resolve_secret(&ctx, "test/path")
             .await
             .expect("Failed to resolve secret");
         assert_eq!(retrieved, "my-secret-value");
 
         // Test: Update the secret
         client
-            .store_secret("test/path", "updated-secret-value")
+            .store_secret(&ctx, "test/path", "updated-secret-value")
             .await
             .expect("Failed to update secret");
 
         let updated = client
-            .resolve_secret("test/path")
+            .resolve_secret(&ctx, "test/path")
             .await
             .expect("Failed to resolve updated secret");
         assert_eq!(updated, "updated-secret-value");
 
         // Test: Store another secret at a different path
         client
-            .store_secret("test/another", "another-value")
+            .store_secret(&ctx, "test/another", "another-value")
             .await
             .expect("Failed to store another secret");
 
         let another = client
-            .resolve_secret("test/another")
+            .resolve_secret(&ctx, "test/another")
             .await
             .expect("Failed to resolve another secret");
         assert_eq!(another, "another-value");
 
         // Test: Remove a secret (soft delete)
         client
-            .remove_secret("test/path")
+            .remove_secret(&ctx, "test/path")
             .await
             .expect("Failed to remove secret");
 
         // Test: Verify secret is gone
-        let result = client.resolve_secret("test/path").await;
+        let result = client.resolve_secret(&ctx, "test/path").await;
         assert!(result.is_err(), "Expected error when reading deleted secret");
 
         // Test: The other secret should still be accessible
         let still_there = client
-            .resolve_secret("test/another")
+            .resolve_secret(&ctx, "test/another")
             .await
             .expect("Other secret should still be accessible");
         assert_eq!(still_there, "another-value");
@@ -123,6 +132,7 @@ async fn test_vault_client_integration() {
     // SCENARIO 2: Secret Not Found Error Handling
     // ============================================================================
     {
+        let ctx = create_test_context();
         let config = HashicorpVaultConfig::builder()
             .vault_url(&vault_url)
             .client_id(&keycloak_setup.client_id)
@@ -135,7 +145,7 @@ async fn test_vault_client_integration() {
         client.initialize().await.expect("Failed to initialize Vault client");
 
         // Try to read a non-existent secret
-        let result = client.resolve_secret("nonexistent/path").await;
+        let result = client.resolve_secret(&ctx, "nonexistent/path").await;
         assert!(result.is_err(), "Expected error for non-existent secret");
 
         match result {
@@ -151,6 +161,7 @@ async fn test_vault_client_integration() {
     // SCENARIO 3: CRUD Operations with Hard Delete
     // ============================================================================
     {
+        let ctx = create_test_context();
         let config = HashicorpVaultConfig::builder()
             .vault_url(&vault_url)
             .client_id(&keycloak_setup.client_id)
@@ -165,22 +176,22 @@ async fn test_vault_client_integration() {
 
         // Store a secret
         client
-            .store_secret("test/hard-delete", "value")
+            .store_secret(&ctx, "test/hard-delete", "value")
             .await
             .expect("Failed to store secret");
 
         // Verify it exists
-        let value = client.resolve_secret("test/hard-delete").await.unwrap();
+        let value = client.resolve_secret(&ctx, "test/hard-delete").await.unwrap();
         assert_eq!(value, "value");
 
         // Hard delete the secret
         client
-            .remove_secret("test/hard-delete")
+            .remove_secret(&ctx, "test/hard-delete")
             .await
             .expect("Failed to remove secret");
 
         // Verify it is removed
-        let result = client.resolve_secret("test/hard-delete").await;
+        let result = client.resolve_secret(&ctx, "test/hard-delete").await;
         assert!(result.is_err(), "Expected error after hard delete");
 
     }
@@ -189,6 +200,7 @@ async fn test_vault_client_integration() {
     // SCENARIO 4: Health Check Functionality
     // ============================================================================
     {
+        let ctx = create_test_context();
         let config = HashicorpVaultConfig::builder()
             .vault_url(&vault_url)
             .client_id(&keycloak_setup.client_id)
@@ -213,11 +225,11 @@ async fn test_vault_client_integration() {
 
         // Verify client can perform operations while healthy
         client
-            .store_secret("test/health", "healthy-value")
+            .store_secret(&ctx, "test/health", "healthy-value")
             .await
             .expect("Healthy client should be able to store secrets");
 
-        let value = client.resolve_secret("test/health").await.expect("Should resolve secret");
+        let value = client.resolve_secret(&ctx, "test/health").await.expect("Should resolve secret");
         assert_eq!(value, "healthy-value");
 
     }
@@ -226,6 +238,7 @@ async fn test_vault_client_integration() {
     // SCENARIO 5: Initialization Failure with Invalid Credentials
     // ============================================================================
     {
+        let ctx = create_test_context();
         let config = HashicorpVaultConfig::builder()
             .vault_url(&vault_url)
             .client_id("invalid-client-id")
@@ -241,8 +254,78 @@ async fn test_vault_client_integration() {
         assert!(init_result.is_err(), "Initialization should fail with invalid credentials");
 
         // Client should not be usable after failed initialization
-        let resolve_result = client.resolve_secret("test/any").await;
+        let resolve_result = client.resolve_secret(&ctx, "test/any").await;
         assert!(resolve_result.is_err(), "Operations should fail on uninitialized client");
+
+    }
+
+    // ============================================================================
+    // SCENARIO 6: Participant Context Isolation
+    // ============================================================================
+    {
+        let ctx1 = ParticipantContext {
+            id: "participant-1".to_string(),
+            identifier: "participant-1-identifier".to_string(),
+            audience: "participant-1-audience".to_string(),
+        };
+
+        let ctx2 = ParticipantContext {
+            id: "participant-2".to_string(),
+            identifier: "participant-2-identifier".to_string(),
+            audience: "participant-2-audience".to_string(),
+        };
+
+        let config = HashicorpVaultConfig::builder()
+            .vault_url(&vault_url)
+            .client_id(&keycloak_setup.client_id)
+            .client_secret(&keycloak_setup.client_secret)
+            .token_url(&keycloak_setup.token_url)
+            .build();
+
+        let mut client = HashicorpVaultClient::new(config)
+            .expect("Failed to create Vault client");
+        client.initialize().await.expect("Failed to initialize Vault client");
+
+        // Store secrets for both participants at the same path
+        client
+            .store_secret(&ctx1, "shared/path", "secret-for-participant-1")
+            .await
+            .expect("Failed to store secret for participant 1");
+
+        client
+            .store_secret(&ctx2, "shared/path", "secret-for-participant-2")
+            .await
+            .expect("Failed to store secret for participant 2");
+
+        // Each participant should retrieve only their own secret
+        let secret1 = client
+            .resolve_secret(&ctx1, "shared/path")
+            .await
+            .expect("Failed to resolve secret for participant 1");
+        assert_eq!(secret1, "secret-for-participant-1");
+
+        let secret2 = client
+            .resolve_secret(&ctx2, "shared/path")
+            .await
+            .expect("Failed to resolve secret for participant 2");
+        assert_eq!(secret2, "secret-for-participant-2");
+
+        // Remove secret for participant 1
+        client
+            .remove_secret(&ctx1, "shared/path")
+            .await
+            .expect("Failed to remove secret for participant 1");
+
+        // Participant 1's secret should be gone
+        let result = client.resolve_secret(&ctx1, "shared/path").await;
+        assert!(result.is_err(), "Expected error when reading deleted secret for participant 1");
+
+        // Participant 2's secret should still be accessible
+        let secret2_after = client
+            .resolve_secret(&ctx2, "shared/path")
+            .await
+            .expect("Participant 2's secret should still be accessible");
+        assert_eq!(secret2_after, "secret-for-participant-2");
 
     }
 

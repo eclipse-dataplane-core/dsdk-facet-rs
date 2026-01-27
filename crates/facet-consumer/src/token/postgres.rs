@@ -14,12 +14,12 @@ use crate::token::{TokenData, TokenError, TokenStore};
 use async_trait::async_trait;
 use bon::Builder;
 use chrono::DateTime;
+use facet_common::context::ParticipantContext;
 use facet_common::util::clock::{default_clock, Clock};
 use facet_common::util::encryption::{decrypt, encrypt};
 use sodiumoxide::crypto::secretbox;
 use sqlx::PgPool;
 use std::sync::Arc;
-use facet_common::context::ParticipantContext;
 
 /// Postgres-backed token store using SQLx connection pooling.
 ///
@@ -64,7 +64,7 @@ use facet_common::context::ParticipantContext;
 pub struct PostgresTokenStore {
     pool: PgPool,
     encryption_key: secretbox::Key,
-    
+
     #[builder(default = default_clock())]
     clock: Arc<dyn Clock>,
 }
@@ -121,7 +121,11 @@ impl PostgresTokenStore {
 
 #[async_trait]
 impl TokenStore for PostgresTokenStore {
-    async fn get_token(&self, participant_context: &ParticipantContext, identifier: &str) -> Result<TokenData, TokenError> {
+    async fn get_token(
+        &self,
+        participant_context: &ParticipantContext,
+        identifier: &str,
+    ) -> Result<TokenData, TokenError> {
         let mut tx = self
             .pool
             .begin()
@@ -295,4 +299,10 @@ struct TokenRecord {
     refresh_token_nonce: Vec<u8>,
     expires_at: DateTime<chrono::Utc>,
     refresh_endpoint: String,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+struct _VaultRecord {
+    pub token: String,
+    pub refresh_token: String,
 }

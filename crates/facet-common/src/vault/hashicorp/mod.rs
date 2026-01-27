@@ -10,7 +10,15 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
-#[cfg(test)]
-mod hashicorp;
-#[cfg(test)]
-mod mem;
+#[doc(hidden)]
+pub mod auth;
+mod client;
+#[doc(hidden)]
+pub mod config;
+#[doc(hidden)]
+pub mod renewal;
+#[doc(hidden)]
+pub mod state;
+
+pub use client::HashicorpVaultClient;
+pub use config::{ErrorCallback, HashicorpVaultConfig, HashicorpVaultConfigBuilder};

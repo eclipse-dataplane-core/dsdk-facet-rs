@@ -15,8 +15,13 @@
 
 mod common;
 
-use chrono::Utc;
-use facet_common::vault::hashicorp::{ErrorCallback, HashicorpVaultClient, HashicorpVaultConfig, VaultClientState};
+use crate::common::{wait_for_condition, wrapped_test_state};
+use facet_common::util::clock::default_clock;
+use facet_common::vault::hashicorp::auth::JwtVaultAuthClient;
+use facet_common::vault::hashicorp::config::DEFAULT_ROLE;
+use facet_common::vault::hashicorp::renewal::TokenRenewer;
+use facet_common::vault::hashicorp::state::VaultClientState;
+use facet_common::vault::hashicorp::{ErrorCallback, HashicorpVaultConfig};
 use reqwest::Client;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -24,19 +29,6 @@ use tokio::sync::{watch, RwLock};
 use tokio::time::Duration;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
-use crate::common::wait_for_condition;
-
-// Helper to create test state
-fn create_test_state(token: &str, lease_duration: u64, consecutive_failures: u32) -> Arc<RwLock<VaultClientState>> {
-    Arc::new(RwLock::new(VaultClientState {
-        token: token.to_string(),
-        last_created: Utc::now(),
-        last_renewed: None,
-        lease_duration,
-        last_error: None,
-        consecutive_failures,
-    }))
-}
 
 #[tokio::test(start_paused = true)]
 async fn test_renewal_loop_successful_renewal_cycle() {
@@ -65,15 +57,15 @@ async fn test_renewal_loop_successful_renewal_cycle() {
     let state = create_test_state("test-token", 10, 0);
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
-    let state_clone = Arc::clone(&state);
+    let renewer = create_token_renewer(config, http_client, Arc::clone(&state));
     let loop_handle = tokio::spawn(async move {
-        HashicorpVaultClient::renewal_loop(config, http_client, state_clone, shutdown_rx).await;
+        renewer.renewal_loop(shutdown_rx).await;
     });
 
     // Wait for renewal to happen (last_renewed is set)
     let renewed = wait_for_condition(
         &state,
-        |s| s.last_renewed.is_some(),
+        |s| s.last_renewed().is_some(),
         Duration::from_secs(20),
     )
     .await;
@@ -81,8 +73,8 @@ async fn test_renewal_loop_successful_renewal_cycle() {
     assert!(renewed, "Renewal should have occurred");
 
     let state_guard = state.read().await;
-    assert_eq!(state_guard.consecutive_failures, 0);
-    assert!(state_guard.last_renewed.is_some());
+    assert_eq!(state_guard.consecutive_failures(), 0);
+    assert!(state_guard.last_renewed().is_some());
     drop(state_guard);
 
     shutdown_tx.send(true).unwrap();
@@ -121,15 +113,15 @@ async fn test_renewal_loop_max_consecutive_failures() {
     let state = create_test_state("test-token", 2, 0);
     let (_shutdown_tx, shutdown_rx) = watch::channel(false);
 
-    let state_clone = Arc::clone(&state);
+    let renewer = create_token_renewer(config, http_client, Arc::clone(&state));
     let loop_handle = tokio::spawn(async move {
-        HashicorpVaultClient::renewal_loop(config, http_client, state_clone, shutdown_rx).await;
+        renewer.renewal_loop(shutdown_rx).await;
     });
 
     // Wait for failures to reach 10
     let max_failures = wait_for_condition(
         &state,
-        |s| s.consecutive_failures >= 10,
+        |s| s.consecutive_failures() >= 10,
         Duration::from_secs(600),
     )
     .await;
@@ -143,8 +135,8 @@ async fn test_renewal_loop_max_consecutive_failures() {
         .unwrap();
 
     let state_guard = state.read().await;
-    assert_eq!(state_guard.consecutive_failures, 10);
-    assert!(state_guard.last_error.is_some());
+    assert_eq!(state_guard.consecutive_failures(), 10);
+    assert!(state_guard.last_error().is_some());
     assert_eq!(error_count.load(Ordering::SeqCst), 10);
 }
 
@@ -192,15 +184,15 @@ async fn test_renewal_loop_token_expiration_recovery() {
     let state = create_test_state("old-expired-token", 5, 0);
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
-    let state_clone = Arc::clone(&state);
+    let renewer = create_token_renewer(config, http_client, Arc::clone(&state));
     let loop_handle = tokio::spawn(async move {
-        HashicorpVaultClient::renewal_loop(config, http_client, state_clone, shutdown_rx).await;
+        renewer.renewal_loop(shutdown_rx).await;
     });
 
     // Wait for token to be replaced
     let token_replaced = wait_for_condition(
         &state,
-        |s| s.token == "new-vault-token",
+        |s| s.token() == "new-vault-token",
         Duration::from_secs(20),
     )
     .await;
@@ -208,9 +200,9 @@ async fn test_renewal_loop_token_expiration_recovery() {
     assert!(token_replaced, "Token should have been replaced");
 
     let state_guard = state.read().await;
-    assert_eq!(state_guard.token, "new-vault-token");
-    assert_eq!(state_guard.lease_duration, 3600);
-    assert_eq!(state_guard.consecutive_failures, 0);
+    assert_eq!(state_guard.token(), "new-vault-token");
+    assert_eq!(state_guard.lease_duration(), 3600);
+    assert_eq!(state_guard.consecutive_failures(), 0);
     drop(state_guard);
 
     shutdown_tx.send(true).unwrap();
@@ -246,9 +238,9 @@ async fn test_renewal_loop_shutdown_signal() {
     let state = create_test_state("test-token", 100, 0);
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
-    let state_clone = Arc::clone(&state);
+    let renewer = create_token_renewer(config, http_client, Arc::clone(&state));
     let loop_handle = tokio::spawn(async move {
-        HashicorpVaultClient::renewal_loop(config, http_client, state_clone, shutdown_rx).await;
+        renewer.renewal_loop(shutdown_rx).await;
     });
 
     // Send shutdown immediately
@@ -294,15 +286,15 @@ async fn test_renewal_loop_error_callback_not_invoked_on_success() {
     let state = create_test_state("test-token", 5, 0);
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
-    let state_clone = Arc::clone(&state);
+    let renewer = create_token_renewer(config, http_client, Arc::clone(&state));
     let loop_handle = tokio::spawn(async move {
-        HashicorpVaultClient::renewal_loop(config, http_client, state_clone, shutdown_rx).await;
+        renewer.renewal_loop(shutdown_rx).await;
     });
 
     // Wait for renewal to complete
     let renewed = wait_for_condition(
         &state,
-        |s| s.last_renewed.is_some(),
+        |s| s.last_renewed().is_some(),
         Duration::from_secs(20),
     )
     .await;
@@ -317,4 +309,40 @@ async fn test_renewal_loop_error_callback_not_invoked_on_success() {
         .await
         .expect("Loop should exit")
         .unwrap();
+}
+
+// Helper to create test state - delegates to common module
+fn create_test_state(token: &str, lease_duration: u64, consecutive_failures: u32) -> Arc<RwLock<VaultClientState>> {
+    wrapped_test_state(token, lease_duration, consecutive_failures)
+}
+
+// Helper to create a TokenRenewer for testing
+fn create_token_renewer(
+    config: HashicorpVaultConfig,
+    http_client: Client,
+    state: Arc<RwLock<VaultClientState>>,
+) -> Arc<TokenRenewer> {
+    let auth_client = Arc::new(
+        JwtVaultAuthClient::builder()
+            .http_client(http_client.clone())
+            .vault_url(&config.vault_url)
+            .client_id(&config.client_id)
+            .client_secret(&config.client_secret)
+            .token_url(&config.token_url)
+            .role(config.role.as_deref().unwrap_or(DEFAULT_ROLE))
+            .build(),
+    );
+
+    Arc::new(
+        TokenRenewer::builder()
+            .auth_client(auth_client)
+            .http_client(http_client)
+            .vault_url(&config.vault_url)
+            .state(state)
+            .maybe_on_renewal_error(config.on_renewal_error.clone())
+            .clock(default_clock())
+            .token_renewal_percentage(config.token_renewal_percentage)
+            .max_consecutive_failures(config.max_consecutive_failures)
+            .build(),
+    )
 }
