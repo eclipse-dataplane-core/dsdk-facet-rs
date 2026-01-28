@@ -14,9 +14,9 @@ use crate::token::{TokenData, TokenError, TokenStore};
 use async_trait::async_trait;
 use bon::Builder;
 use chrono::DateTime;
-use facet_common::context::ParticipantContext;
-use facet_common::util::clock::{default_clock, Clock};
-use facet_common::util::encryption::{decrypt, encrypt};
+use crate::context::ParticipantContext;
+use crate::util::clock::{default_clock, Clock};
+use crate::util::encryption::{decrypt, encrypt};
 use sodiumoxide::crypto::secretbox;
 use sqlx::PgPool;
 use std::sync::Arc;
@@ -43,7 +43,7 @@ use std::sync::Arc;
 /// must be consistent across instances and restarts and should be stored securely:
 ///
 /// ```no_run
-/// # use facet_consumer::token::PostgresTokenStore;
+/// # use facet_common::token::PostgresTokenStore;
 /// # use sqlx::PgPool;
 ///
 /// # async fn launch() -> Result<(), Box<dyn std::error::Error>> {

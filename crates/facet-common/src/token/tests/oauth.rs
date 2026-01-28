@@ -12,10 +12,10 @@
 
 use crate::token::oauth::OAuth2TokenClient;
 use crate::token::TokenClient;
-use facet_common::context::ParticipantContext;
-use facet_common::jwt::jwtutils::generate_ed25519_keypair_pem;
-use facet_common::jwt::jwtutils::StaticSigningKeyResolver;
-use facet_common::jwt::LocalJwtGenerator;
+use crate::context::ParticipantContext;
+use crate::jwt::jwtutils::generate_ed25519_keypair_pem;
+use crate::jwt::jwtutils::StaticSigningKeyResolver;
+use crate::jwt::LocalJwtGenerator;
 use std::sync::Arc;
 use wiremock::matchers::{body_string_contains, header_regex, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};

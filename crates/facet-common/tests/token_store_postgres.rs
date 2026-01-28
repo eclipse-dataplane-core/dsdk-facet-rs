@@ -17,7 +17,7 @@ use common::{setup_postgres_container, truncate_to_micros};
 use facet_common::context::ParticipantContext;
 use facet_common::util::clock::{Clock, MockClock};
 use facet_common::util::encryption::encryption_key;
-use facet_consumer::token::{PostgresTokenStore, TokenData, TokenError, TokenStore};
+use facet_common::token::{PostgresTokenStore, TokenData, TokenError, TokenStore};
 use once_cell::sync::Lazy;
 use sodiumoxide::crypto::secretbox;
 use std::sync::Arc;

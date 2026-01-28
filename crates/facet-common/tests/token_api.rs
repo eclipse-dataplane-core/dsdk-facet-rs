@@ -19,9 +19,9 @@ use facet_common::jwt::jwtutils::{generate_ed25519_keypair_pem, StaticSigningKey
 use facet_common::jwt::{LocalJwtGenerator, LocalJwtVerifier, JwtVerifier};
 use facet_common::util::clock::default_clock;
 use facet_common::util::encryption::encryption_key;
-use facet_consumer::lock::PostgresLockManager;
-use facet_consumer::token::oauth::OAuth2TokenClient;
-use facet_consumer::token::{PostgresTokenStore, TokenClientApi, TokenData, TokenStore};
+use facet_common::lock::PostgresLockManager;
+use facet_common::token::oauth::OAuth2TokenClient;
+use facet_common::token::{PostgresTokenStore, TokenClientApi, TokenData, TokenStore};
 use once_cell::sync::Lazy;
 use sodiumoxide::crypto::secretbox;
 use std::sync::Arc;

@@ -14,7 +14,7 @@ use crate::lock::{LockError, LockGuard, LockManager, UnlockOps};
 use async_trait::async_trait;
 use bon::Builder;
 use chrono::TimeDelta;
-use facet_common::util::clock::{default_clock, Clock};
+use crate::util::clock::{default_clock, Clock};
 use rand::Rng;
 use sqlx::PgPool;
 use std::sync::Arc;
@@ -22,7 +22,7 @@ use std::sync::Arc;
 const MAX_RETRIES: u32 = 5;
 
 // Recommended cleanup probability values for different traffic patterns
-/// Always clean up expired locks (default, safest option)
+/// Always clean up expired locks (default, the safest option)
 pub const CLEANUP_ALWAYS: f64 = 1.0;
 /// High cleanup frequency - suitable for moderate traffic
 pub const CLEANUP_HIGH: f64 = 0.5;

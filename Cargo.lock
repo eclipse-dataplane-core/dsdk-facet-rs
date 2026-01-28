@@ -1654,6 +1654,8 @@ dependencies = [
  "http 1.4.0",
  "jsonwebtoken",
  "log",
+ "mockall",
+ "once_cell",
  "pingora",
  "pingora-core",
  "pingora-http",

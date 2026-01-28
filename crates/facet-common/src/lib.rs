@@ -16,6 +16,8 @@ pub mod jwt;
 pub mod proxy;
 pub mod auth;
 pub mod vault;
+pub mod lock;
+pub mod token;
 
 #[cfg(test)]
 pub mod test_fixtures {

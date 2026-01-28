@@ -10,5 +10,3 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
-pub mod token;
-pub mod lock;

@@ -26,9 +26,9 @@ use crate::lock::LockManager;
 use async_trait::async_trait;
 use bon::Builder;
 use chrono::{DateTime, TimeDelta, Utc};
-use facet_common::context::ParticipantContext;
-use facet_common::jwt::JwtGenerationError;
-use facet_common::util::clock::{Clock, default_clock};
+use crate::context::ParticipantContext;
+use crate::jwt::JwtGenerationError;
+use crate::util::clock::{Clock, default_clock};
 use std::sync::Arc;
 use thiserror::Error;
 

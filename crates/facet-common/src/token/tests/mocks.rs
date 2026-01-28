@@ -12,7 +12,7 @@
 
 use crate::lock::{LockGuard, LockManager, UnlockOps};
 use crate::token::{TokenClient, TokenData, TokenError, TokenStore};
-use facet_common::context::ParticipantContext;
+use crate::context::ParticipantContext;
 use mockall::mock;
 use mockall::predicate::*;
 use std::sync::Arc;

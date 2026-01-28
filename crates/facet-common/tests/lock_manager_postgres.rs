@@ -15,9 +15,9 @@ mod common;
 use crate::common::setup_postgres_container;
 use chrono::{TimeDelta, Utc};
 use facet_common::util::clock::{Clock, MockClock};
-use facet_consumer::lock::postgres::PostgresLockManager;
-use facet_consumer::lock::LockError::{LockAlreadyHeld, LockNotFound};
-use facet_consumer::lock::{LockManager, UnlockOps};
+use facet_common::lock::postgres::PostgresLockManager;
+use facet_common::lock::LockError::{LockAlreadyHeld, LockNotFound};
+use facet_common::lock::{LockManager, UnlockOps};
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -63,7 +63,7 @@ async fn test_postgres_lock_reentrant() {
     let _guard = manager.lock(&identifier, owner).await.unwrap();
 
     // Both should succeed
-    assert_eq!(manager.lock(&identifier, owner).await.is_ok(), true);
+    assert!(manager.lock(&identifier, owner).await.is_ok());
 }
 
 #[tokio::test]

@@ -42,3 +42,5 @@ tokio = { workspace = true }
 reqwest = { workspace = true }
 wiremock = { workspace = true }
 uuid = { workspace = true }
+once_cell = { workspace = true }
+mockall = { workspace = true }

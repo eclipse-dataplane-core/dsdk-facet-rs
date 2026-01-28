@@ -13,8 +13,8 @@
 use crate::token::{TokenData, TokenError, TokenStore};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use facet_common::context::ParticipantContext;
-use facet_common::util::clock::{Clock, default_clock};
+use crate::context::ParticipantContext;
+use crate::util::clock::{Clock, default_clock};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
