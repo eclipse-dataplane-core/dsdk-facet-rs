@@ -90,7 +90,7 @@ pub async fn setup_vault_container_with_ttl(
         .put(format!("{}/v1/sys/policy/test-policy", vault_url))
         .header("X-Vault-Token", root_token)
         .json(&json!({
-            "policy": "path \"secret/*\" {\n  capabilities = [\"create\", \"read\", \"update\", \"delete\", \"list\"]\n}"
+            "policy": "path \"secret/*\" {\n  capabilities = [\"create\", \"read\", \"update\", \"delete\", \"list\"]\n}\npath \"transit/*\" {\n  capabilities = [\"create\", \"read\", \"update\", \"delete\", \"list\"]\n}"
         }))
         .send()
         .await
@@ -132,6 +132,23 @@ pub async fn setup_vault_container_with_ttl(
 
     // Enable KV v2 secrets engine (in dev mode, 'secret/' is already mounted as kv-v2)
     // So we don't need to create it again
+
+    // Enable Transit secrets engine
+    let enable_transit = client
+        .post(format!("{}/v1/sys/mounts/transit", vault_url))
+        .header("X-Vault-Token", root_token)
+        .json(&json!({
+            "type": "transit"
+        }))
+        .send()
+        .await
+        .expect("Failed to enable transit engine");
+
+    assert!(
+        enable_transit.status().is_success(),
+        "Failed to enable transit engine: {}",
+        enable_transit.text().await.unwrap()
+    );
 
     (vault_url, root_token.to_string(), container)
 }

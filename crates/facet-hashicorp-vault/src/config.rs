@@ -29,6 +29,9 @@ pub(crate) const DEFAULT_RENEWAL_JITTER: f64 = 0.1; // 10% jitter
 /// Type alias for the error callback function
 pub type ErrorCallback = Arc<dyn Fn(&VaultError) + Send + Sync>;
 
+/// Type alias for JWT kid (key ID) transformer function
+pub type JwtKidTransformer = Arc<dyn Fn(&str) -> String + Send + Sync>;
+
 /// Configuration for the Hashicorp Vault client using JWT authentication.
 #[derive(Builder, Clone)]
 pub struct HashicorpVaultConfig {
@@ -68,6 +71,31 @@ pub struct HashicorpVaultConfig {
     /// Jitter percentage applied to renewal interval (0.0-1.0, defaults to 0.1 = ±10%)
     #[builder(default = DEFAULT_RENEWAL_JITTER)]
     pub renewal_jitter: f64,
+    /// Optional mount path for the Transit secrets engine (defaults to "transit")
+    pub transit_mount_path: Option<String>,
+    /// Optional name of the signing key to use in the Transit engine
+    pub signing_key_name: Option<String>,
+    /// Optional transformer to customize the JWT kid (key ID) in returned KeyMetadata.
+    /// This transforms the signing key name before it's included in JWT kid header.
+    /// The transformation only affects the returned metadata and JWT kid, not the
+    /// actual key name used for Vault API operations.
+    ///
+    /// # Example
+    /// ```ignore
+    /// use std::sync::Arc;
+    ///
+    /// // Add prefix to key name for JWT kid
+    /// let transformer = Arc::new(|name| format!("#{}", name));
+    ///
+    /// let config = HashicorpVaultConfig::builder()
+    ///     .signing_key_name("my-key")
+    ///     .jwt_kid_transformer(transformer)
+    ///     // ... other config ...
+    ///     .build();
+    ///
+    /// // JWT kid will be "#my-key-1" instead of "my-key-1"
+    /// ```
+    pub jwt_kid_transformer: Option<JwtKidTransformer>,
     #[builder(default = default_clock())]
     pub(crate) clock: Arc<dyn Clock>,
 }
@@ -91,6 +119,9 @@ impl std::fmt::Debug for HashicorpVaultConfig {
             .field("request_timeout", &self.request_timeout)
             .field("max_consecutive_failures", &self.max_consecutive_failures)
             .field("renewal_jitter", &self.renewal_jitter)
+            .field("transit_mount_path", &self.transit_mount_path)
+            .field("signing_key_name", &self.signing_key_name)
+            .field("jwt_kid_transformer", &self.jwt_kid_transformer.as_ref().map(|_| "<transformer>"))
             .finish()
     }
 }

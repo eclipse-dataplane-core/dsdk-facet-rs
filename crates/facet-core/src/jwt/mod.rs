@@ -17,7 +17,9 @@ pub mod jwtutils;
 
 use crate::context::ParticipantContext;
 use crate::util::clock::{Clock, default_clock};
+use crate::vault::{VaultSigningClient, VaultError};
 use async_trait::async_trait;
+use base64::Engine;
 use bon::Builder;
 use jsonwebtoken::dangerous::insecure_decode;
 use jsonwebtoken::errors::ErrorKind;
@@ -64,6 +66,12 @@ pub trait JwtGenerator: Send + Sync {
 pub enum JwtGenerationError {
     #[error("Failed to generate token: {0}")]
     GenerationError(String),
+}
+
+impl From<VaultError> for JwtGenerationError {
+    fn from(error: VaultError) -> Self {
+        JwtGenerationError::GenerationError(error.to_string())
+    }
 }
 
 /// Verifies a JWT and validates claims for the participant context.
@@ -170,7 +178,7 @@ impl JwtGenerator for LocalJwtGenerator {
     async fn generate_token(
         &self,
         participant_context: &ParticipantContext,
-        claims: TokenClaims,
+        mut claims: TokenClaims,
     ) -> Result<String, JwtGenerationError> {
         let key_result = self.signing_key_resolver.resolve_key(participant_context).await?;
 
@@ -178,11 +186,65 @@ impl JwtGenerator for LocalJwtGenerator {
         let encoding_key = self.load_encoding_key(&key_result.key_format, &key_result.key)?;
         let mut theader = Header::new(algorithm);
         theader.kid = Some(key_result.kid);
-        let mut claims = TokenClaims { ..claims.clone() };
         claims.iss = key_result.iss;
         claims.iat = self.clock.now().timestamp();
         encode(&theader, &claims, &encoding_key)
             .map_err(|e| JwtGenerationError::GenerationError(format!("JWT encoding failed: {}", e)))
+    }
+}
+
+/// JWT generator that delegates signing to a vault SigningClient.
+#[derive(Builder)]
+pub struct VaultJwtGenerator {
+    signing_client: Arc<dyn VaultSigningClient>,
+
+    #[builder(default = default_clock())]
+    clock: Arc<dyn Clock>,
+}
+
+#[async_trait]
+impl JwtGenerator for VaultJwtGenerator {
+    async fn generate_token(
+        &self,
+        participant_context: &ParticipantContext,
+        mut claims: TokenClaims,
+    ) -> Result<String, JwtGenerationError> {
+        // Get key metadata to calculate kid (using Multibase format for DID compatibility)
+        let metadata = self.signing_client.get_key_metadata(participant_context, crate::vault::PublicKeyFormat::Multibase).await?;
+        let kid = format!("{}-{}", metadata.key_name, metadata.current_version);
+
+        // Set timestamp claims (overwrites any existing iat)
+        claims.iat = self.clock.now().timestamp();
+
+        // Serialize payload
+        let payload_bytes = serde_json::to_vec(&claims)
+            .map_err(|e| JwtGenerationError::GenerationError(format!("Failed to serialize claims: {}", e)))?;
+
+        // Create JWT header with kid and algorithm
+        let header = serde_json::json!({
+            "alg": "EdDSA", // Only supports Ed25519
+            "typ": "JWT",
+            "kid": kid
+        });
+
+        let header_bytes = serde_json::to_vec(&header)
+            .map_err(|e| JwtGenerationError::GenerationError(format!("Failed to serialize header: {}", e)))?;
+
+        // Base64url encode header and payload
+        let header_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&header_bytes);
+        let payload_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&payload_bytes);
+
+        // Create signing input (header.payload)
+        let signing_input = format!("{}.{}", header_b64, payload_b64);
+
+        // Sign the input using the vault (returns raw signature bytes)
+        let signature_bytes = self.signing_client.sign_content(participant_context, signing_input.as_bytes()).await?;
+
+        // Encode signature as base64url for JWT
+        let signature_b64url = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&signature_bytes);
+
+        // Return complete JWT
+        Ok(format!("{}.{}", signing_input, signature_b64url))
     }
 }
 
@@ -254,3 +316,5 @@ impl JwtVerifier for LocalJwtVerifier {
         Ok(token_data.claims)
     }
 }
+
+
