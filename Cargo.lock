@@ -886,6 +886,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "bs58"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bf88ba1141d185c399bee5288d850d63b8369520c1eafc32a0430b5b6c287bf4"
+dependencies = [
+ "tinyvec",
+]
+
+[[package]]
 name = "bumpalo"
 version = "3.19.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1464,7 +1473,9 @@ name = "dsdk-facet-core"
 version = "0.0.1"
 dependencies = [
  "async-trait",
+ "base64 0.22.1",
  "bon",
+ "bs58",
  "chrono",
  "dsdk-facet-postgres",
  "dsdk-facet-testcontainers",
@@ -1497,7 +1508,9 @@ name = "dsdk-facet-hashicorp-vault"
 version = "0.0.1"
 dependencies = [
  "async-trait",
+ "base64 0.22.1",
  "bon",
+ "bs58",
  "chrono",
  "dsdk-facet-core",
  "dsdk-facet-testcontainers",

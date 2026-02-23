@@ -15,3 +15,9 @@ target
 
 .claude/
 .idea/
+
+# macOS system files
+.DS_Store
+
+# Documentation scratch files
+docs/
