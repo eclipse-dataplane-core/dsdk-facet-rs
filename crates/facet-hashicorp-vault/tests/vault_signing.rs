@@ -14,7 +14,7 @@ use base64::Engine;
 use dsdk_facet_core::context::ParticipantContext;
 use dsdk_facet_core::jwt::{JwtGenerator, TokenClaims, VaultJwtGenerator};
 use dsdk_facet_core::vault::{PublicKeyFormat, VaultSigningClient};
-use dsdk_facet_hashicorp_vault::{HashicorpVaultClient, HashicorpVaultConfig, JwtKidTransformer};
+use dsdk_facet_hashicorp_vault::{HashicorpVaultClient, HashicorpVaultConfig, JwtKidTransformer, VaultAuthConfig};
 use dsdk_facet_testcontainers::{
     keycloak::setup_keycloak_container, utils::create_network, vault::setup_vault_container,
 };
@@ -73,9 +73,12 @@ async fn test_vault_signing_with_transit() {
 
     let config = HashicorpVaultConfig::builder()
         .vault_url(&vault_url)
-        .client_id(&keycloak_setup.client_id)
-        .client_secret(&keycloak_setup.client_secret)
-        .token_url(&keycloak_setup.token_url)
+        .auth_config(VaultAuthConfig::OAuth2 {
+            client_id: keycloak_setup.client_id.clone(),
+            client_secret: keycloak_setup.client_secret.clone(),
+            token_url: keycloak_setup.token_url.clone(),
+            role: None,
+        })
         .signing_key_name(TEST_SIGNING_KEY_NAME.to_string())
         .jwt_kid_transformer(transformer)
         .build();

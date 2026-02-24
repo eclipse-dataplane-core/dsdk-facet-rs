@@ -20,9 +20,9 @@ use crate::common::{wait_for_condition, wrapped_test_state};
 use dsdk_facet_core::util::clock::default_clock;
 use dsdk_facet_hashicorp_vault::auth::JwtVaultAuthClient;
 use dsdk_facet_hashicorp_vault::config::DEFAULT_ROLE;
-use dsdk_facet_hashicorp_vault::renewal::TokenRenewer;
+use dsdk_facet_hashicorp_vault::renewal::{TimeBasedRenewalTrigger, TokenRenewer};
 use dsdk_facet_hashicorp_vault::state::VaultClientState;
-use dsdk_facet_hashicorp_vault::{ErrorCallback, HashicorpVaultConfig};
+use dsdk_facet_hashicorp_vault::{ErrorCallback, HashicorpVaultConfig, VaultAuthConfig};
 use reqwest::Client;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -49,9 +49,12 @@ async fn test_renewal_loop_successful_renewal_cycle() {
 
     let config = HashicorpVaultConfig::builder()
         .vault_url(mock_server.uri())
-        .client_id("test-client")
-        .client_secret("test-secret")
-        .token_url("http://localhost/token")
+        .auth_config(VaultAuthConfig::OAuth2 {
+            client_id: "test-client".to_string(),
+            client_secret: "test-secret".to_string(),
+            token_url: "http://localhost/token".to_string(),
+            role: None,
+        })
         .build();
 
     let http_client = Client::new();
@@ -99,9 +102,12 @@ async fn test_renewal_loop_max_consecutive_failures() {
 
     let config = HashicorpVaultConfig::builder()
         .vault_url(mock_server.uri())
-        .client_id("test-client")
-        .client_secret("test-secret")
-        .token_url("http://localhost/token")
+        .auth_config(VaultAuthConfig::OAuth2 {
+            client_id: "test-client".to_string(),
+            client_secret: "test-secret".to_string(),
+            token_url: "http://localhost/token".to_string(),
+            role: None,
+        })
         .on_renewal_error(callback)
         .build();
 
@@ -166,9 +172,12 @@ async fn test_renewal_loop_token_expiration_recovery() {
 
     let config = HashicorpVaultConfig::builder()
         .vault_url(&mock_server.uri())
-        .client_id("test-client")
-        .client_secret("test-secret")
-        .token_url(&format!("{}/token", mock_server.uri()))
+        .auth_config(VaultAuthConfig::OAuth2 {
+            client_id: "test-client".to_string(),
+            client_secret: "test-secret".to_string(),
+            token_url: format!("{}/token", mock_server.uri()),
+            role: None,
+        })
         .build();
 
     let http_client = Client::new();
@@ -215,9 +224,12 @@ async fn test_renewal_loop_shutdown_signal() {
 
     let config = HashicorpVaultConfig::builder()
         .vault_url(mock_server.uri())
-        .client_id("test-client")
-        .client_secret("test-secret")
-        .token_url("http://localhost/token")
+        .auth_config(VaultAuthConfig::OAuth2 {
+            client_id: "test-client".to_string(),
+            client_secret: "test-secret".to_string(),
+            token_url: "http://localhost/token".to_string(),
+            role: None,
+        })
         .build();
 
     let http_client = Client::new();
@@ -262,9 +274,12 @@ async fn test_renewal_loop_error_callback_not_invoked_on_success() {
 
     let config = HashicorpVaultConfig::builder()
         .vault_url(mock_server.uri())
-        .client_id("test-client")
-        .client_secret("test-secret")
-        .token_url("http://localhost/token")
+        .auth_config(VaultAuthConfig::OAuth2 {
+            client_id: "test-client".to_string(),
+            client_secret: "test-secret".to_string(),
+            token_url: "http://localhost/token".to_string(),
+            role: None,
+        })
         .on_renewal_error(callback)
         .build();
 
@@ -303,16 +318,29 @@ fn create_token_renewer(
     http_client: Client,
     state: Arc<RwLock<VaultClientState>>,
 ) -> Arc<TokenRenewer> {
+    // Extract auth config fields
+    let (client_id, client_secret, token_url, role) = match &config.auth_config {
+        VaultAuthConfig::OAuth2 { client_id, client_secret, token_url, role } => {
+            (client_id.clone(), client_secret.clone(), token_url.clone(), role.clone())
+        }
+        _ => panic!("Expected OAuth2 auth config in tests"),
+    };
+
     let auth_client = Arc::new(
         JwtVaultAuthClient::builder()
             .http_client(http_client.clone())
             .vault_url(&config.vault_url)
-            .client_id(&config.client_id)
-            .client_secret(&config.client_secret)
-            .token_url(&config.token_url)
-            .role(config.role.as_deref().unwrap_or(DEFAULT_ROLE))
+            .client_id(client_id)
+            .client_secret(client_secret)
+            .token_url(token_url)
+            .role(role.as_deref().unwrap_or(DEFAULT_ROLE))
             .build(),
     );
+
+    let renewal_trigger = Box::new(TimeBasedRenewalTrigger::new(
+        config.token_renewal_percentage,
+        config.renewal_jitter,
+    ));
 
     Arc::new(
         TokenRenewer::builder()
@@ -320,9 +348,9 @@ fn create_token_renewer(
             .http_client(http_client)
             .vault_url(&config.vault_url)
             .state(state)
+            .renewal_trigger(renewal_trigger)
             .maybe_on_renewal_error(config.on_renewal_error.clone())
             .clock(default_clock())
-            .token_renewal_percentage(config.token_renewal_percentage)
             .max_consecutive_failures(config.max_consecutive_failures)
             .build(),
     )

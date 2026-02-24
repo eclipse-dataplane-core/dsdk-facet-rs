@@ -17,8 +17,10 @@ async-trait = { workspace = true }
 chrono = { workspace = true }
 base64 = { workspace = true }
 bs58 = { workspace = true }
+notify = "6.1"
 
 
 [dev-dependencies]
 wiremock = { workspace = true }
 dsdk-facet-testcontainers = { path = "../facet-testcontainers" }
+tempfile = "3"

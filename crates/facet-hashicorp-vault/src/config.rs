@@ -13,6 +13,7 @@
 use bon::Builder;
 use dsdk_facet_core::util::clock::{Clock, default_clock};
 use dsdk_facet_core::vault::VaultError;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -32,28 +33,41 @@ pub type ErrorCallback = Arc<dyn Fn(&VaultError) + Send + Sync>;
 /// Type alias for JWT kid (key ID) transformer function
 pub type JwtKidTransformer = Arc<dyn Fn(&str) -> String + Send + Sync>;
 
-/// Configuration for the Hashicorp Vault client using JWT authentication.
+/// Configuration for Vault authentication methods.
+#[derive(Clone, Debug)]
+pub enum VaultAuthConfig {
+    /// OAuth2 cleint credentials grant authentication using JWT.
+    OAuth2 {
+        /// OAuth2 client ID for obtaining the JWT token
+        client_id: String,
+        /// OAuth2 client secret for obtaining the JWT token
+        client_secret: String,
+        /// OAuth2 token endpoint URL
+        token_url: String,
+        /// The role to use for JWT authentication (defaults to "provisioner" if None)
+        role: Option<String>,
+    },
+    /// Kubernetes service account authentication using a token file.
+    /// The token is expected to be written by a Vault agent sidecar.
+    KubernetesServiceAccount {
+        /// Path to the file containing the Vault token
+        token_file_path: PathBuf,
+    },
+}
+
+/// Configuration for the Hashicorp Vault client.
 #[derive(Builder, Clone)]
 pub struct HashicorpVaultConfig {
     /// The Vault server URL (e.g., "https://vault.example.com:8200")
     #[builder(into)]
     pub vault_url: String,
-    /// OAuth2 client ID for obtaining the JWT token
-    #[builder(into)]
-    pub client_id: String,
-    /// OAuth2 client secret for obtaining the JWT token
-    #[builder(into)]
-    pub client_secret: String,
-    /// OAuth2 token endpoint URL
-    #[builder(into)]
-    pub token_url: String,
+    /// Authentication configuration
+    pub auth_config: VaultAuthConfig,
     /// Optional mount path for the KV v2 secrets engine (defaults to "secret")
     pub mount_path: Option<String>,
     /// Whether to use soft delete (true) or hard delete with metadata removal (false)
     #[builder(default)]
     pub soft_delete: bool,
-    /// The role to use for JWT authentication (defaults to "provisioner")
-    pub role: Option<String>,
     /// Optional callback function invoked when token renewal errors occur
     pub on_renewal_error: Option<ErrorCallback>,
     /// Number of consecutive failures before the client is considered unhealthy (defaults to 3)
@@ -102,14 +116,22 @@ pub struct HashicorpVaultConfig {
 
 impl std::fmt::Debug for HashicorpVaultConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let auth_config_debug = match &self.auth_config {
+            VaultAuthConfig::OAuth2 { client_id, token_url, role, .. } => {
+                format!("OAuth2 {{ client_id: {}, client_secret: ***, token_url: {}, role: {:?} }}",
+                    client_id, token_url, role)
+            }
+            VaultAuthConfig::KubernetesServiceAccount { token_file_path } => {
+                format!("KubernetesServiceAccount {{ token_file_path: {:?} }}",
+                    token_file_path)
+            }
+        };
+
         f.debug_struct("HashicorpVaultConfig")
             .field("vault_url", &self.vault_url)
-            .field("client_id", &self.client_id)
-            .field("client_secret", &"***")
-            .field("token_url", &self.token_url)
+            .field("auth_config", &auth_config_debug)
             .field("mount_path", &self.mount_path)
             .field("soft_delete", &self.soft_delete)
-            .field("role", &self.role)
             .field(
                 "on_renewal_error",
                 &self.on_renewal_error.as_ref().map(|_| "<callback>"),

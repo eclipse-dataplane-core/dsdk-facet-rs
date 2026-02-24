@@ -11,22 +11,40 @@
 //
 
 use super::auth::VaultAuthClient;
-use super::config::{
-    DEFAULT_MAX_CONSECUTIVE_FAILURES, DEFAULT_RENEWAL_JITTER, DEFAULT_TOKEN_RENEWAL_PERCENTAGE, ErrorCallback,
-};
+use super::config::{DEFAULT_MAX_CONSECUTIVE_FAILURES, ErrorCallback};
 use super::state::VaultClientState;
+use async_trait::async_trait;
 use bon::Builder;
 use dsdk_facet_core::util::backoff::{BackoffConfig, calculate_backoff_interval};
 use dsdk_facet_core::util::clock::Clock;
 use dsdk_facet_core::vault::VaultError;
-use log::{debug, error};
+use log::error;
+use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use rand::Rng;
 use reqwest::Client;
 use serde::Serialize;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{RwLock, watch};
+use tokio::sync::{Mutex, RwLock, mpsc, watch};
 use tokio::task::JoinHandle;
+
+/// Trait for abstracting token renewal trigger mechanisms.
+///
+/// Implementations can be time-based (wait for a percentage of TTL) or event-based (wait for file system events).
+#[async_trait]
+pub trait RenewalTrigger: Send + Sync {
+    /// Wait until the next renewal should occur.
+    ///
+    /// # Arguments
+    /// * `last_ttl` - The TTL from the last authentication, used for calculating time-based triggers
+    /// * `consecutive_failures` - Number of consecutive failures, used for backoff calculation
+    ///
+    /// # Returns
+    /// * `Ok(())` - When renewal should happen
+    /// * `Err(VaultError)` - If the trigger mechanism fails
+    async fn wait_for_trigger(&self, last_ttl: u64, consecutive_failures: u32) -> Result<(), VaultError>;
+}
 
 /// Handle for managing the token renewal task lifecycle.
 ///
@@ -71,17 +89,12 @@ pub struct TokenRenewer {
     http_client: Client,
     vault_url: String,
     state: Arc<RwLock<VaultClientState>>,
+    renewal_trigger: Box<dyn RenewalTrigger>,
     on_renewal_error: Option<ErrorCallback>,
     clock: Arc<dyn Clock>,
-    /// Percentage of lease duration at which to renew token (0.0-1.0, defaults to 0.8)
-    #[builder(default = DEFAULT_TOKEN_RENEWAL_PERCENTAGE)]
-    token_renewal_percentage: f64,
     /// Maximum consecutive renewal failures before stopping renewal loop (defaults to 10)
     #[builder(default = DEFAULT_MAX_CONSECUTIVE_FAILURES)]
     max_consecutive_failures: u32,
-    /// Jitter percentage applied to renewal interval (0.0-1.0, defaults to 0.1 = ±10%)
-    #[builder(default = DEFAULT_RENEWAL_JITTER)]
-    renewal_jitter: f64,
 }
 
 impl TokenRenewer {
@@ -110,35 +123,38 @@ impl TokenRenewer {
                 break;
             }
 
-            // Calculate renewal interval with exponential backoff and jitter
-            let renewal_interval = Self::calculate_renewal_interval(
-                lease_duration,
-                consecutive_failures,
-                self.token_renewal_percentage,
-                self.renewal_jitter,
-            );
-
-            // Wait for either the renewal interval or shutdown signal
+            // Wait for either the renewal trigger or shutdown signal
             tokio::select! {
-                _ = tokio::time::sleep(renewal_interval) => {
-                    // Attempt to renew the token
-                    let current_token = {
-                        let state = self.state.read().await;
-                        state.token()
-                    };
+                trigger_result = self.renewal_trigger.wait_for_trigger(lease_duration, consecutive_failures) => {
+                    match trigger_result {
+                        Ok(()) => {
+                            // Trigger fired - attempt renewal
+                            let current_token = {
+                                let state = self.state.read().await;
+                                state.token()
+                            };
 
-                    match self.renew_token(&current_token, lease_duration).await {
-                        Ok(_) => {
-                            let mut state = self.state.write().await;
-                            self.update_state_on_success(&mut state);
+                            match self.renew_token(&current_token, lease_duration).await {
+                                Ok(_) => {
+                                    let mut state = self.state.write().await;
+                                    self.update_state_on_success(&mut state);
+                                }
+                                Err(e) => {
+                                    if matches!(e, VaultError::AuthenticationError(_)) {
+                                        self.handle_token_expiration().await;
+                                    } else {
+                                        let mut state = self.state.write().await;
+                                        self.record_renewal_error(&mut state, &e);
+                                    }
+                                }
+                            }
                         }
                         Err(e) => {
-                            if matches!(e, VaultError::AuthenticationError(_)) {
-                                self.handle_token_expiration().await;
-                            } else {
-                                let mut state = self.state.write().await;
-                                self.record_renewal_error(&mut state, &e);
-                            }
+                            // Trigger mechanism failed
+                            error!("Renewal trigger failed: {}. Stopping renewal task.", e);
+                            let mut state = self.state.write().await;
+                            self.record_renewal_error(&mut state, &e);
+                            break;
                         }
                     }
                 }
@@ -208,8 +224,6 @@ impl TokenRenewer {
 
     /// Handles token expiration by obtaining a new JWT and creating a new Vault token.
     async fn handle_token_expiration(&self) {
-        debug!("Token expired, getting a new access token");
-
         let result = self.auth_client.authenticate().await;
 
         match result {
@@ -259,4 +273,113 @@ impl TokenRenewer {
 #[derive(Debug, Serialize)]
 struct TokenRenewRequest {
     pub(crate) increment: String,
+}
+
+/// Time-based renewal trigger that waits for a percentage of the token TTL.
+///
+/// This is used for OAuth2/OIDC authentication where tokens have a known TTL
+/// and should be renewed proactively before expiration.
+pub struct TimeBasedRenewalTrigger {
+    /// Percentage of lease duration at which to renew token (0.0-1.0, defaults to 0.8)
+    renewal_percentage: f64,
+    /// Jitter percentage applied to renewal interval (0.0-1.0, defaults to 0.1 = ±10%)
+    renewal_jitter: f64,
+}
+
+impl TimeBasedRenewalTrigger {
+    pub fn new(renewal_percentage: f64, renewal_jitter: f64) -> Self {
+        Self {
+            renewal_percentage,
+            renewal_jitter,
+        }
+    }
+}
+
+#[async_trait]
+impl RenewalTrigger for TimeBasedRenewalTrigger {
+    async fn wait_for_trigger(&self, last_ttl: u64, consecutive_failures: u32) -> Result<(), VaultError> {
+        let renewal_interval = TokenRenewer::calculate_renewal_interval(
+            last_ttl,
+            consecutive_failures,
+            self.renewal_percentage,
+            self.renewal_jitter,
+        );
+
+        tokio::time::sleep(renewal_interval).await;
+        Ok(())
+    }
+}
+
+/// File-based renewal trigger that waits for file system events.
+///
+/// This is used for Kubernetes service account authentication where a Vault agent sidecar
+/// writes tokens to a file. The trigger fires when the file is modified.
+pub struct FileBasedRenewalTrigger {
+    /// Watcher must be kept alive for the duration of the trigger.
+    /// It is not directly accessed, but dropping it would stop file watching.
+    _watcher: Option<RecommendedWatcher>,
+    /// Receiver wrapped in Mutex for interior mutability (trait takes &self)
+    event_rx: Mutex<mpsc::Receiver<notify::Result<Event>>>,
+}
+
+impl FileBasedRenewalTrigger {
+    pub fn new(token_file_path: PathBuf) -> Result<Self, VaultError> {
+        let (event_tx, event_rx) = mpsc::channel(100);
+
+        // Create a watcher that sends events to our channel
+        let mut watcher = notify::recommended_watcher(move |res| {
+            // Use try_send to avoid blocking. If the channel is full, we'll miss this event
+            // but another event will come soon.
+            let _ = event_tx.try_send(res);
+        })
+        .map_err(|e| VaultError::TokenFileReadError(format!("Failed to create file watcher: {}", e)))?;
+
+        // Watch the token file for changes
+        watcher
+            .watch(&token_file_path, RecursiveMode::NonRecursive)
+            .map_err(|e| {
+                VaultError::TokenFileReadError(format!(
+                    "Failed to watch token file {}: {}",
+                    token_file_path.display(),
+                    e
+                ))
+            })?;
+
+        Ok(Self {
+            _watcher: Some(watcher),
+            event_rx: Mutex::new(event_rx),
+        })
+    }
+}
+
+#[async_trait]
+impl RenewalTrigger for FileBasedRenewalTrigger {
+    async fn wait_for_trigger(&self, _last_ttl: u64, _consecutive_failures: u32) -> Result<(), VaultError> {
+        loop {
+            let mut rx = self.event_rx.lock().await;
+            match rx.recv().await {
+                Some(Ok(event)) => {
+                    // Check if this is a modify, create, or remove event
+                    if matches!(
+                        event.kind,
+                        EventKind::Modify(_) | EventKind::Create(_) | EventKind::Remove(_)
+                    ) {
+                        return Ok(());
+                    }
+                    // Other events (access, etc.) - ignore and continue waiting
+                }
+                Some(Err(e)) => {
+                    return Err(VaultError::TokenFileReadError(
+                        format!("File watch error: {}", e)
+                    ));
+                }
+                None => {
+                    // Channel closed - watcher dropped
+                    return Err(VaultError::TokenFileReadError(
+                        "File watcher channel closed".to_string()
+                    ));
+                }
+            }
+        }
+    }
 }
