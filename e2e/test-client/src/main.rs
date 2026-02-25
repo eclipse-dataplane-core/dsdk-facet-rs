@@ -24,8 +24,7 @@ use std::path::PathBuf;
 async fn main() -> Result<()> {
     // Get configuration from environment variables
     let vault_url = env::var("VAULT_URL").unwrap_or_else(|_| "http://vault:8200".to_string());
-    let token_file_path = env::var("TOKEN_FILE_PATH")
-        .unwrap_or_else(|_| "/vault/secrets/.vault-token".to_string());
+    let token_file_path = env::var("TOKEN_FILE_PATH").unwrap_or_else(|_| "/vault/secrets/.vault-token".to_string());
     let test_mode = env::var("TEST_MODE").unwrap_or_else(|_| "crud".to_string());
 
     println!("=== Vault E2E Test Client ===");
@@ -65,14 +64,10 @@ async fn test_crud_operations(vault_url: &str, token_file_path: &str) -> Result<
         .build();
 
     println!("[CRUD] Creating HashicorpVaultClient with FileBasedVaultAuthClient");
-    let mut client = HashicorpVaultClient::new(config)
-        .context("Failed to create Vault client")?;
+    let mut client = HashicorpVaultClient::new(config).context("Failed to create Vault client")?;
 
     println!("[CRUD] Initializing client (reading token file and authenticating)");
-    client
-        .initialize()
-        .await
-        .context("Failed to initialize Vault client")?;
+    client.initialize().await.context("Failed to initialize Vault client")?;
 
     println!("[CRUD] Client initialized successfully");
 

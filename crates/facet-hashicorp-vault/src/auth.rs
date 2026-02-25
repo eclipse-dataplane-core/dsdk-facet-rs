@@ -187,24 +187,25 @@ impl VaultAuthClient for FileBasedVaultAuthClient {
     async fn authenticate(&self) -> Result<(String, u64), VaultError> {
         // Check if file exists
         if !self.token_file_path.exists() {
-            return Err(VaultError::TokenFileNotFound(
-                format!("Token file not found at path: {}", self.token_file_path.display())
-            ));
+            return Err(VaultError::TokenFileNotFound(format!(
+                "Token file not found at path: {}",
+                self.token_file_path.display()
+            )));
         }
 
         // Read the token from file
-        let token = fs::read_to_string(&self.token_file_path)
-            .await
-            .map_err(|e| VaultError::TokenFileReadError(
-                format!("Failed to read token file {}: {}", self.token_file_path.display(), e)
-            ))?;
+        let token = fs::read_to_string(&self.token_file_path).await.map_err(|e| {
+            VaultError::TokenFileReadError(format!(
+                "Failed to read token file {}: {}",
+                self.token_file_path.display(),
+                e
+            ))
+        })?;
 
         // Trim whitespace and validate
         let token = token.trim();
         if token.is_empty() {
-            return Err(VaultError::InvalidTokenFormat(
-                "Token file is empty".to_string()
-            ));
+            return Err(VaultError::InvalidTokenFormat("Token file is empty".to_string()));
         }
 
         // Return token and estimated TTL

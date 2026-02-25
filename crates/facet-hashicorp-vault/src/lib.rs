@@ -24,4 +24,6 @@ pub mod state;
 mod tests;
 
 pub use client::HashicorpVaultClient;
-pub use config::{ErrorCallback, HashicorpVaultConfig, HashicorpVaultConfigBuilder, JwtKidTransformer, VaultAuthConfig};
+pub use config::{
+    ErrorCallback, HashicorpVaultConfig, HashicorpVaultConfigBuilder, JwtKidTransformer, VaultAuthConfig,
+};

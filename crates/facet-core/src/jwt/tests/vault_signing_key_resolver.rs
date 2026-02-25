@@ -14,7 +14,7 @@
 
 use super::common::*;
 use crate::context::ParticipantContext;
-use crate::jwt::jwtutils::{generate_ed25519_keypair_pem, SigningKeyRecord, VaultSigningKeyResolver};
+use crate::jwt::jwtutils::{SigningKeyRecord, VaultSigningKeyResolver, generate_ed25519_keypair_pem};
 use crate::jwt::{JwtGenerator, JwtVerifier, KeyFormat, LocalJwtGenerator, SigningAlgorithm, TokenClaims};
 use crate::vault::{MemoryVaultClient, VaultClient};
 use chrono::Utc;

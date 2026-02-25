@@ -365,7 +365,10 @@ fn test_convert_to_multibase_different_keys() {
     let result2 = client.convert_to_multibase(key2_base64).unwrap();
 
     // Different keys should produce different multibase encodings
-    assert_ne!(result1, result2, "Different keys should produce different multibase encodings");
+    assert_ne!(
+        result1, result2,
+        "Different keys should produce different multibase encodings"
+    );
 }
 
 #[test]
@@ -423,7 +426,11 @@ fn test_convert_to_multibase_has_correct_multicodec_prefix() {
     assert_eq!(decoded[1], 0x01, "Second byte should be 0x01");
 
     // Remaining bytes should be the public key (32 bytes for Ed25519)
-    assert_eq!(decoded.len(), 34, "Decoded length should be 34 bytes (2 multicodec + 32 key)");
+    assert_eq!(
+        decoded.len(),
+        34,
+        "Decoded length should be 34 bytes (2 multicodec + 32 key)"
+    );
 }
 
 // Tests for multibase validation
@@ -474,7 +481,10 @@ fn test_validate_multibase_ed25519_invalid_prefix() {
     assert!(result.is_err(), "Should reject key without 'z' prefix");
 
     let error_msg = result.unwrap_err().to_string();
-    assert!(error_msg.contains("expected 'z' prefix"), "Error should mention missing 'z' prefix");
+    assert!(
+        error_msg.contains("expected 'z' prefix"),
+        "Error should mention missing 'z' prefix"
+    );
 }
 
 #[test]
@@ -501,7 +511,10 @@ fn test_validate_multibase_ed25519_wrong_multicodec() {
     assert!(result.is_err(), "Should reject key with wrong multicodec prefix");
 
     let error_msg = result.unwrap_err().to_string();
-    assert!(error_msg.contains("Invalid multicodec prefix"), "Error should mention invalid prefix");
+    assert!(
+        error_msg.contains("Invalid multicodec prefix"),
+        "Error should mention invalid prefix"
+    );
 }
 
 #[test]
@@ -528,7 +541,10 @@ fn test_validate_multibase_ed25519_wrong_key_size() {
     assert!(result.is_err(), "Should reject key with wrong size");
 
     let error_msg = result.unwrap_err().to_string();
-    assert!(error_msg.contains("Invalid Ed25519 key size"), "Error should mention wrong key size");
+    assert!(
+        error_msg.contains("Invalid Ed25519 key size"),
+        "Error should mention wrong key size"
+    );
 }
 
 #[test]

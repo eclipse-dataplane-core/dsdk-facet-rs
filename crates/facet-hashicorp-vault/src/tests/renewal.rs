@@ -26,8 +26,7 @@ async fn test_file_based_trigger_detects_modification() {
     let file_path = temp_file.path().to_path_buf();
 
     // Create the trigger
-    let mut trigger = FileBasedRenewalTrigger::new(file_path.clone())
-        .expect("Failed to create file based trigger");
+    let mut trigger = FileBasedRenewalTrigger::new(file_path.clone()).expect("Failed to create file based trigger");
 
     // Spawn a task that will modify the file after a short delay
     let file_path_clone = file_path.clone();
@@ -58,8 +57,7 @@ async fn test_file_based_trigger_detects_creation() {
         .expect("Failed to create initial file");
 
     // Create the trigger
-    let mut trigger = FileBasedRenewalTrigger::new(file_path.clone())
-        .expect("Failed to create file based trigger");
+    let mut trigger = FileBasedRenewalTrigger::new(file_path.clone()).expect("Failed to create file based trigger");
 
     // Spawn a task that will recreate the file after a short delay
     let file_path_clone = file_path.clone();
@@ -90,8 +88,7 @@ async fn test_file_based_trigger_multiple_changes() {
     let file_path = temp_file.path().to_path_buf();
 
     // Create the trigger
-    let mut trigger = FileBasedRenewalTrigger::new(file_path.clone())
-        .expect("Failed to create file based trigger");
+    let mut trigger = FileBasedRenewalTrigger::new(file_path.clone()).expect("Failed to create file based trigger");
 
     // Spawn a task that will modify the file multiple times
     let file_path_clone = file_path.clone();
@@ -131,8 +128,7 @@ async fn test_file_based_trigger_reuse() {
     let file_path = temp_file.path().to_path_buf();
 
     // Create the trigger
-    let mut trigger = FileBasedRenewalTrigger::new(file_path.clone())
-        .expect("Failed to create file based trigger");
+    let mut trigger = FileBasedRenewalTrigger::new(file_path.clone()).expect("Failed to create file based trigger");
 
     // First trigger
     let file_path_clone = file_path.clone();
@@ -144,7 +140,10 @@ async fn test_file_based_trigger_reuse() {
     });
 
     let result = timeout(Duration::from_secs(5), trigger.wait_for_trigger(3600, 0)).await;
-    assert!(result.is_ok() && result.unwrap().is_ok(), "First trigger should succeed");
+    assert!(
+        result.is_ok() && result.unwrap().is_ok(),
+        "First trigger should succeed"
+    );
 
     // Second trigger
     let file_path_clone = file_path.clone();
@@ -156,5 +155,8 @@ async fn test_file_based_trigger_reuse() {
     });
 
     let result = timeout(Duration::from_secs(5), trigger.wait_for_trigger(3600, 0)).await;
-    assert!(result.is_ok() && result.unwrap().is_ok(), "Second trigger should succeed");
+    assert!(
+        result.is_ok() && result.unwrap().is_ok(),
+        "Second trigger should succeed"
+    );
 }

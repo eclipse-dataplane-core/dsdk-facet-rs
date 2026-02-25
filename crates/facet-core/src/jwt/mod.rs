@@ -17,7 +17,7 @@ pub mod jwtutils;
 
 use crate::context::ParticipantContext;
 use crate::util::clock::{Clock, default_clock};
-use crate::vault::{VaultSigningClient, VaultError};
+use crate::vault::{VaultError, VaultSigningClient};
 use async_trait::async_trait;
 use base64::Engine;
 use bon::Builder;
@@ -210,7 +210,10 @@ impl JwtGenerator for VaultJwtGenerator {
         mut claims: TokenClaims,
     ) -> Result<String, JwtGenerationError> {
         // Get key metadata to calculate kid (using Multibase format for DID compatibility)
-        let metadata = self.signing_client.get_key_metadata(participant_context, crate::vault::PublicKeyFormat::Multibase).await?;
+        let metadata = self
+            .signing_client
+            .get_key_metadata(participant_context, crate::vault::PublicKeyFormat::Multibase)
+            .await?;
         let kid = format!("{}-{}", metadata.key_name, metadata.current_version);
 
         // Set timestamp claims (overwrites any existing iat)
@@ -238,7 +241,10 @@ impl JwtGenerator for VaultJwtGenerator {
         let signing_input = format!("{}.{}", header_b64, payload_b64);
 
         // Sign the input using the vault (returns raw signature bytes)
-        let signature_bytes = self.signing_client.sign_content(participant_context, signing_input.as_bytes()).await?;
+        let signature_bytes = self
+            .signing_client
+            .sign_content(participant_context, signing_input.as_bytes())
+            .await?;
 
         // Encode signature as base64url for JWT
         let signature_b64url = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&signature_bytes);
@@ -316,5 +322,3 @@ impl JwtVerifier for LocalJwtVerifier {
         Ok(token_data.claims)
     }
 }
-
-
