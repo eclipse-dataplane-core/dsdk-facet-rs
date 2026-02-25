@@ -171,10 +171,13 @@ impl SigningKeyResolver for VaultSigningKeyResolver {
             .vault_client
             .resolve_secret(participant_context, &self.base_path)
             .await
-            .map_err(|e| JwtGenerationError::GenerationError(format!("Failed to resolve signing key from vault: {}", e)))?;
+            .map_err(|e| {
+                JwtGenerationError::GenerationError(format!("Failed to resolve signing key from vault: {}", e))
+            })?;
 
-        let record: SigningKeyRecord = serde_json::from_str(&json_str)
-            .map_err(|e| JwtGenerationError::GenerationError(format!("Failed to deserialize SigningKeyRecord: {}", e)))?;
+        let record: SigningKeyRecord = serde_json::from_str(&json_str).map_err(|e| {
+            JwtGenerationError::GenerationError(format!("Failed to deserialize SigningKeyRecord: {}", e))
+        })?;
 
         Ok(KeyMaterial::builder()
             .key_format(record.key_format)

@@ -116,7 +116,8 @@ async fn test_key_metadata_multibase(client: &Arc<HashicorpVaultClient>, ctx: &P
     assert!(!metadata.keys.is_empty(), "Should have at least one key");
     assert_eq!(
         metadata.current_version, INITIAL_KEY_VERSION,
-        "Current version should be {} for a newly created key", INITIAL_KEY_VERSION
+        "Current version should be {} for a newly created key",
+        INITIAL_KEY_VERSION
     );
 
     // Verify the key is in multibase format (should start with 'z' for base58btc encoding)
@@ -150,10 +151,14 @@ async fn test_key_metadata_base64url(client: &Arc<HashicorpVaultClient>, ctx: &P
         metadata.key_name, expected_transformed_name,
         "Key name should be transformed with prefix for Base64Url format"
     );
-    assert!(!metadata.keys.is_empty(), "Should have at least one key in Base64Url format");
+    assert!(
+        !metadata.keys.is_empty(),
+        "Should have at least one key in Base64Url format"
+    );
     assert_eq!(
         metadata.current_version, INITIAL_KEY_VERSION,
-        "Current version should be {} for Base64Url format", INITIAL_KEY_VERSION
+        "Current version should be {} for Base64Url format",
+        INITIAL_KEY_VERSION
     );
 
     // Verify the key is in base64url format (should NOT start with 'z')
@@ -278,8 +283,7 @@ async fn test_jwt_generation(client: &Arc<HashicorpVaultClient>, ctx: &Participa
     let header_json = base64::engine::general_purpose::URL_SAFE_NO_PAD
         .decode(jwt_parts[0])
         .expect("Failed to decode JWT header");
-    let header: serde_json::Value = serde_json::from_slice(&header_json)
-        .expect("Failed to parse JWT header");
+    let header: serde_json::Value = serde_json::from_slice(&header_json).expect("Failed to parse JWT header");
 
     assert_eq!(header["alg"], "EdDSA", "Algorithm should be EdDSA");
     assert_eq!(header["typ"], "JWT", "Type should be JWT");
@@ -289,8 +293,8 @@ async fn test_jwt_generation(client: &Arc<HashicorpVaultClient>, ctx: &Participa
     let payload_json = base64::engine::general_purpose::URL_SAFE_NO_PAD
         .decode(jwt_parts[1])
         .expect("Failed to decode JWT payload");
-    let decoded_payload: serde_json::Value = serde_json::from_slice(&payload_json)
-        .expect("Failed to parse JWT payload");
+    let decoded_payload: serde_json::Value =
+        serde_json::from_slice(&payload_json).expect("Failed to parse JWT payload");
 
     assert_eq!(decoded_payload["sub"], "test-subject", "Subject should match");
     assert_eq!(decoded_payload["aud"], "test-audience", "Audience should match");
@@ -306,8 +310,10 @@ async fn test_jwt_generation(client: &Arc<HashicorpVaultClient>, ctx: &Participa
 
     // Ed25519 signatures are 64 bytes
     assert_eq!(
-        signature_bytes.len(), ED25519_SIGNATURE_BYTES,
-        "Ed25519 signature should be {} bytes", ED25519_SIGNATURE_BYTES
+        signature_bytes.len(),
+        ED25519_SIGNATURE_BYTES,
+        "Ed25519 signature should be {} bytes",
+        ED25519_SIGNATURE_BYTES
     );
 
     // Generate a token with different claims and verify we get a different JWT
@@ -325,4 +331,3 @@ async fn test_jwt_generation(client: &Arc<HashicorpVaultClient>, ctx: &Participa
 
     assert_ne!(jwt, different_jwt, "Different claims should produce different JWTs");
 }
-

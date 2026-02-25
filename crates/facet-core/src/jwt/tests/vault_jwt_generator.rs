@@ -54,8 +54,7 @@ async fn test_vault_jwt_generator_generates_valid_jwt_structure() {
     let header_json = base64::engine::general_purpose::URL_SAFE_NO_PAD
         .decode(parts[0])
         .expect("Failed to decode header");
-    let header: serde_json::Value = serde_json::from_slice(&header_json)
-        .expect("Failed to parse header");
+    let header: serde_json::Value = serde_json::from_slice(&header_json).expect("Failed to parse header");
 
     assert_eq!(header["alg"], "EdDSA");
     assert_eq!(header["typ"], "JWT");
@@ -65,8 +64,7 @@ async fn test_vault_jwt_generator_generates_valid_jwt_structure() {
     let payload_json = base64::engine::general_purpose::URL_SAFE_NO_PAD
         .decode(parts[1])
         .expect("Failed to decode payload");
-    let payload: serde_json::Value = serde_json::from_slice(&payload_json)
-        .expect("Failed to parse payload");
+    let payload: serde_json::Value = serde_json::from_slice(&payload_json).expect("Failed to parse payload");
 
     assert_eq!(payload["sub"], "user-123");
     assert_eq!(payload["aud"], "test-audience");
@@ -112,10 +110,12 @@ async fn test_vault_jwt_generator_uses_transformed_key_name_in_kid() {
     let header_json = base64::engine::general_purpose::URL_SAFE_NO_PAD
         .decode(parts[0])
         .expect("Failed to decode header");
-    let header: serde_json::Value = serde_json::from_slice(&header_json)
-        .expect("Failed to parse header");
+    let header: serde_json::Value = serde_json::from_slice(&header_json).expect("Failed to parse header");
 
-    assert_eq!(header["kid"], "transformed-signing-key-1", "Kid should use transformed key name");
+    assert_eq!(
+        header["kid"], "transformed-signing-key-1",
+        "Kid should use transformed key name"
+    );
 }
 
 #[tokio::test]
@@ -155,8 +155,7 @@ async fn test_vault_jwt_generator_sets_iat_automatically() {
     let payload_json = base64::engine::general_purpose::URL_SAFE_NO_PAD
         .decode(parts[1])
         .expect("Failed to decode payload");
-    let payload: serde_json::Value = serde_json::from_slice(&payload_json)
-        .expect("Failed to parse payload");
+    let payload: serde_json::Value = serde_json::from_slice(&payload_json).expect("Failed to parse payload");
 
     let actual_iat = payload["iat"].as_i64().expect("iat should be present");
     assert_ne!(actual_iat, old_iat, "iat should be overwritten");
@@ -202,8 +201,7 @@ async fn test_vault_jwt_generator_with_different_key_versions() {
     let header_json = base64::engine::general_purpose::URL_SAFE_NO_PAD
         .decode(parts[0])
         .expect("Failed to decode header");
-    let header: serde_json::Value = serde_json::from_slice(&header_json)
-        .expect("Failed to parse header");
+    let header: serde_json::Value = serde_json::from_slice(&header_json).expect("Failed to parse header");
 
     assert_eq!(header["kid"], "versioned-key-3", "Kid should include version number");
 }
@@ -224,7 +222,10 @@ async fn test_vault_jwt_generator_preserves_custom_claims() {
     let now = Utc::now().timestamp();
 
     let mut custom = serde_json::Map::new();
-    custom.insert("scope".to_string(), serde_json::Value::String("read:data write:data".to_string()));
+    custom.insert(
+        "scope".to_string(),
+        serde_json::Value::String("read:data write:data".to_string()),
+    );
     custom.insert("role".to_string(), serde_json::Value::String("admin".to_string()));
 
     let claims = TokenClaims::builder()
@@ -244,8 +245,7 @@ async fn test_vault_jwt_generator_preserves_custom_claims() {
     let payload_json = base64::engine::general_purpose::URL_SAFE_NO_PAD
         .decode(parts[1])
         .expect("Failed to decode payload");
-    let payload: serde_json::Value = serde_json::from_slice(&payload_json)
-        .expect("Failed to parse payload");
+    let payload: serde_json::Value = serde_json::from_slice(&payload_json).expect("Failed to parse payload");
 
     assert_eq!(payload["scope"], "read:data write:data");
     assert_eq!(payload["role"], "admin");

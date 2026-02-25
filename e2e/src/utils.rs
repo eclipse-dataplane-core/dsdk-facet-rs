@@ -13,7 +13,7 @@
 //! Utilities for E2E testing
 
 use anyhow::{Context, Result, bail};
-use base64::{engine::general_purpose::STANDARD, Engine as _};
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use std::process::Command;
 use std::time::Duration;
 use tokio::time::sleep;
@@ -73,10 +73,14 @@ pub async fn wait_for_pod_ready(namespace: &str, pod_label: &str, timeout_secs: 
 
         let output = Command::new("kubectl")
             .args([
-                "get", "pods",
-                "-n", namespace,
-                "-l", pod_label,
-                "-o", "jsonpath={.items[0].status.phase}",
+                "get",
+                "pods",
+                "-n",
+                namespace,
+                "-l",
+                pod_label,
+                "-o",
+                "jsonpath={.items[0].status.phase}",
             ])
             .output()
             .context("Failed to check pod status")?;
@@ -87,10 +91,14 @@ pub async fn wait_for_pod_ready(namespace: &str, pod_label: &str, timeout_secs: 
                 // Also check that all containers are ready
                 let ready_output = Command::new("kubectl")
                     .args([
-                        "get", "pods",
-                        "-n", namespace,
-                        "-l", pod_label,
-                        "-o", "jsonpath={.items[0].status.conditions[?(@.type=='Ready')].status}",
+                        "get",
+                        "pods",
+                        "-n",
+                        namespace,
+                        "-l",
+                        pod_label,
+                        "-o",
+                        "jsonpath={.items[0].status.conditions[?(@.type=='Ready')].status}",
                     ])
                     .output()
                     .context("Failed to check pod ready condition")?;
@@ -117,9 +125,12 @@ pub async fn wait_for_deployment_ready(namespace: &str, deployment_name: &str, t
 
         let output = Command::new("kubectl")
             .args([
-                "rollout", "status",
-                "deployment", deployment_name,
-                "-n", namespace,
+                "rollout",
+                "status",
+                "deployment",
+                deployment_name,
+                "-n",
+                namespace,
                 "--timeout=5s",
             ])
             .output()
@@ -135,9 +146,7 @@ pub async fn wait_for_deployment_ready(namespace: &str, deployment_name: &str, t
 
 /// Execute command in pod
 pub fn kubectl_exec(namespace: &str, pod_name: &str, container: &str, command: &[&str]) -> Result<String> {
-    let mut args = vec![
-        "exec", "-n", namespace, pod_name, "-c", container, "--"
-    ];
+    let mut args = vec!["exec", "-n", namespace, pod_name, "-c", container, "--"];
     args.extend_from_slice(command);
 
     let output = Command::new("kubectl")
@@ -156,9 +165,7 @@ pub fn kubectl_exec(namespace: &str, pod_name: &str, container: &str, command: &
 /// Get pod logs
 pub fn get_pod_logs(namespace: &str, pod_name: &str, container: &str) -> Result<String> {
     let output = Command::new("kubectl")
-        .args([
-            "logs", "-n", namespace, pod_name, "-c", container,
-        ])
+        .args(["logs", "-n", namespace, pod_name, "-c", container])
         .output()
         .context("Failed to get pod logs")?;
 
@@ -168,7 +175,15 @@ pub fn get_pod_logs(namespace: &str, pod_name: &str, container: &str) -> Result<
 /// Delete pod
 pub fn delete_pod(namespace: &str, pod_name: &str) -> Result<()> {
     let output = Command::new("kubectl")
-        .args(["delete", "pod", "-n", namespace, pod_name, "--grace-period=0", "--force"])
+        .args([
+            "delete",
+            "pod",
+            "-n",
+            namespace,
+            pod_name,
+            "--grace-period=0",
+            "--force",
+        ])
         .output()
         .context("Failed to delete pod")?;
 
@@ -190,10 +205,7 @@ pub async fn wait_for_pod_deleted(namespace: &str, pod_name: &str, timeout_secs:
         }
 
         let output = Command::new("kubectl")
-            .args([
-                "get", "pod", pod_name,
-                "-n", namespace,
-            ])
+            .args(["get", "pod", pod_name, "-n", namespace])
             .output()
             .context("Failed to check pod status")?;
 
@@ -229,16 +241,7 @@ pub async fn wait_for_file_in_pod(
         // Try to check if file exists
         let output = Command::new("kubectl")
             .args([
-                "exec",
-                "-n",
-                namespace,
-                pod_name,
-                "-c",
-                container,
-                "--",
-                "test",
-                "-f",
-                file_path,
+                "exec", "-n", namespace, pod_name, "-c", container, "--", "test", "-f", file_path,
             ])
             .output()
             .context("Failed to check if file exists")?;
@@ -286,9 +289,13 @@ pub fn kubectl_delete(manifest_path: &str) -> Result<()> {
 pub fn get_vault_root_token(namespace: &str) -> Result<String> {
     let output = Command::new("kubectl")
         .args([
-            "get", "secret", "vault-root-token",
-            "-n", namespace,
-            "-o", "jsonpath={.data.token}",
+            "get",
+            "secret",
+            "vault-root-token",
+            "-n",
+            namespace,
+            "-o",
+            "jsonpath={.data.token}",
         ])
         .output()
         .context("Failed to get Vault root token")?;
@@ -298,7 +305,8 @@ pub fn get_vault_root_token(namespace: &str) -> Result<String> {
     }
 
     let token_b64 = String::from_utf8_lossy(&output.stdout);
-    let token_bytes = STANDARD.decode(token_b64.trim())
+    let token_bytes = STANDARD
+        .decode(token_b64.trim())
         .context("Failed to decode base64 token")?;
 
     Ok(String::from_utf8(token_bytes)
@@ -312,7 +320,8 @@ pub fn port_forward(namespace: &str, service: &str, local_port: u16, remote_port
     let child = Command::new("kubectl")
         .args([
             "port-forward",
-            "-n", namespace,
+            "-n",
+            namespace,
             &format!("svc/{}", service),
             &format!("{}:{}", local_port, remote_port),
         ])

@@ -101,18 +101,9 @@ async fn test_hashicorp_vault_client_with_rust_binary() -> Result<()> {
         logs.contains("All CRUD operations successful"),
         "Logs should indicate CRUD operations succeeded"
     );
-    assert!(
-        logs.contains("Secret stored"),
-        "Logs should show secret was stored"
-    );
-    assert!(
-        logs.contains("Secret resolved"),
-        "Logs should show secret was resolved"
-    );
-    assert!(
-        logs.contains("Secret removed"),
-        "Logs should show secret was removed"
-    );
+    assert!(logs.contains("Secret stored"), "Logs should show secret was stored");
+    assert!(logs.contains("Secret resolved"), "Logs should show secret was resolved");
+    assert!(logs.contains("Secret removed"), "Logs should show secret was removed");
 
     // Cleanup
     kubectl_delete(manifest_path)?;

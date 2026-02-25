@@ -345,9 +345,17 @@ fn create_token_renewer(
 ) -> Arc<TokenRenewer> {
     // Extract auth config fields
     let (client_id, client_secret, token_url, role) = match &config.auth_config {
-        VaultAuthConfig::OAuth2 { client_id, client_secret, token_url, role } => {
-            (client_id.clone(), client_secret.clone(), token_url.clone(), role.clone())
-        }
+        VaultAuthConfig::OAuth2 {
+            client_id,
+            client_secret,
+            token_url,
+            role,
+        } => (
+            client_id.clone(),
+            client_secret.clone(),
+            token_url.clone(),
+            role.clone(),
+        ),
         _ => panic!("Expected OAuth2 auth config in tests"),
     };
 

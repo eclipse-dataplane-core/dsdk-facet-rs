@@ -12,8 +12,8 @@
 
 //! Tests for SigningKeyRecord serialization
 
-use crate::jwt::jwtutils::SigningKeyRecord;
 use crate::jwt::KeyFormat;
+use crate::jwt::jwtutils::SigningKeyRecord;
 
 #[test]
 fn test_signing_key_record_serialization() {

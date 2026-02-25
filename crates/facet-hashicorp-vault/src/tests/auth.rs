@@ -29,9 +29,7 @@ async fn test_file_based_auth_success() {
         .await
         .expect("Failed to write token");
 
-    let auth_client = FileBasedVaultAuthClient::builder()
-        .token_file_path(file_path)
-        .build();
+    let auth_client = FileBasedVaultAuthClient::builder().token_file_path(file_path).build();
 
     let result = auth_client.authenticate().await;
     assert!(result.is_ok(), "Authentication should succeed");
@@ -75,9 +73,7 @@ async fn test_file_based_auth_trims_whitespace() {
         .await
         .expect("Failed to write token");
 
-    let auth_client = FileBasedVaultAuthClient::builder()
-        .token_file_path(file_path)
-        .build();
+    let auth_client = FileBasedVaultAuthClient::builder().token_file_path(file_path).build();
 
     let result = auth_client.authenticate().await;
     assert!(result.is_ok(), "Authentication should succeed");
@@ -114,13 +110,9 @@ async fn test_file_based_auth_empty_file() {
     let file_path = temp_file.path().to_path_buf();
 
     // Write empty content
-    fs::write(&file_path, "")
-        .await
-        .expect("Failed to write empty file");
+    fs::write(&file_path, "").await.expect("Failed to write empty file");
 
-    let auth_client = FileBasedVaultAuthClient::builder()
-        .token_file_path(file_path)
-        .build();
+    let auth_client = FileBasedVaultAuthClient::builder().token_file_path(file_path).build();
 
     let result = auth_client.authenticate().await;
     assert!(result.is_err(), "Authentication should fail");
@@ -144,9 +136,7 @@ async fn test_file_based_auth_whitespace_only() {
         .await
         .expect("Failed to write whitespace");
 
-    let auth_client = FileBasedVaultAuthClient::builder()
-        .token_file_path(file_path)
-        .build();
+    let auth_client = FileBasedVaultAuthClient::builder().token_file_path(file_path).build();
 
     let result = auth_client.authenticate().await;
     assert!(result.is_err(), "Authentication should fail");
@@ -201,9 +191,7 @@ async fn test_file_based_auth_multiline_token() {
         .await
         .expect("Failed to write multiline content");
 
-    let auth_client = FileBasedVaultAuthClient::builder()
-        .token_file_path(file_path)
-        .build();
+    let auth_client = FileBasedVaultAuthClient::builder().token_file_path(file_path).build();
 
     let result = auth_client.authenticate().await;
     assert!(result.is_ok(), "Authentication should succeed");
@@ -225,9 +213,7 @@ async fn test_file_based_auth_special_characters() {
         .await
         .expect("Failed to write token");
 
-    let auth_client = FileBasedVaultAuthClient::builder()
-        .token_file_path(file_path)
-        .build();
+    let auth_client = FileBasedVaultAuthClient::builder().token_file_path(file_path).build();
 
     let result = auth_client.authenticate().await;
     assert!(result.is_ok(), "Authentication should succeed");
@@ -246,9 +232,7 @@ async fn test_file_based_auth_path_with_spaces() {
         .await
         .expect("Failed to write token");
 
-    let auth_client = FileBasedVaultAuthClient::builder()
-        .token_file_path(file_path)
-        .build();
+    let auth_client = FileBasedVaultAuthClient::builder().token_file_path(file_path).build();
 
     let result = auth_client.authenticate().await;
     assert!(result.is_ok(), "Authentication should succeed");

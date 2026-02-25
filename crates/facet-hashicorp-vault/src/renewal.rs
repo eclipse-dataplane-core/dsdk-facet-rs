@@ -77,9 +77,7 @@ impl RenewalTriggerConfig {
                 renewal_percentage,
                 renewal_jitter,
             ))),
-            Self::FileBased { token_file_path } => {
-                Ok(Box::new(FileBasedRenewalTrigger::new(token_file_path)?))
-            }
+            Self::FileBased { token_file_path } => Ok(Box::new(FileBasedRenewalTrigger::new(token_file_path)?)),
         }
     }
 }
@@ -414,14 +412,12 @@ impl RenewalTrigger for FileBasedRenewalTrigger {
                     // Other events (access, etc.) - ignore and continue waiting
                 }
                 Some(Err(e)) => {
-                    return Err(VaultError::TokenFileReadError(
-                        format!("File watch error: {}", e)
-                    ));
+                    return Err(VaultError::TokenFileReadError(format!("File watch error: {}", e)));
                 }
                 None => {
                     // Channel closed - watcher dropped
                     return Err(VaultError::TokenFileReadError(
-                        "File watcher channel closed".to_string()
+                        "File watcher channel closed".to_string(),
                     ));
                 }
             }

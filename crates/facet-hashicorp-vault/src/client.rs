@@ -18,7 +18,7 @@ use async_trait::async_trait;
 use base64::Engine;
 use dsdk_facet_core::context::ParticipantContext;
 use dsdk_facet_core::util::clock::Clock;
-use dsdk_facet_core::vault::{KeyMetadata, PublicKeyFormat, VaultSigningClient, VaultClient, VaultError};
+use dsdk_facet_core::vault::{KeyMetadata, PublicKeyFormat, VaultClient, VaultError, VaultSigningClient};
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -69,7 +69,12 @@ impl HashicorpVaultClient {
         // Create auth client and renewal trigger based on config
         let (auth_client, renewal_trigger_config): (Arc<dyn VaultAuthClient>, super::renewal::RenewalTriggerConfig) =
             match &self.config.auth_config {
-                VaultAuthConfig::OAuth2 { client_id, client_secret, token_url, role } => {
+                VaultAuthConfig::OAuth2 {
+                    client_id,
+                    client_secret,
+                    token_url,
+                    role,
+                } => {
                     let auth = Arc::new(
                         JwtVaultAuthClient::builder()
                             .http_client(self.http_client.clone())
@@ -184,13 +189,19 @@ impl HashicorpVaultClient {
 
     /// Constructs the URL for Transit sign operations.
     fn transit_sign_url(&self) -> Result<String, VaultError> {
-        let key_name = self.config.signing_key_name.as_ref()
+        let key_name = self
+            .config
+            .signing_key_name
+            .as_ref()
             .ok_or_else(|| VaultError::InvalidData("signing_key_name not configured".to_string()))?;
 
         Ok(format!(
             "{}/v1/{}/sign/{}",
             self.config.vault_url,
-            self.config.transit_mount_path.as_deref().unwrap_or(DEFAULT_TRANSIT_MOUNT_PATH),
+            self.config
+                .transit_mount_path
+                .as_deref()
+                .unwrap_or(DEFAULT_TRANSIT_MOUNT_PATH),
             key_name
         ))
     }
@@ -200,7 +211,10 @@ impl HashicorpVaultClient {
         format!(
             "{}/v1/{}/keys/{}",
             self.config.vault_url,
-            self.config.transit_mount_path.as_deref().unwrap_or(DEFAULT_TRANSIT_MOUNT_PATH),
+            self.config
+                .transit_mount_path
+                .as_deref()
+                .unwrap_or(DEFAULT_TRANSIT_MOUNT_PATH),
             key_name
         )
     }
@@ -288,7 +302,7 @@ impl HashicorpVaultClient {
         // Check for 'z' prefix (base58btc)
         if !multibase_key.starts_with('z') {
             return Err(VaultError::InvalidData(
-                "Invalid multibase format: expected 'z' prefix for base58btc".to_string()
+                "Invalid multibase format: expected 'z' prefix for base58btc".to_string(),
             ));
         }
 
@@ -300,7 +314,7 @@ impl HashicorpVaultClient {
         // Validate minimum length (multicodec prefix + key)
         if decoded.len() < 3 {
             return Err(VaultError::InvalidData(
-                "Invalid key: too short to contain multicodec prefix".to_string()
+                "Invalid key: too short to contain multicodec prefix".to_string(),
             ));
         }
 
@@ -457,7 +471,10 @@ impl VaultSigningClient for HashicorpVaultClient {
     ) -> Result<KeyMetadata, VaultError> {
         let state = self.ensure_initialized()?;
 
-        let original_key_name = self.config.signing_key_name.as_ref()
+        let original_key_name = self
+            .config
+            .signing_key_name
+            .as_ref()
             .ok_or_else(|| VaultError::InvalidData("signing_key_name not configured".to_string()))?;
 
         let url = self.transit_key_url(original_key_name);
@@ -485,9 +502,7 @@ impl VaultSigningClient for HashicorpVaultClient {
 
         // Convert all key versions to the requested format
         // Collect and sort version numbers to maintain ordering
-        let mut version_numbers: Vec<usize> = key_response.data.keys.keys()
-            .filter_map(|v| v.parse().ok())
-            .collect();
+        let mut version_numbers: Vec<usize> = key_response.data.keys.keys().filter_map(|v| v.parse().ok()).collect();
         version_numbers.sort_unstable();
 
         let mut keys = Vec::new();
@@ -507,7 +522,7 @@ impl VaultSigningClient for HashicorpVaultClient {
             }
         }
 
-        // Apply transformer to key name for the returned metadata 
+        // Apply transformer to key name for the returned metadata
         let key_name = if let Some(transformer) = &self.config.jwt_kid_transformer {
             transformer(original_key_name)
         } else {
@@ -521,7 +536,11 @@ impl VaultSigningClient for HashicorpVaultClient {
         })
     }
 
-    async fn sign_content(&self, _participant_context: &ParticipantContext, content: &[u8]) -> Result<Vec<u8>, VaultError> {
+    async fn sign_content(
+        &self,
+        _participant_context: &ParticipantContext,
+        content: &[u8],
+    ) -> Result<Vec<u8>, VaultError> {
         let state = self.ensure_initialized()?;
         let url = self.transit_sign_url()?;
         let token = {
@@ -532,9 +551,7 @@ impl VaultSigningClient for HashicorpVaultClient {
         // Encode content as base64
         let encoded_content = base64::engine::general_purpose::STANDARD.encode(content);
 
-        let request = TransitSignRequest {
-            input: encoded_content,
-        };
+        let request = TransitSignRequest { input: encoded_content };
 
         let response = self
             .http_client
@@ -556,7 +573,9 @@ impl VaultSigningClient for HashicorpVaultClient {
 
         // Parse vault signature format: "vault:v<version>:<base64_signature>"
         // Extract the raw signature bytes for use by callers
-        let signature_b64 = sign_response.data.signature
+        let signature_b64 = sign_response
+            .data
+            .signature
             .rsplit_once(':')
             .map(|(_, sig)| sig)
             .ok_or_else(|| VaultError::InvalidData("Invalid signature format".to_string()))?;

@@ -104,14 +104,16 @@ impl MockVaultSigningClient {
 
 #[async_trait]
 impl VaultSigningClient for MockVaultSigningClient {
-    async fn get_key_metadata(&self, _participant_context: &ParticipantContext, format: PublicKeyFormat) -> Result<KeyMetadata, VaultError> {
+    async fn get_key_metadata(
+        &self,
+        _participant_context: &ParticipantContext,
+        format: PublicKeyFormat,
+    ) -> Result<KeyMetadata, VaultError> {
         // Generate a mock Ed25519 public key (32 bytes)
         // Using a deterministic value for testing consistency
         let mock_ed25519_pubkey = [
-            0x1d, 0xbf, 0x44, 0x09, 0x69, 0x84, 0xcd, 0xfe,
-            0x85, 0x41, 0xba, 0xc1, 0x67, 0xdc, 0x3b, 0x96,
-            0xc8, 0x50, 0x86, 0xaa, 0x30, 0xb6, 0xb6, 0xcb,
-            0x0c, 0x5c, 0x38, 0xad, 0x70, 0x31, 0x66, 0xe1,
+            0x1d, 0xbf, 0x44, 0x09, 0x69, 0x84, 0xcd, 0xfe, 0x85, 0x41, 0xba, 0xc1, 0x67, 0xdc, 0x3b, 0x96, 0xc8, 0x50,
+            0x86, 0xaa, 0x30, 0xb6, 0xb6, 0xcb, 0x0c, 0x5c, 0x38, 0xad, 0x70, 0x31, 0x66, 0xe1,
         ];
 
         let key = match format {
@@ -120,7 +122,7 @@ impl VaultSigningClient for MockVaultSigningClient {
                 let mut prefixed = vec![0xed, 0x01];
                 prefixed.extend_from_slice(&mock_ed25519_pubkey);
                 format!("z{}", bs58::encode(&prefixed).into_string())
-            },
+            }
             PublicKeyFormat::Base64Url => {
                 // Encode raw Ed25519 key (32 bytes) as base64url
                 base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&mock_ed25519_pubkey)
@@ -134,7 +136,11 @@ impl VaultSigningClient for MockVaultSigningClient {
         })
     }
 
-    async fn sign_content(&self, _participant_context: &ParticipantContext, _content: &[u8]) -> Result<Vec<u8>, VaultError> {
+    async fn sign_content(
+        &self,
+        _participant_context: &ParticipantContext,
+        _content: &[u8],
+    ) -> Result<Vec<u8>, VaultError> {
         Ok(self.signature_bytes.clone())
     }
 }

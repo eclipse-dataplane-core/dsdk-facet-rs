@@ -117,13 +117,19 @@ pub struct HashicorpVaultConfig {
 impl std::fmt::Debug for HashicorpVaultConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let auth_config_debug = match &self.auth_config {
-            VaultAuthConfig::OAuth2 { client_id, token_url, role, .. } => {
-                format!("OAuth2 {{ client_id: {}, client_secret: ***, token_url: {}, role: {:?} }}",
-                    client_id, token_url, role)
+            VaultAuthConfig::OAuth2 {
+                client_id,
+                token_url,
+                role,
+                ..
+            } => {
+                format!(
+                    "OAuth2 {{ client_id: {}, client_secret: ***, token_url: {}, role: {:?} }}",
+                    client_id, token_url, role
+                )
             }
             VaultAuthConfig::KubernetesServiceAccount { token_file_path } => {
-                format!("KubernetesServiceAccount {{ token_file_path: {:?} }}",
-                    token_file_path)
+                format!("KubernetesServiceAccount {{ token_file_path: {:?} }}", token_file_path)
             }
         };
 
@@ -143,7 +149,10 @@ impl std::fmt::Debug for HashicorpVaultConfig {
             .field("renewal_jitter", &self.renewal_jitter)
             .field("transit_mount_path", &self.transit_mount_path)
             .field("signing_key_name", &self.signing_key_name)
-            .field("jwt_kid_transformer", &self.jwt_kid_transformer.as_ref().map(|_| "<transformer>"))
+            .field(
+                "jwt_kid_transformer",
+                &self.jwt_kid_transformer.as_ref().map(|_| "<transformer>"),
+            )
             .finish()
     }
 }
