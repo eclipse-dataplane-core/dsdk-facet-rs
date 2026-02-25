@@ -1,0 +1,16 @@
+[package]
+name = "vault-e2e-test-client"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "vault-test"
+path = "src/main.rs"
+
+[dependencies]
+dsdk-facet-core = { path = "../../crates/facet-core" }
+dsdk-facet-hashicorp-vault = { path = "../../crates/facet-hashicorp-vault" }
+tokio = { workspace = true }
+anyhow = "1.0"
+serde_json = { workspace = true }

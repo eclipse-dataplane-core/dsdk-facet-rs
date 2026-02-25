@@ -1,0 +1,18 @@
+[package]
+name = "dsdk-facet-e2e-tests"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+tokio = { workspace = true }
+anyhow = "1.0"
+base64 = { workspace = true }
+
+[dev-dependencies]
+
+[features]
+# Feature flag to enable E2E tests
+# Run with: cargo test --package dsdk-facet-e2e-tests --features e2e
+e2e = []
