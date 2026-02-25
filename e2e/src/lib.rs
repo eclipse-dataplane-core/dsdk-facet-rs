@@ -10,18 +10,14 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
-#[doc(hidden)]
-pub mod auth;
-mod client;
-#[doc(hidden)]
-pub mod config;
-#[doc(hidden)]
-pub mod renewal;
-#[doc(hidden)]
-pub mod state;
+//! End-to-End tests for Kubernetes + Vault integration
+//!
+//! These tests require a Kind cluster with Vault deployed.
+//! Run setup first: `cd e2e && ./scripts/setup.sh`
+//!
+//! Run tests with: `cargo test --package dsdk-facet-e2e-tests --features e2e`
 
-#[cfg(test)]
-mod tests;
+pub mod utils;
 
-pub use client::HashicorpVaultClient;
-pub use config::{ErrorCallback, HashicorpVaultConfig, HashicorpVaultConfigBuilder, JwtKidTransformer, VaultAuthConfig};
+#[cfg(all(test, feature = "e2e"))]
+pub mod tests;

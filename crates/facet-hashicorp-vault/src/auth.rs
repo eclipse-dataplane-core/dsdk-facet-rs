@@ -15,6 +15,8 @@ use bon::Builder;
 use dsdk_facet_core::vault::VaultError;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
+use tokio::fs;
 
 /// Trait for abstracting Vault authentication mechanisms.
 #[async_trait]
@@ -164,4 +166,48 @@ struct JwtLoginResponse {
 struct AuthInfo {
     client_token: String,
     lease_duration: u64,
+}
+
+/// Implementation that reads a Vault token from a file.
+/// This is designed for Kubernetes service account authentication where a Vault agent sidecar
+/// writes the token to a shared volume.
+#[derive(Builder)]
+pub struct FileBasedVaultAuthClient {
+    #[builder(into)]
+    token_file_path: PathBuf,
+    /// Estimated TTL for the token in seconds. Since we read an existing token,
+    /// we don't know the actual TTL. This value is used for renewal scheduling.
+    /// Default is 3600 seconds (1 hour).
+    #[builder(default = 3600)]
+    estimated_ttl: u64,
+}
+
+#[async_trait]
+impl VaultAuthClient for FileBasedVaultAuthClient {
+    async fn authenticate(&self) -> Result<(String, u64), VaultError> {
+        // Check if file exists
+        if !self.token_file_path.exists() {
+            return Err(VaultError::TokenFileNotFound(
+                format!("Token file not found at path: {}", self.token_file_path.display())
+            ));
+        }
+
+        // Read the token from file
+        let token = fs::read_to_string(&self.token_file_path)
+            .await
+            .map_err(|e| VaultError::TokenFileReadError(
+                format!("Failed to read token file {}: {}", self.token_file_path.display(), e)
+            ))?;
+
+        // Trim whitespace and validate
+        let token = token.trim();
+        if token.is_empty() {
+            return Err(VaultError::InvalidTokenFormat(
+                "Token file is empty".to_string()
+            ));
+        }
+
+        // Return token and estimated TTL
+        Ok((token.to_string(), self.estimated_ttl))
+    }
 }

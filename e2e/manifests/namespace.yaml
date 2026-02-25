@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: vault-e2e-test
+  labels:
+    name: vault-e2e-test
+    purpose: e2e-testing

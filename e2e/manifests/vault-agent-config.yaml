@@ -1,0 +1,137 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vault-agent-config
+  namespace: vault-e2e-test
+data:
+  vault-agent-config.hcl: |
+    pid_file = "/tmp/vault-agent.pid"
+
+    vault {
+      address = "http://vault:8200"
+    }
+
+    auto_auth {
+      method {
+        type = "kubernetes"
+
+        config = {
+          role = "test-role"
+        }
+      }
+
+      sink {
+        type = "file"
+        config = {
+          path = "/vault/secrets/.vault-token"
+          mode = 0644
+        }
+      }
+    }
+
+    # Template for demonstrating additional functionality (optional)
+    template {
+      source      = "/vault/configs/template.ctmpl"
+      destination = "/vault/secrets/rendered.txt"
+    }
+
+  # Example template (optional)
+  template.ctmpl: |
+    Token file written at: /vault/secrets/.vault-token
+---
+# ConfigMap for short-TTL tests
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vault-agent-config-short-ttl
+  namespace: vault-e2e-test
+data:
+  vault-agent-config.hcl: |
+    pid_file = "/tmp/vault-agent.pid"
+
+    vault {
+      address = "http://vault:8200"
+    }
+
+    auto_auth {
+      method {
+        type = "kubernetes"
+
+        config = {
+          role = "test-role-short-ttl"
+        }
+      }
+
+      sink {
+        type = "file"
+        config = {
+          path = "/vault/secrets/.vault-token"
+          mode = 0644
+        }
+      }
+    }
+---
+# ConfigMap for test-app-sa1
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vault-agent-config-sa1
+  namespace: vault-e2e-test
+data:
+  vault-agent-config.hcl: |
+    pid_file = "/tmp/vault-agent.pid"
+
+    vault {
+      address = "http://vault:8200"
+    }
+
+    auto_auth {
+      method {
+        type = "kubernetes"
+
+        config = {
+          role = "test-role-sa1"
+        }
+      }
+
+      sink {
+        type = "file"
+        config = {
+          path = "/vault/secrets/.vault-token"
+          mode = 0644
+        }
+      }
+    }
+---
+# ConfigMap for test-app-sa2
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vault-agent-config-sa2
+  namespace: vault-e2e-test
+data:
+  vault-agent-config.hcl: |
+    pid_file = "/tmp/vault-agent.pid"
+
+    vault {
+      address = "http://vault:8200"
+    }
+
+    auto_auth {
+      method {
+        type = "kubernetes"
+
+        config = {
+          role = "test-role-sa2"
+        }
+      }
+
+      sink {
+        type = "file"
+        config = {
+          path = "/vault/secrets/.vault-token"
+          mode = 0644
+        }
+      }
+    }

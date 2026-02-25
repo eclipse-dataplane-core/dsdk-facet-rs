@@ -12,7 +12,7 @@
 
 use crate::auth::VaultAuthClient;
 use crate::client::HashicorpVaultClient;
-use crate::config::{ErrorCallback, HashicorpVaultConfig};
+use crate::config::{ErrorCallback, HashicorpVaultConfig, VaultAuthConfig};
 use crate::renewal::TokenRenewer;
 use crate::state::VaultClientState;
 use async_trait::async_trait;
@@ -158,12 +158,17 @@ async fn test_update_state_on_success_resets_state() {
 
     let auth_client = Arc::new(MockAuthProvider);
     let http_client = Client::new();
+    let renewal_trigger_config = crate::renewal::RenewalTriggerConfig::TimeBased {
+        renewal_percentage: 0.8,
+        renewal_jitter: 0.1,
+    };
     let renewer = Arc::new(
         TokenRenewer::builder()
             .auth_client(auth_client)
             .http_client(http_client)
             .vault_url("http://vault:8200")
             .state(Arc::clone(&state))
+            .renewal_trigger_config(renewal_trigger_config)
             .clock(mock_clock)
             .build(),
     );
@@ -197,12 +202,17 @@ async fn test_update_state_on_success_preserves_other_fields() {
     let mock_clock = Arc::new(MockClock::new(new_time));
     let auth_client = Arc::new(MockAuthProvider);
     let http_client = Client::new();
+    let renewal_trigger_config = crate::renewal::RenewalTriggerConfig::TimeBased {
+        renewal_percentage: 0.8,
+        renewal_jitter: 0.1,
+    };
     let renewer = Arc::new(
         TokenRenewer::builder()
             .auth_client(auth_client)
             .http_client(http_client)
             .vault_url("http://vault:8200")
             .state(Arc::clone(&state))
+            .renewal_trigger_config(renewal_trigger_config)
             .clock(mock_clock)
             .build(),
     );
@@ -230,6 +240,10 @@ fn create_test_renewer(
     let auth_client = Arc::new(MockAuthProvider);
     let http_client = Client::new();
     let clock = Arc::new(MockClock::new(Utc::now()));
+    let renewal_trigger_config = crate::renewal::RenewalTriggerConfig::TimeBased {
+        renewal_percentage: 0.8,
+        renewal_jitter: 0.1,
+    };
 
     Arc::new(
         TokenRenewer::builder()
@@ -237,6 +251,7 @@ fn create_test_renewer(
             .http_client(http_client)
             .vault_url("http://vault:8200")
             .state(state)
+            .renewal_trigger_config(renewal_trigger_config)
             .maybe_on_renewal_error(on_renewal_error)
             .clock(clock)
             .build(),
@@ -274,9 +289,12 @@ fn failing_state(failures: u32) -> Arc<RwLock<VaultClientState>> {
 fn test_convert_to_multibase_valid_key() {
     let config = HashicorpVaultConfig::builder()
         .vault_url("http://localhost:8200")
-        .client_id("test-client")
-        .client_secret("test-secret")
-        .token_url("http://localhost:8080/token")
+        .auth_config(VaultAuthConfig::OAuth2 {
+            client_id: "test-client".to_string(),
+            client_secret: "test-secret".to_string(),
+            token_url: "http://localhost:8080/token".to_string(),
+            role: None,
+        })
         .build();
 
     let client = HashicorpVaultClient::new(config).expect("Failed to create client");
@@ -305,9 +323,12 @@ fn test_convert_to_multibase_valid_key() {
 fn test_convert_to_multibase_deterministic() {
     let config = HashicorpVaultConfig::builder()
         .vault_url("http://localhost:8200")
-        .client_id("test-client")
-        .client_secret("test-secret")
-        .token_url("http://localhost:8080/token")
+        .auth_config(VaultAuthConfig::OAuth2 {
+            client_id: "test-client".to_string(),
+            client_secret: "test-secret".to_string(),
+            token_url: "http://localhost:8080/token".to_string(),
+            role: None,
+        })
         .build();
 
     let client = HashicorpVaultClient::new(config).expect("Failed to create client");
@@ -326,9 +347,12 @@ fn test_convert_to_multibase_deterministic() {
 fn test_convert_to_multibase_different_keys() {
     let config = HashicorpVaultConfig::builder()
         .vault_url("http://localhost:8200")
-        .client_id("test-client")
-        .client_secret("test-secret")
-        .token_url("http://localhost:8080/token")
+        .auth_config(VaultAuthConfig::OAuth2 {
+            client_id: "test-client".to_string(),
+            client_secret: "test-secret".to_string(),
+            token_url: "http://localhost:8080/token".to_string(),
+            role: None,
+        })
         .build();
 
     let client = HashicorpVaultClient::new(config).expect("Failed to create client");
@@ -348,9 +372,12 @@ fn test_convert_to_multibase_different_keys() {
 fn test_convert_to_multibase_invalid_base64() {
     let config = HashicorpVaultConfig::builder()
         .vault_url("http://localhost:8200")
-        .client_id("test-client")
-        .client_secret("test-secret")
-        .token_url("http://localhost:8080/token")
+        .auth_config(VaultAuthConfig::OAuth2 {
+            client_id: "test-client".to_string(),
+            client_secret: "test-secret".to_string(),
+            token_url: "http://localhost:8080/token".to_string(),
+            role: None,
+        })
         .build();
 
     let client = HashicorpVaultClient::new(config).expect("Failed to create client");
@@ -373,9 +400,12 @@ fn test_convert_to_multibase_invalid_base64() {
 fn test_convert_to_multibase_has_correct_multicodec_prefix() {
     let config = HashicorpVaultConfig::builder()
         .vault_url("http://localhost:8200")
-        .client_id("test-client")
-        .client_secret("test-secret")
-        .token_url("http://localhost:8080/token")
+        .auth_config(VaultAuthConfig::OAuth2 {
+            client_id: "test-client".to_string(),
+            client_secret: "test-secret".to_string(),
+            token_url: "http://localhost:8080/token".to_string(),
+            role: None,
+        })
         .build();
 
     let client = HashicorpVaultClient::new(config).expect("Failed to create client");
@@ -401,9 +431,12 @@ fn test_convert_to_multibase_has_correct_multicodec_prefix() {
 fn test_validate_multibase_ed25519_valid_key() {
     let config = HashicorpVaultConfig::builder()
         .vault_url("http://localhost:8200")
-        .client_id("test-client")
-        .client_secret("test-secret")
-        .token_url("http://localhost:8080/token")
+        .auth_config(VaultAuthConfig::OAuth2 {
+            client_id: "test-client".to_string(),
+            client_secret: "test-secret".to_string(),
+            token_url: "http://localhost:8080/token".to_string(),
+            role: None,
+        })
         .build();
 
     let client = HashicorpVaultClient::new(config).expect("Failed to create client");
@@ -424,9 +457,12 @@ fn test_validate_multibase_ed25519_valid_key() {
 fn test_validate_multibase_ed25519_invalid_prefix() {
     let config = HashicorpVaultConfig::builder()
         .vault_url("http://localhost:8200")
-        .client_id("test-client")
-        .client_secret("test-secret")
-        .token_url("http://localhost:8080/token")
+        .auth_config(VaultAuthConfig::OAuth2 {
+            client_id: "test-client".to_string(),
+            client_secret: "test-secret".to_string(),
+            token_url: "http://localhost:8080/token".to_string(),
+            role: None,
+        })
         .build();
 
     let client = HashicorpVaultClient::new(config).expect("Failed to create client");
@@ -445,9 +481,12 @@ fn test_validate_multibase_ed25519_invalid_prefix() {
 fn test_validate_multibase_ed25519_wrong_multicodec() {
     let config = HashicorpVaultConfig::builder()
         .vault_url("http://localhost:8200")
-        .client_id("test-client")
-        .client_secret("test-secret")
-        .token_url("http://localhost:8080/token")
+        .auth_config(VaultAuthConfig::OAuth2 {
+            client_id: "test-client".to_string(),
+            client_secret: "test-secret".to_string(),
+            token_url: "http://localhost:8080/token".to_string(),
+            role: None,
+        })
         .build();
 
     let client = HashicorpVaultClient::new(config).expect("Failed to create client");
@@ -469,9 +508,12 @@ fn test_validate_multibase_ed25519_wrong_multicodec() {
 fn test_validate_multibase_ed25519_wrong_key_size() {
     let config = HashicorpVaultConfig::builder()
         .vault_url("http://localhost:8200")
-        .client_id("test-client")
-        .client_secret("test-secret")
-        .token_url("http://localhost:8080/token")
+        .auth_config(VaultAuthConfig::OAuth2 {
+            client_id: "test-client".to_string(),
+            client_secret: "test-secret".to_string(),
+            token_url: "http://localhost:8080/token".to_string(),
+            role: None,
+        })
         .build();
 
     let client = HashicorpVaultClient::new(config).expect("Failed to create client");
@@ -493,9 +535,12 @@ fn test_validate_multibase_ed25519_wrong_key_size() {
 fn test_validate_multibase_ed25519_invalid_base58() {
     let config = HashicorpVaultConfig::builder()
         .vault_url("http://localhost:8200")
-        .client_id("test-client")
-        .client_secret("test-secret")
-        .token_url("http://localhost:8080/token")
+        .auth_config(VaultAuthConfig::OAuth2 {
+            client_id: "test-client".to_string(),
+            client_secret: "test-secret".to_string(),
+            token_url: "http://localhost:8080/token".to_string(),
+            role: None,
+        })
         .build();
 
     let client = HashicorpVaultClient::new(config).expect("Failed to create client");

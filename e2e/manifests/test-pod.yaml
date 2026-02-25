@@ -1,0 +1,100 @@
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-app
+  namespace: vault-e2e-test
+  labels:
+    app: test-app
+spec:
+  serviceAccountName: test-app-sa
+
+  # Init container to wait for Vault to be ready
+  initContainers:
+  - name: wait-for-vault
+    image: busybox:1.36
+    command:
+    - 'sh'
+    - '-c'
+    - |
+      echo "Waiting for Vault to be ready..."
+      until wget -q -O- http://vault:8200/v1/sys/health > /dev/null 2>&1; do
+        echo "Vault not ready yet, waiting..."
+        sleep 2
+      done
+      echo "Vault is ready!"
+
+  containers:
+  # Vault Agent sidecar
+  - name: vault-agent
+    image: hashicorp/vault:1.15.0
+    args:
+    - "agent"
+    - "-config=/vault/configs/vault-agent-config.hcl"
+    - "-log-level=debug"
+    env:
+    - name: VAULT_ADDR
+      value: "http://vault:8200"
+    volumeMounts:
+    - name: vault-token
+      mountPath: /vault/secrets
+    - name: vault-config
+      mountPath: /vault/configs
+    resources:
+      requests:
+        memory: "128Mi"
+        cpu: "50m"
+      limits:
+        memory: "256Mi"
+        cpu: "200m"
+
+  # Test runner container - runs the vault-test binary
+  - name: test-runner
+    image: vault-test:local
+    imagePullPolicy: Never
+    command:
+    - 'sh'
+    - '-c'
+    - |
+      echo "Test runner started. Token file location: /vault/secrets/.vault-token"
+      echo "Waiting for token file to be created by vault-agent..."
+
+      # Wait for token file
+      while [ ! -f /vault/secrets/.vault-token ]; do
+        echo "Token file not found yet, waiting..."
+        sleep 1
+      done
+
+      echo "Token file found!"
+      echo "Starting vault-test binary..."
+
+      # Run the test binary
+      /usr/local/bin/vault-test
+    env:
+    - name: TEST_MODE
+      value: "crud"
+    - name: VAULT_URL
+      value: "http://vault:8200"
+    - name: TOKEN_FILE_PATH
+      value: "/vault/secrets/.vault-token"
+    volumeMounts:
+    - name: vault-token
+      mountPath: /vault/secrets
+      readOnly: true
+    resources:
+      requests:
+        memory: "64Mi"
+        cpu: "50m"
+      limits:
+        memory: "128Mi"
+        cpu: "100m"
+
+  volumes:
+  - name: vault-token
+    emptyDir:
+      medium: Memory
+  - name: vault-config
+    configMap:
+      name: vault-agent-config
+
+  restartPolicy: Never

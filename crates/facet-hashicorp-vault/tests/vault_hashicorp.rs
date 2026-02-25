@@ -12,7 +12,7 @@
 
 use dsdk_facet_core::context::ParticipantContext;
 use dsdk_facet_core::vault::VaultClient;
-use dsdk_facet_hashicorp_vault::{HashicorpVaultClient, HashicorpVaultConfig};
+use dsdk_facet_hashicorp_vault::{HashicorpVaultClient, HashicorpVaultConfig, VaultAuthConfig};
 use dsdk_facet_testcontainers::{
     keycloak::setup_keycloak_container, utils::create_network, vault::setup_vault_container,
 };
@@ -59,9 +59,12 @@ async fn test_vault_client_integration() {
         let ctx = create_test_context();
         let config = HashicorpVaultConfig::builder()
             .vault_url(&vault_url)
-            .client_id(&keycloak_setup.client_id)
-            .client_secret(&keycloak_setup.client_secret)
-            .token_url(&keycloak_setup.token_url)
+            .auth_config(VaultAuthConfig::OAuth2 {
+                client_id: keycloak_setup.client_id.clone(),
+                client_secret: keycloak_setup.client_secret.clone(),
+                token_url: keycloak_setup.token_url.clone(),
+                role: None,
+            })
             .build();
 
         let mut client = HashicorpVaultClient::new(config).expect("Failed to create Vault client");
@@ -129,9 +132,12 @@ async fn test_vault_client_integration() {
         let ctx = create_test_context();
         let config = HashicorpVaultConfig::builder()
             .vault_url(&vault_url)
-            .client_id(&keycloak_setup.client_id)
-            .client_secret(&keycloak_setup.client_secret)
-            .token_url(&keycloak_setup.token_url)
+            .auth_config(VaultAuthConfig::OAuth2 {
+                client_id: keycloak_setup.client_id.clone(),
+                client_secret: keycloak_setup.client_secret.clone(),
+                token_url: keycloak_setup.token_url.clone(),
+                role: None,
+            })
             .build();
 
         let mut client = HashicorpVaultClient::new(config).expect("Failed to create Vault client");
@@ -156,9 +162,12 @@ async fn test_vault_client_integration() {
         let ctx = create_test_context();
         let config = HashicorpVaultConfig::builder()
             .vault_url(&vault_url)
-            .client_id(&keycloak_setup.client_id)
-            .client_secret(&keycloak_setup.client_secret)
-            .token_url(&keycloak_setup.token_url)
+            .auth_config(VaultAuthConfig::OAuth2 {
+                client_id: keycloak_setup.client_id.clone(),
+                client_secret: keycloak_setup.client_secret.clone(),
+                token_url: keycloak_setup.token_url.clone(),
+                role: None,
+            })
             .soft_delete(false)
             .build();
 
@@ -193,9 +202,12 @@ async fn test_vault_client_integration() {
         let ctx = create_test_context();
         let config = HashicorpVaultConfig::builder()
             .vault_url(&vault_url)
-            .client_id(&keycloak_setup.client_id)
-            .client_secret(&keycloak_setup.client_secret)
-            .token_url(&keycloak_setup.token_url)
+            .auth_config(VaultAuthConfig::OAuth2 {
+                client_id: keycloak_setup.client_id.clone(),
+                client_secret: keycloak_setup.client_secret.clone(),
+                token_url: keycloak_setup.token_url.clone(),
+                role: None,
+            })
             .build();
 
         let mut client = HashicorpVaultClient::new(config).expect("Failed to create Vault client");
@@ -244,9 +256,12 @@ async fn test_vault_client_integration() {
         let ctx = create_test_context();
         let config = HashicorpVaultConfig::builder()
             .vault_url(&vault_url)
-            .client_id("invalid-client-id")
-            .client_secret("invalid-secret")
-            .token_url(&keycloak_setup.token_url)
+            .auth_config(VaultAuthConfig::OAuth2 {
+                client_id: "invalid-client-id".to_string(),
+                client_secret: "invalid-secret".to_string(),
+                token_url: keycloak_setup.token_url.clone(),
+                role: None,
+            })
             .build();
 
         let mut client = HashicorpVaultClient::new(config).expect("Failed to create Vault client");
@@ -284,9 +299,12 @@ async fn test_vault_client_integration() {
 
         let config = HashicorpVaultConfig::builder()
             .vault_url(&vault_url)
-            .client_id(&keycloak_setup.client_id)
-            .client_secret(&keycloak_setup.client_secret)
-            .token_url(&keycloak_setup.token_url)
+            .auth_config(VaultAuthConfig::OAuth2 {
+                client_id: keycloak_setup.client_id.clone(),
+                client_secret: keycloak_setup.client_secret.clone(),
+                token_url: keycloak_setup.token_url.clone(),
+                role: None,
+            })
             .build();
 
         let mut client = HashicorpVaultClient::new(config).expect("Failed to create Vault client");

@@ -10,18 +10,4 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
-#[doc(hidden)]
-pub mod auth;
-mod client;
-#[doc(hidden)]
-pub mod config;
-#[doc(hidden)]
-pub mod renewal;
-#[doc(hidden)]
-pub mod state;
-
-#[cfg(test)]
-mod tests;
-
-pub use client::HashicorpVaultClient;
-pub use config::{ErrorCallback, HashicorpVaultConfig, HashicorpVaultConfigBuilder, JwtKidTransformer, VaultAuthConfig};
+pub mod k8s_vault_sidecar;

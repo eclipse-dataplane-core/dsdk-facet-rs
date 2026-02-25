@@ -116,6 +116,15 @@ pub enum VaultError {
 
     #[error("Client not initialized: {0}")]
     NotInitializedError(String),
+
+    #[error("Token file not found: {0}")]
+    TokenFileNotFound(String),
+
+    #[error("Token file read error: {0}")]
+    TokenFileReadError(String),
+
+    #[error("Invalid token format: {0}")]
+    InvalidTokenFormat(String),
 }
 
 impl VaultError {

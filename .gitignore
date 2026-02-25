@@ -21,3 +21,7 @@ target
 
 # Documentation scratch files
 docs/
+
+*.log
+
+bin
