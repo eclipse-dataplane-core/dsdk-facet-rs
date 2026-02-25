@@ -12,7 +12,7 @@
 
 use super::auth::{FileBasedVaultAuthClient, JwtVaultAuthClient, VaultAuthClient, handle_error_response};
 use super::config::{CONTENT_KEY, DEFAULT_ROLE, HashicorpVaultConfig, VaultAuthConfig};
-use super::renewal::{FileBasedRenewalTrigger, RenewalHandle, TimeBasedRenewalTrigger, TokenRenewer};
+use super::renewal::{RenewalHandle, TokenRenewer};
 use super::state::VaultClientState;
 use async_trait::async_trait;
 use base64::Engine;
@@ -67,7 +67,7 @@ impl HashicorpVaultClient {
         }
 
         // Create auth client and renewal trigger based on config
-        let (auth_client, renewal_trigger): (Arc<dyn VaultAuthClient>, Box<dyn super::renewal::RenewalTrigger>) =
+        let (auth_client, renewal_trigger_config): (Arc<dyn VaultAuthClient>, super::renewal::RenewalTriggerConfig) =
             match &self.config.auth_config {
                 VaultAuthConfig::OAuth2 { client_id, client_secret, token_url, role } => {
                     let auth = Arc::new(
@@ -80,11 +80,11 @@ impl HashicorpVaultClient {
                             .role(role.as_deref().unwrap_or(DEFAULT_ROLE))
                             .build(),
                     );
-                    let trigger = Box::new(TimeBasedRenewalTrigger::new(
-                        self.config.token_renewal_percentage,
-                        self.config.renewal_jitter,
-                    ));
-                    (auth, trigger)
+                    let trigger_config = super::renewal::RenewalTriggerConfig::TimeBased {
+                        renewal_percentage: self.config.token_renewal_percentage,
+                        renewal_jitter: self.config.renewal_jitter,
+                    };
+                    (auth, trigger_config)
                 }
                 VaultAuthConfig::KubernetesServiceAccount { token_file_path } => {
                     let auth = Arc::new(
@@ -92,8 +92,10 @@ impl HashicorpVaultClient {
                             .token_file_path(token_file_path.clone())
                             .build(),
                     );
-                    let trigger = Box::new(FileBasedRenewalTrigger::new(token_file_path.clone())?);
-                    (auth, trigger)
+                    let trigger_config = super::renewal::RenewalTriggerConfig::FileBased {
+                        token_file_path: token_file_path.clone(),
+                    };
+                    (auth, trigger_config)
                 }
             };
 
@@ -120,14 +122,14 @@ impl HashicorpVaultClient {
                 .http_client(self.http_client.clone())
                 .vault_url(&self.config.vault_url)
                 .state(Arc::clone(&state))
-                .renewal_trigger(renewal_trigger)
+                .renewal_trigger_config(renewal_trigger_config)
                 .maybe_on_renewal_error(self.config.on_renewal_error.clone())
                 .clock(self.clock.clone())
                 .max_consecutive_failures(self.config.max_consecutive_failures)
                 .build(),
         );
 
-        let handle = renewer.start();
+        let handle = renewer.start()?;
 
         self.state = Some(state);
         self.renewal_handle = Some(handle);

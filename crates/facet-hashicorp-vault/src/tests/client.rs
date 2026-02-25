@@ -13,7 +13,7 @@
 use crate::auth::VaultAuthClient;
 use crate::client::HashicorpVaultClient;
 use crate::config::{ErrorCallback, HashicorpVaultConfig, VaultAuthConfig};
-use crate::renewal::{TimeBasedRenewalTrigger, TokenRenewer};
+use crate::renewal::TokenRenewer;
 use crate::state::VaultClientState;
 use async_trait::async_trait;
 use chrono::{TimeDelta, Utc};
@@ -158,14 +158,17 @@ async fn test_update_state_on_success_resets_state() {
 
     let auth_client = Arc::new(MockAuthProvider);
     let http_client = Client::new();
-    let renewal_trigger = Box::new(TimeBasedRenewalTrigger::new(0.8, 0.1));
+    let renewal_trigger_config = crate::renewal::RenewalTriggerConfig::TimeBased {
+        renewal_percentage: 0.8,
+        renewal_jitter: 0.1,
+    };
     let renewer = Arc::new(
         TokenRenewer::builder()
             .auth_client(auth_client)
             .http_client(http_client)
             .vault_url("http://vault:8200")
             .state(Arc::clone(&state))
-            .renewal_trigger(renewal_trigger)
+            .renewal_trigger_config(renewal_trigger_config)
             .clock(mock_clock)
             .build(),
     );
@@ -199,14 +202,17 @@ async fn test_update_state_on_success_preserves_other_fields() {
     let mock_clock = Arc::new(MockClock::new(new_time));
     let auth_client = Arc::new(MockAuthProvider);
     let http_client = Client::new();
-    let renewal_trigger = Box::new(TimeBasedRenewalTrigger::new(0.8, 0.1));
+    let renewal_trigger_config = crate::renewal::RenewalTriggerConfig::TimeBased {
+        renewal_percentage: 0.8,
+        renewal_jitter: 0.1,
+    };
     let renewer = Arc::new(
         TokenRenewer::builder()
             .auth_client(auth_client)
             .http_client(http_client)
             .vault_url("http://vault:8200")
             .state(Arc::clone(&state))
-            .renewal_trigger(renewal_trigger)
+            .renewal_trigger_config(renewal_trigger_config)
             .clock(mock_clock)
             .build(),
     );
@@ -234,7 +240,10 @@ fn create_test_renewer(
     let auth_client = Arc::new(MockAuthProvider);
     let http_client = Client::new();
     let clock = Arc::new(MockClock::new(Utc::now()));
-    let renewal_trigger = Box::new(TimeBasedRenewalTrigger::new(0.8, 0.1));
+    let renewal_trigger_config = crate::renewal::RenewalTriggerConfig::TimeBased {
+        renewal_percentage: 0.8,
+        renewal_jitter: 0.1,
+    };
 
     Arc::new(
         TokenRenewer::builder()
@@ -242,7 +251,7 @@ fn create_test_renewer(
             .http_client(http_client)
             .vault_url("http://vault:8200")
             .state(state)
-            .renewal_trigger(renewal_trigger)
+            .renewal_trigger_config(renewal_trigger_config)
             .maybe_on_renewal_error(on_renewal_error)
             .clock(clock)
             .build(),

@@ -20,7 +20,7 @@ use crate::common::{wait_for_condition, wrapped_test_state};
 use dsdk_facet_core::util::clock::default_clock;
 use dsdk_facet_hashicorp_vault::auth::JwtVaultAuthClient;
 use dsdk_facet_hashicorp_vault::config::DEFAULT_ROLE;
-use dsdk_facet_hashicorp_vault::renewal::{TimeBasedRenewalTrigger, TokenRenewer};
+use dsdk_facet_hashicorp_vault::renewal::TokenRenewer;
 use dsdk_facet_hashicorp_vault::state::VaultClientState;
 use dsdk_facet_hashicorp_vault::{ErrorCallback, HashicorpVaultConfig, VaultAuthConfig};
 use reqwest::Client;
@@ -61,9 +61,14 @@ async fn test_renewal_loop_successful_renewal_cycle() {
     let state = create_test_state("test-token", 10, 0);
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
-    let renewer = create_token_renewer(config, http_client, Arc::clone(&state));
+    let renewer = create_token_renewer(config.clone(), http_client, Arc::clone(&state));
+    let trigger_config = dsdk_facet_hashicorp_vault::renewal::RenewalTriggerConfig::TimeBased {
+        renewal_percentage: config.token_renewal_percentage,
+        renewal_jitter: config.renewal_jitter,
+    };
+    let trigger = trigger_config.build().expect("Failed to build trigger");
     let loop_handle = tokio::spawn(async move {
-        renewer.renewal_loop(shutdown_rx).await;
+        renewer.renewal_loop(shutdown_rx, trigger).await;
     });
 
     // Wait for renewal to happen (last_renewed is set)
@@ -115,9 +120,14 @@ async fn test_renewal_loop_max_consecutive_failures() {
     let state = create_test_state("test-token", 2, 0);
     let (_shutdown_tx, shutdown_rx) = watch::channel(false);
 
-    let renewer = create_token_renewer(config, http_client, Arc::clone(&state));
+    let renewer = create_token_renewer(config.clone(), http_client, Arc::clone(&state));
+    let trigger_config = dsdk_facet_hashicorp_vault::renewal::RenewalTriggerConfig::TimeBased {
+        renewal_percentage: config.token_renewal_percentage,
+        renewal_jitter: config.renewal_jitter,
+    };
+    let trigger = trigger_config.build().expect("Failed to build trigger");
     let loop_handle = tokio::spawn(async move {
-        renewer.renewal_loop(shutdown_rx).await;
+        renewer.renewal_loop(shutdown_rx, trigger).await;
     });
 
     // Wait for failures to reach 10
@@ -184,9 +194,14 @@ async fn test_renewal_loop_token_expiration_recovery() {
     let state = create_test_state("old-expired-token", 5, 0);
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
-    let renewer = create_token_renewer(config, http_client, Arc::clone(&state));
+    let renewer = create_token_renewer(config.clone(), http_client, Arc::clone(&state));
+    let trigger_config = dsdk_facet_hashicorp_vault::renewal::RenewalTriggerConfig::TimeBased {
+        renewal_percentage: config.token_renewal_percentage,
+        renewal_jitter: config.renewal_jitter,
+    };
+    let trigger = trigger_config.build().expect("Failed to build trigger");
     let loop_handle = tokio::spawn(async move {
-        renewer.renewal_loop(shutdown_rx).await;
+        renewer.renewal_loop(shutdown_rx, trigger).await;
     });
 
     // Wait for token to be replaced
@@ -236,9 +251,14 @@ async fn test_renewal_loop_shutdown_signal() {
     let state = create_test_state("test-token", 100, 0);
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
-    let renewer = create_token_renewer(config, http_client, Arc::clone(&state));
+    let renewer = create_token_renewer(config.clone(), http_client, Arc::clone(&state));
+    let trigger_config = dsdk_facet_hashicorp_vault::renewal::RenewalTriggerConfig::TimeBased {
+        renewal_percentage: config.token_renewal_percentage,
+        renewal_jitter: config.renewal_jitter,
+    };
+    let trigger = trigger_config.build().expect("Failed to build trigger");
     let loop_handle = tokio::spawn(async move {
-        renewer.renewal_loop(shutdown_rx).await;
+        renewer.renewal_loop(shutdown_rx, trigger).await;
     });
 
     // Send shutdown immediately
@@ -287,9 +307,14 @@ async fn test_renewal_loop_error_callback_not_invoked_on_success() {
     let state = create_test_state("test-token", 5, 0);
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
-    let renewer = create_token_renewer(config, http_client, Arc::clone(&state));
+    let renewer = create_token_renewer(config.clone(), http_client, Arc::clone(&state));
+    let trigger_config = dsdk_facet_hashicorp_vault::renewal::RenewalTriggerConfig::TimeBased {
+        renewal_percentage: config.token_renewal_percentage,
+        renewal_jitter: config.renewal_jitter,
+    };
+    let trigger = trigger_config.build().expect("Failed to build trigger");
     let loop_handle = tokio::spawn(async move {
-        renewer.renewal_loop(shutdown_rx).await;
+        renewer.renewal_loop(shutdown_rx, trigger).await;
     });
 
     // Wait for renewal to complete
@@ -337,10 +362,10 @@ fn create_token_renewer(
             .build(),
     );
 
-    let renewal_trigger = Box::new(TimeBasedRenewalTrigger::new(
-        config.token_renewal_percentage,
-        config.renewal_jitter,
-    ));
+    let renewal_trigger_config = dsdk_facet_hashicorp_vault::renewal::RenewalTriggerConfig::TimeBased {
+        renewal_percentage: config.token_renewal_percentage,
+        renewal_jitter: config.renewal_jitter,
+    };
 
     Arc::new(
         TokenRenewer::builder()
@@ -348,7 +373,7 @@ fn create_token_renewer(
             .http_client(http_client)
             .vault_url(&config.vault_url)
             .state(state)
-            .renewal_trigger(renewal_trigger)
+            .renewal_trigger_config(renewal_trigger_config)
             .maybe_on_renewal_error(config.on_renewal_error.clone())
             .clock(default_clock())
             .max_consecutive_failures(config.max_consecutive_failures)

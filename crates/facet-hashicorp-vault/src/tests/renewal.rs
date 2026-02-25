@@ -26,7 +26,7 @@ async fn test_file_based_trigger_detects_modification() {
     let file_path = temp_file.path().to_path_buf();
 
     // Create the trigger
-    let trigger = FileBasedRenewalTrigger::new(file_path.clone())
+    let mut trigger = FileBasedRenewalTrigger::new(file_path.clone())
         .expect("Failed to create file based trigger");
 
     // Spawn a task that will modify the file after a short delay
@@ -58,7 +58,7 @@ async fn test_file_based_trigger_detects_creation() {
         .expect("Failed to create initial file");
 
     // Create the trigger
-    let trigger = FileBasedRenewalTrigger::new(file_path.clone())
+    let mut trigger = FileBasedRenewalTrigger::new(file_path.clone())
         .expect("Failed to create file based trigger");
 
     // Spawn a task that will recreate the file after a short delay
@@ -90,7 +90,7 @@ async fn test_file_based_trigger_multiple_changes() {
     let file_path = temp_file.path().to_path_buf();
 
     // Create the trigger
-    let trigger = FileBasedRenewalTrigger::new(file_path.clone())
+    let mut trigger = FileBasedRenewalTrigger::new(file_path.clone())
         .expect("Failed to create file based trigger");
 
     // Spawn a task that will modify the file multiple times
@@ -131,7 +131,7 @@ async fn test_file_based_trigger_reuse() {
     let file_path = temp_file.path().to_path_buf();
 
     // Create the trigger
-    let trigger = FileBasedRenewalTrigger::new(file_path.clone())
+    let mut trigger = FileBasedRenewalTrigger::new(file_path.clone())
         .expect("Failed to create file based trigger");
 
     // First trigger

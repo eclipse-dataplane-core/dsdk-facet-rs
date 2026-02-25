@@ -26,7 +26,7 @@ use serde::Serialize;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{Mutex, RwLock, mpsc, watch};
+use tokio::sync::{RwLock, mpsc, watch};
 use tokio::task::JoinHandle;
 
 /// Trait for abstracting token renewal trigger mechanisms.
@@ -43,7 +43,45 @@ pub trait RenewalTrigger: Send + Sync {
     /// # Returns
     /// * `Ok(())` - When renewal should happen
     /// * `Err(VaultError)` - If the trigger mechanism fails
-    async fn wait_for_trigger(&self, last_ttl: u64, consecutive_failures: u32) -> Result<(), VaultError>;
+    async fn wait_for_trigger(&mut self, last_ttl: u64, consecutive_failures: u32) -> Result<(), VaultError>;
+}
+
+/// Configuration for creating a renewal trigger.
+///
+/// This enum specifies which type of trigger to create and its parameters.
+/// The actual trigger instance is created lazily when the renewal loop starts.
+#[derive(Clone)]
+pub enum RenewalTriggerConfig {
+    /// Time-based trigger that renews at a percentage of the token TTL
+    TimeBased {
+        /// Percentage of lease duration at which to renew token (0.0-1.0, defaults to 0.8)
+        renewal_percentage: f64,
+        /// Jitter percentage applied to renewal interval (0.0-1.0, defaults to 0.1 = ±10%)
+        renewal_jitter: f64,
+    },
+    /// File-based trigger that watches for file system changes
+    FileBased {
+        /// Path to the token file to watch for changes
+        token_file_path: PathBuf,
+    },
+}
+
+impl RenewalTriggerConfig {
+    /// Creates a trigger instance from this configuration.
+    pub fn build(self) -> Result<Box<dyn RenewalTrigger>, VaultError> {
+        match self {
+            Self::TimeBased {
+                renewal_percentage,
+                renewal_jitter,
+            } => Ok(Box::new(TimeBasedRenewalTrigger::new(
+                renewal_percentage,
+                renewal_jitter,
+            ))),
+            Self::FileBased { token_file_path } => {
+                Ok(Box::new(FileBasedRenewalTrigger::new(token_file_path)?))
+            }
+        }
+    }
 }
 
 /// Handle for managing the token renewal task lifecycle.
@@ -89,7 +127,7 @@ pub struct TokenRenewer {
     http_client: Client,
     vault_url: String,
     state: Arc<RwLock<VaultClientState>>,
-    renewal_trigger: Box<dyn RenewalTrigger>,
+    renewal_trigger_config: RenewalTriggerConfig,
     on_renewal_error: Option<ErrorCallback>,
     clock: Arc<dyn Clock>,
     /// Maximum consecutive renewal failures before stopping renewal loop (defaults to 10)
@@ -99,15 +137,24 @@ pub struct TokenRenewer {
 
 impl TokenRenewer {
     /// Starts the renewal loop in a background task.
-    pub(crate) fn start(self: Arc<Self>) -> RenewalHandle {
+    ///
+    /// Creates the renewal trigger from the configured trigger config and spawns the renewal loop.
+    pub(crate) fn start(self: Arc<Self>) -> Result<RenewalHandle, VaultError> {
+        // Create the trigger from config
+        let trigger = self.renewal_trigger_config.clone().build()?;
+
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
-        let task_handle = tokio::spawn(self.renewal_loop(shutdown_rx));
-        RenewalHandle::new(shutdown_tx, task_handle)
+        let task_handle = tokio::spawn(self.renewal_loop(shutdown_rx, trigger));
+        Ok(RenewalHandle::new(shutdown_tx, task_handle))
     }
 
     /// Main renewal loop that periodically renews the Vault token.
     #[doc(hidden)]
-    pub async fn renewal_loop(self: Arc<Self>, mut shutdown_rx: watch::Receiver<bool>) {
+    pub async fn renewal_loop(
+        self: Arc<Self>,
+        mut shutdown_rx: watch::Receiver<bool>,
+        mut trigger: Box<dyn RenewalTrigger>,
+    ) {
         loop {
             let (lease_duration, consecutive_failures) = {
                 let state = self.state.read().await;
@@ -125,7 +172,7 @@ impl TokenRenewer {
 
             // Wait for either the renewal trigger or shutdown signal
             tokio::select! {
-                trigger_result = self.renewal_trigger.wait_for_trigger(lease_duration, consecutive_failures) => {
+                trigger_result = trigger.wait_for_trigger(lease_duration, consecutive_failures) => {
                     match trigger_result {
                         Ok(()) => {
                             // Trigger fired - attempt renewal
@@ -297,7 +344,7 @@ impl TimeBasedRenewalTrigger {
 
 #[async_trait]
 impl RenewalTrigger for TimeBasedRenewalTrigger {
-    async fn wait_for_trigger(&self, last_ttl: u64, consecutive_failures: u32) -> Result<(), VaultError> {
+    async fn wait_for_trigger(&mut self, last_ttl: u64, consecutive_failures: u32) -> Result<(), VaultError> {
         let renewal_interval = TokenRenewer::calculate_renewal_interval(
             last_ttl,
             consecutive_failures,
@@ -318,8 +365,7 @@ pub struct FileBasedRenewalTrigger {
     /// Watcher must be kept alive for the duration of the trigger.
     /// It is not directly accessed, but dropping it would stop file watching.
     _watcher: Option<RecommendedWatcher>,
-    /// Receiver wrapped in Mutex for interior mutability (trait takes &self)
-    event_rx: Mutex<mpsc::Receiver<notify::Result<Event>>>,
+    event_rx: mpsc::Receiver<notify::Result<Event>>,
 }
 
 impl FileBasedRenewalTrigger {
@@ -347,17 +393,16 @@ impl FileBasedRenewalTrigger {
 
         Ok(Self {
             _watcher: Some(watcher),
-            event_rx: Mutex::new(event_rx),
+            event_rx,
         })
     }
 }
 
 #[async_trait]
 impl RenewalTrigger for FileBasedRenewalTrigger {
-    async fn wait_for_trigger(&self, _last_ttl: u64, _consecutive_failures: u32) -> Result<(), VaultError> {
+    async fn wait_for_trigger(&mut self, _last_ttl: u64, _consecutive_failures: u32) -> Result<(), VaultError> {
         loop {
-            let mut rx = self.event_rx.lock().await;
-            match rx.recv().await {
+            match self.event_rx.recv().await {
                 Some(Ok(event)) => {
                     // Check if this is a modify, create, or remove event
                     if matches!(
