@@ -10,6 +10,8 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
+#![allow(clippy::unwrap_used)]
+
 use crate::lock::{LockError, LockGuard, LockManager, UnlockOps};
 use crate::util::clock::{Clock, default_clock};
 use async_trait::async_trait;

@@ -37,3 +37,6 @@ once_cell = { workspace = true }
 mockall = { workspace = true }
 rstest = { workspace = true }
 bs58 = { workspace = true }
+
+[lints]
+workspace = true

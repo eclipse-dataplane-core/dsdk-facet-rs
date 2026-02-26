@@ -93,6 +93,8 @@ impl TokenClientApi {
         Ok(token)
     }
 
+    // TODO refactor to take a single struct argument instead of 6+ parameters
+    #[allow(clippy::too_many_arguments)]
     pub async fn save_token(
         &self,
         participant_context: &str,

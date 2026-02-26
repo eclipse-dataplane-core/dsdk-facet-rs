@@ -10,6 +10,8 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
+#![allow(clippy::unwrap_used)]
+
 use chrono::{DateTime, TimeDelta, Utc};
 use std::sync::{Arc, Mutex};
 

@@ -24,3 +24,6 @@ notify = "6.1"
 wiremock = { workspace = true }
 dsdk-facet-testcontainers = { path = "../facet-testcontainers" }
 tempfile = "3"
+
+[lints]
+workspace = true

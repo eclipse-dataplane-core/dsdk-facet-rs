@@ -46,3 +46,7 @@ regex = "1"
 base64 = "0.22"
 multibase = "0.9"
 bs58 = "0.5"
+
+
+[workspace.lints.clippy]
+unwrap_used = "deny"

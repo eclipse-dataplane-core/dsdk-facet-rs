@@ -8,3 +8,6 @@ license.workspace = true
 path = "src/lib.rs"
 
 [dependencies]
+
+[lints]
+workspace = true
