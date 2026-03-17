@@ -10,7 +10,7 @@ bon = { workspace = true }
 http = {workspace = true}
 async-trait = {workspace = true}
 serde_json = { workspace = true }
-aws-sigv4 = "1.2"
+aws-sigv4 = "1.3"
 aws-credential-types = {workspace = true}
 aws-smithy-runtime-api = {workspace = true}
 pingora = {workspace = true}
