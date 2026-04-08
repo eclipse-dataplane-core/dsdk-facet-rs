@@ -19,7 +19,7 @@ use dataplane_sdk::core::db::memory::MemoryContext;
 use dataplane_sdk::core::db::tx::TransactionalContext;
 use dataplane_sdk::core::handler::DataFlowHandler;
 use dataplane_sdk::core::model::data_address::{DataAddress, EndpointProperty};
-use dataplane_sdk::core::model::data_flow::DataFlow;
+use dataplane_sdk::core::model::data_flow::{DataFlow, DataFlowType};
 use dsdk_facet_core::context::ParticipantContext;
 use dsdk_facet_core::jwt::jwtutils::{
     StaticSigningKeyResolver, StaticVerificationKeyResolver, generate_ed25519_keypair_pem,
@@ -156,8 +156,8 @@ async fn test_on_started_saves_token_to_store() {
     let data_endpoint = "https://example.com/data";
     let data_address = DataAddress::builder()
         .endpoint_type("HttpData")
+        .endpoint(data_endpoint)
         .endpoint_properties(vec![
-            create_endpoint_property("endpoint", data_endpoint),
             create_endpoint_property("authorization", "access-token-value"),
             create_endpoint_property("refreshToken", "refresh-token-value"),
             create_endpoint_property("refreshEndpoint", "https://example.com/refresh"),
@@ -209,8 +209,8 @@ async fn test_on_started_stores_token_under_participant_context_id() {
 
     let data_address = DataAddress::builder()
         .endpoint_type("HttpData")
+        .endpoint("https://example.com/data")
         .endpoint_properties(vec![
-            create_endpoint_property("endpoint", "https://example.com/data"),
             create_endpoint_property("authorization", "token-value"),
             create_endpoint_property("refreshToken", "refresh-value"),
             create_endpoint_property("refreshEndpoint", "https://example.com/refresh"),
@@ -230,6 +230,7 @@ async fn test_on_started_stores_token_under_participant_context_id() {
         .counter_party_id("did:web:provider.example.com")
         .callback_address("https://example.com/callback")
         .data_address(data_address)
+        .kind(DataFlowType::Provider)
         .build();
 
     let context = MemoryContext;
@@ -281,6 +282,7 @@ async fn test_on_started_missing_endpoint_errors() {
 
     let data_address = DataAddress::builder()
         .endpoint_type("HttpData")
+        .endpoint("https://example.com/data")
         .endpoint_properties(vec![])
         .build();
 
@@ -291,7 +293,7 @@ async fn test_on_started_missing_endpoint_errors() {
 
     let result = handler.on_started(&mut tx, &flow).await;
     assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().contains("endpoint"));
+    assert!(result.unwrap_err().to_string().contains("authorization"));
 }
 
 #[tokio::test]
@@ -307,7 +309,8 @@ async fn test_on_started_missing_token_errors() {
 
     let data_address = DataAddress::builder()
         .endpoint_type("HttpData")
-        .endpoint_properties(vec![create_endpoint_property("endpoint", "https://example.com/data")])
+        .endpoint("https://example.com/data")
+        .endpoint_properties(vec![])
         .build();
 
     let flow = create_test_flow_with_data_address("flow-1", "participant-1", "http-pull", data_address);
@@ -340,6 +343,7 @@ async fn test_on_start_metadata_null_produces_empty_claim() {
         .callback_address("https://example.com/callback")
         .participant_context_id("context-1")
         .metadata(metadata)
+        .kind(DataFlowType::Provider)
         .build();
 
     let token_store = Arc::new(MemoryTokenStore::new());
@@ -388,6 +392,7 @@ async fn test_on_start_json_encoded_metadata_unwrapped_in_claim() {
         .callback_address("https://example.com/callback")
         .participant_context_id("context-1")
         .metadata(metadata)
+        .kind(DataFlowType::Provider)
         .build();
 
     let token_store = Arc::new(MemoryTokenStore::new());
@@ -438,6 +443,7 @@ async fn test_on_start_endpoint_mapping_resolves_by_metadata() {
         .callback_address("https://example.com/callback")
         .participant_context_id("context-1")
         .metadata(metadata)
+        .kind(DataFlowType::Provider)
         .build();
 
     let context = MemoryContext;
@@ -445,10 +451,10 @@ async fn test_on_start_endpoint_mapping_resolves_by_metadata() {
     let response = handler.on_start(&mut tx, &flow).await.unwrap();
 
     let data_address = response.data_address.expect("Data address should be present");
-    let endpoint = data_address
-        .get_property("endpoint")
-        .expect("endpoint property should be present");
-    assert_eq!(endpoint, "https://s3.eu-west-1.amazonaws.com/climate-bucket");
+    assert_eq!(
+        data_address.endpoint,
+        "https://s3.eu-west-1.amazonaws.com/climate-bucket"
+    );
 }
 
 #[tokio::test]
@@ -474,6 +480,7 @@ async fn test_on_start_endpoint_mapping_selects_correct_entry() {
         .callback_address("https://example.com/callback")
         .participant_context_id("context-1")
         .metadata(metadata)
+        .kind(DataFlowType::Provider)
         .build();
 
     let context = MemoryContext;
@@ -481,10 +488,10 @@ async fn test_on_start_endpoint_mapping_selects_correct_entry() {
     let response = handler.on_start(&mut tx, &flow).await.unwrap();
 
     let data_address = response.data_address.expect("Data address should be present");
-    let endpoint = data_address
-        .get_property("endpoint")
-        .expect("endpoint property should be present");
-    assert_eq!(endpoint, "https://s3.us-east-1.amazonaws.com/finance-bucket");
+    assert_eq!(
+        data_address.endpoint,
+        "https://s3.us-east-1.amazonaws.com/finance-bucket"
+    );
 }
 
 #[tokio::test]
@@ -511,6 +518,7 @@ async fn test_on_start_endpoint_mapping_errors_on_no_match() {
         .callback_address("https://example.com/callback")
         .participant_context_id("context-1")
         .metadata(metadata)
+        .kind(DataFlowType::Provider)
         .build();
 
     let context = MemoryContext;
@@ -540,6 +548,7 @@ async fn test_on_start_endpoint_mapping_errors_on_missing_key() {
         .counter_party_id("counter-party-1")
         .callback_address("https://example.com/callback")
         .participant_context_id("context-1")
+        .kind(DataFlowType::Provider)
         .build();
 
     let context = MemoryContext;
@@ -590,6 +599,7 @@ async fn test_on_start_endpoint_mapping_arbitrary_metadata_key() {
         .callback_address("https://example.com/callback")
         .participant_context_id("context-1")
         .metadata(metadata)
+        .kind(DataFlowType::Provider)
         .build();
 
     let context = MemoryContext;
@@ -597,10 +607,7 @@ async fn test_on_start_endpoint_mapping_arbitrary_metadata_key() {
     let response = handler.on_start(&mut tx, &flow).await.unwrap();
 
     let data_address = response.data_address.expect("Data address should be present");
-    let endpoint = data_address
-        .get_property("endpoint")
-        .expect("endpoint property should be present");
-    assert_eq!(endpoint, "https://s3.example.com/xyz-bucket");
+    assert_eq!(data_address.endpoint, "https://s3.example.com/xyz-bucket");
 }
 
 #[tokio::test]
@@ -620,10 +627,7 @@ async fn test_on_start_static_endpoint_when_no_mappings() {
     let response = handler.on_start(&mut tx, &flow).await.unwrap();
 
     let data_address = response.data_address.expect("Data address should be present");
-    let endpoint = data_address
-        .get_property("endpoint")
-        .expect("endpoint property should be present");
-    assert_eq!(endpoint, "https://pull.example.com");
+    assert_eq!(data_address.endpoint, "https://pull.example.com");
 }
 
 /// Decodes the JWT payload from the authorization property of a DataFlowResponseMessage.
@@ -716,6 +720,7 @@ fn create_test_flow(id: &str, participant_id: &str, transfer_type: &str) -> Data
         .callback_address("https://example.com/callback")
         .participant_context_id("context-1")
         .metadata(metadata)
+        .kind(DataFlowType::Provider)
         .build()
 }
 
@@ -737,6 +742,7 @@ fn create_test_flow_with_data_address(
         .callback_address("https://example.com/callback")
         .participant_context_id("context-1")
         .data_address(data_address)
+        .kind(DataFlowType::Provider)
         .build()
 }
 

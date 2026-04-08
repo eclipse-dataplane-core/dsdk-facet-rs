@@ -13,7 +13,7 @@
 use super::SigletDataFlowHandler;
 use crate::config::{TokenSource, TransferType};
 use dataplane_sdk::core::handler::DataFlowHandler;
-use dataplane_sdk::core::model::data_flow::DataFlow;
+use dataplane_sdk::core::model::data_flow::{DataFlow, DataFlowType};
 use dsdk_facet_core::context::ParticipantContext;
 use dsdk_facet_core::token::TokenError;
 use dsdk_facet_core::token::client::{MemoryTokenStore, TokenStore};
@@ -173,7 +173,7 @@ async fn test_on_start_generates_token_for_provider_token_source() {
     assert!(data_address.get_property("refreshToken").is_some());
     assert!(data_address.get_property("expiresIn").is_some());
     assert!(data_address.get_property("refreshEndpoint").is_some());
-    assert!(data_address.get_property("endpoint").is_some());
+    assert_eq!(data_address.endpoint, "https://pull.example.com");
 }
 
 #[tokio::test]
@@ -558,6 +558,7 @@ fn create_test_flow(id: &str, participant_id: &str, transfer_type: &str) -> Data
         .counter_party_id("counter-party-1")
         .callback_address("https://example.com/callback")
         .participant_context_id("context-1")
+        .kind(DataFlowType::Provider)
         .build()
 }
 

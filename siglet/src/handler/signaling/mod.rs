@@ -254,12 +254,11 @@ impl SigletDataFlowHandler {
             .await?
         {
             let endpoint = Self::resolve_endpoint(transfer_type, flow)?;
-            let mut endpoint_properties = vec![EndpointProperty::builder().name("endpoint").value(endpoint).build()];
-            endpoint_properties.extend(Self::create_auth_properties(&pair));
             Some(
                 DataAddress::builder()
                     .endpoint_type(&transfer_type.endpoint_type)
-                    .endpoint_properties(endpoint_properties)
+                    .endpoint(endpoint)
+                    .endpoint_properties(Self::create_auth_properties(&pair))
                     .build(),
             )
         } else {
@@ -295,10 +294,6 @@ impl DataFlowHandler for SigletDataFlowHandler {
 
     async fn on_started(&self, _tx: &mut Self::Transaction, flow: &DataFlow) -> HandlerResult<()> {
         if let Some(data_address) = flow.data_address.as_ref() {
-            let endpoint = data_address
-                .get_property("endpoint")
-                .ok_or_else(|| HandlerError::Generic("Data address must contain an endpoint property".into()))?;
-
             let token = data_address
                 .get_property("authorization")
                 .ok_or_else(|| HandlerError::Generic("Data address must contain an authorization property".into()))?;
@@ -331,7 +326,7 @@ impl DataFlowHandler for SigletDataFlowHandler {
                 refresh_token: refresh_token.to_string(),
                 expires_at,
                 refresh_endpoint: refresh_endpoint.to_string(),
-                endpoint: endpoint.to_string(),
+                endpoint: data_address.endpoint.to_string(),
             };
 
             self.token_store
