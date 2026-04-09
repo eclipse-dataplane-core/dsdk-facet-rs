@@ -1497,6 +1497,7 @@ dependencies = [
 [[package]]
 name = "dataplane-sdk"
 version = "0.1.0"
+source = "git+https://github.com/eclipse-dataplane-core/dataplane-sdk-rust?branch=main#756668089b7f5db16a4d31f870f00c76eeed9a73"
 dependencies = [
  "async-trait",
  "bon",
@@ -1509,6 +1510,7 @@ dependencies = [
 [[package]]
 name = "dataplane-sdk-axum"
 version = "0.1.0"
+source = "git+https://github.com/eclipse-dataplane-core/dataplane-sdk-rust?branch=main#756668089b7f5db16a4d31f870f00c76eeed9a73"
 dependencies = [
  "anyhow",
  "axum",
