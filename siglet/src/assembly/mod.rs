@@ -118,6 +118,12 @@ pub async fn assemble(cfg: &SigletConfig) -> Result<SigletRuntime, SigletError> 
             .vault_client(vault_client.clone() as Arc<dyn VaultSigningClient>)
             .build(),
     );
+
+    vault_resolver
+        .initialize()
+        .await
+        .map_err(|e| SigletError::Vault(Box::new(e)))?;
+
     let vault_provider_verifier = create_vault_verifier(vault_resolver.clone());
     let token_manager = create_token_manager(
         cfg,
