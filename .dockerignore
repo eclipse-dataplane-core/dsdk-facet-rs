@@ -4,5 +4,5 @@ target/
 .idea/
 *.md
 docs/
-e2e/
+e2e/target
 .DS_Store

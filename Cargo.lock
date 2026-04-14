@@ -1710,6 +1710,7 @@ dependencies = [
  "anyhow",
  "base64 0.22.1",
  "dsdk-facet-core",
+ "dsdk-facet-hashicorp-vault",
  "dsdk-facet-testcontainers",
  "jsonwebtoken",
  "reqwest",
