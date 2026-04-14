@@ -122,6 +122,8 @@ struct TestCtx {
     agreement_id: String,
     consumer_flow_id: String,
     provider_flow_id: String,
+    consumer_participant_context_id: String,
+    provider_participant_context_id: String,
     pod_name: String,
 }
 
@@ -138,6 +140,8 @@ impl TestCtx {
             agreement_id: format!("agreement-{}", run_id),
             consumer_flow_id: format!("consumer-flow-{}", run_id),
             provider_flow_id: format!("provider-flow-{}", run_id),
+            consumer_participant_context_id: format!("consumer-participant-{}", run_id),
+            provider_participant_context_id: format!("provider-participant-{}", run_id),
             pod_name: deployment.pod_name.clone(),
         }
     }
@@ -237,7 +241,10 @@ async fn step_prepare(ctx: &TestCtx) -> Result<()> {
 
     let response = ctx
         .client
-        .post(format!("{}/api/v1/dataflows/prepare", ctx.signaling_url))
+        .post(format!(
+            "{}/api/v1/{}/dataflows/prepare",
+            ctx.signaling_url, ctx.consumer_participant_context_id
+        ))
         .header("Content-Type", "application/json")
         .json(&message)
         .send()
@@ -284,7 +291,10 @@ async fn step_start(ctx: &TestCtx) -> Result<StartOutput> {
 
     let response = ctx
         .client
-        .post(format!("{}/api/v1/dataflows/start", ctx.signaling_url))
+        .post(format!(
+            "{}/api/v1/{}/dataflows/start",
+            ctx.signaling_url, ctx.provider_participant_context_id
+        ))
         .header("Content-Type", "application/json")
         .json(&message)
         .send()
@@ -385,8 +395,8 @@ async fn step_started(ctx: &TestCtx, data_address: &serde_json::Value) -> Result
     let response = ctx
         .client
         .post(format!(
-            "{}/api/v1/dataflows/{}/started",
-            ctx.signaling_url, ctx.consumer_flow_id
+            "{}/api/v1/{}/dataflows/{}/started",
+            ctx.signaling_url, ctx.consumer_participant_context_id, ctx.consumer_flow_id
         ))
         .header("Content-Type", "application/json")
         .json(&message)
@@ -411,7 +421,7 @@ async fn step_started(ctx: &TestCtx, data_address: &serde_json::Value) -> Result
 async fn retrieve_and_verify_token(ctx: &TestCtx) -> Result<String> {
     let get_token_url = format!(
         "http://localhost:{}/tokens/{}/{}",
-        ctx.siglet_api_port, "siglet-participant", ctx.consumer_flow_id
+        ctx.siglet_api_port, ctx.consumer_participant_context_id, ctx.consumer_flow_id
     );
     let get_response = ctx
         .client
@@ -595,8 +605,8 @@ async fn step_terminate(ctx: &TestCtx) -> Result<()> {
     let response = ctx
         .client
         .post(format!(
-            "{}/api/v1/dataflows/{}/terminate",
-            ctx.signaling_url, ctx.provider_flow_id
+            "{}/api/v1/{}/dataflows/{}/terminate",
+            ctx.signaling_url, ctx.provider_participant_context_id, ctx.provider_flow_id
         ))
         .header("Content-Type", "application/json")
         .json(&serde_json::json!({ "reason": "Test termination" }))

@@ -54,9 +54,6 @@ pub const DEFAULT_TOKEN_ISSUER: &str = "siglet";
 /// Default data plane identifier
 pub const DEFAULT_DATAPLANE_ID: &str = "dataplane-1";
 
-/// Default participant identifier for the signaling API
-pub const DEFAULT_PARTICIPANT_ID: &str = "siglet-participant";
-
 /// Token refresh endpoint path
 pub const TOKEN_REFRESH_PATH: &str = "/token/refresh";
 

@@ -13,22 +13,19 @@
 use std::net::{IpAddr, SocketAddr};
 
 use axum::{
-    Extension, Router,
+    Router,
     response::{IntoResponse, Json},
     routing::get,
 };
-use dataplane_sdk::{
-    core::{db::memory::MemoryContext, model::participant::ParticipantContext},
-    sdk::DataPlaneSdk,
-};
-use dataplane_sdk_axum::router::router as signaling_router;
+use dataplane_sdk::{core::db::memory::MemoryContext, sdk::DataPlaneSdk};
+use dataplane_sdk_axum::router::participants_router as signaling_router;
 use serde_json::json;
+use signaling::auth::AuthLayer;
 use tokio::{signal, task::JoinSet};
 use tokio_util::sync::CancellationToken;
 use tower_http::trace::TraceLayer;
 use tracing::{error, info};
 
-use crate::assembly::DEFAULT_PARTICIPANT_ID;
 use crate::error::SigletError;
 use crate::handler::TokenApiHandler;
 use crate::handler::refresh::TokenRefreshHandler;
@@ -38,6 +35,7 @@ use crate::handler::refresh::TokenRefreshHandler;
 // server tests can exercise them directly.
 // ============================================================================
 
+mod signaling;
 #[cfg(test)]
 mod tests;
 
@@ -187,9 +185,11 @@ async fn run_signaling_api(
         .parse()
         .map_err(|e: std::net::AddrParseError| SigletError::Network(Box::new(e)))?;
 
-    let p_context = ParticipantContext::builder().id(DEFAULT_PARTICIPANT_ID).build();
-    let router = signaling_router().layer(Extension(p_context));
-    let app = router.layer(TraceLayer::new_for_http()).with_state(sdk);
+    let router = signaling_router();
+    let app = router
+        .layer(TraceLayer::new_for_http())
+        .layer(AuthLayer)
+        .with_state(sdk);
 
     info!("Signaling API listening on {}", addr);
 
