@@ -30,7 +30,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 async-trait = { workspace = true }
 anyhow = "1.0"
-config = "0.14"
+config = "0.15"
 
 # HTTP server
 axum = "0.8"
