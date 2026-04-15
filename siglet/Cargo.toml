@@ -39,7 +39,7 @@ tower = { version = "0.5", features = ["util"] }
 bon = { workspace = true }
 chrono = { workspace = true }
 hex = "0.4"
-rand = "0.8"
+rand = "0.10"
 reqwest = "0.12"
 sqlx = { workspace = true }
 
