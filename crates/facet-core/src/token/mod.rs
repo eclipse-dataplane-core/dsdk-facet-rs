@@ -23,7 +23,7 @@ pub enum TokenError {
     NotAuthorized(String),
 
     #[error("Invalid token")]
-    Invalid(),
+    Invalid,
 
     #[error("Token not found for identifier: {identifier}")]
     TokenNotFound { identifier: String },

@@ -403,7 +403,7 @@ impl TokenManager for JwtTokenManager {
             .custom
             .get("jti")
             .and_then(|v| v.as_str())
-            .ok_or(TokenError::Invalid())?;
+            .ok_or(TokenError::Invalid)?;
         self.token_store
             .find_by_id(jti)
             .await

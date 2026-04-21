@@ -9,19 +9,15 @@
 //  Contributors:
 //       Metaform Systems, Inc. - initial API and implementation
 //
-use axum::{
-    Form, Json, Router,
-    extract::State,
-    http::{HeaderMap, StatusCode},
-    response::{IntoResponse, Response},
-    routing::post,
-};
+use axum::{Form, Json, Router, extract::State, http::HeaderMap, routing::post};
 use bon::Builder;
 use chrono::Utc;
-use dsdk_facet_core::token::TokenError;
 use dsdk_facet_core::token::manager::TokenManager;
+use error::RefreshApiError;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+
+pub mod error;
 
 /// Query parameters for the token refresh endpoint as defined by the OAuth2 refresh_token grant.
 #[derive(Deserialize)]
@@ -58,43 +54,33 @@ impl TokenRefreshHandler {
 }
 
 async fn refresh_token(
-    State(handler): State<TokenRefreshHandler>,
+    State(TokenRefreshHandler { token_manager }): State<TokenRefreshHandler>,
     headers: HeaderMap,
     Form(params): Form<RefreshParams>,
-) -> Response {
+) -> Result<Json<TokenRefreshResponse>, RefreshApiError> {
     if params.grant_type != "refresh_token" {
-        return (StatusCode::BAD_REQUEST, "Unsupported grant_type").into_response();
+        return Err(RefreshApiError::UnsupportedGrantType(params.grant_type));
     }
 
-    let bound_token = match extract_bearer(&headers) {
-        Ok(t) => t,
-        Err(resp) => return resp,
-    };
+    let bound_token = extract_bearer(&headers)?;
 
-    match handler.token_manager.renew(bound_token, &params.refresh_token).await {
-        Ok(pair) => {
+    token_manager
+        .renew(bound_token, &params.refresh_token)
+        .await
+        .map(|pair| {
             let expires_in = pair.expires_at.timestamp() - Utc::now().timestamp();
-            (
-                StatusCode::OK,
-                Json(TokenRefreshResponse {
-                    access_token: pair.token,
-                    refresh_token: pair.refresh_token,
-                    token_type: "Bearer".to_string(),
-                    expires_in,
-                }),
-            )
-                .into_response()
-        }
-        Err(TokenError::NotAuthorized(msg)) => (StatusCode::UNAUTHORIZED, msg).into_response(),
-        Err(TokenError::TokenNotFound { .. }) => (StatusCode::UNAUTHORIZED, "Invalid token").into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
-    }
+            Ok(Json(TokenRefreshResponse {
+                access_token: pair.token,
+                refresh_token: pair.refresh_token,
+                token_type: "Bearer".to_string(),
+                expires_in,
+            }))
+        })?
 }
 
 /// Extracts the Bearer token from the Authorization header.
-#[allow(clippy::result_large_err)]
-fn extract_bearer(headers: &HeaderMap) -> Result<&str, Response> {
-    let auth_err = |msg: &'static str| (StatusCode::UNAUTHORIZED, msg).into_response();
+fn extract_bearer(headers: &HeaderMap) -> Result<&str, RefreshApiError> {
+    let auth_err = |msg: &'static str| RefreshApiError::InvalidAuthHeader(msg.to_string());
 
     let value = headers
         .get("authorization")

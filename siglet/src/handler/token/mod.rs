@@ -12,17 +12,19 @@
 use axum::{
     Json, Router,
     extract::{Path, State},
-    http::StatusCode,
-    response::{IntoResponse, Response},
     routing::{get, post},
 };
 use bon::Builder;
-use dsdk_facet_core::context::ParticipantContext;
-use dsdk_facet_core::token::TokenError;
+use dsdk_facet_core::jwt::TokenClaims;
 use dsdk_facet_core::token::client::TokenClientApi;
 use dsdk_facet_core::token::manager::TokenManager;
+use dsdk_facet_core::{context::ParticipantContext, jwt::JwkSet};
+use error::TokenApiError;
+use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+
+pub mod error;
 
 #[derive(Serialize)]
 pub struct TokenResponse {
@@ -56,48 +58,38 @@ impl TokenApiHandler {
 }
 
 async fn get_token(
-    State(handler): State<TokenApiHandler>,
+    State(TokenApiHandler { token_client_api, .. }): State<TokenApiHandler>,
     Path((participant_context_id, id)): Path<(String, String)>,
-) -> Response {
+) -> Result<Json<TokenResponse>, TokenApiError> {
     let participant_context = ParticipantContext::builder().id(participant_context_id).build();
-
-    match handler.token_client_api.get_token(&participant_context, &id, &id).await {
-        Ok(result) => (StatusCode::OK, Json(TokenResponse { token: result.token })).into_response(),
-        Err(TokenError::TokenNotFound { .. }) => (StatusCode::NOT_FOUND, "Token not found").into_response(),
-        Err(TokenError::NotAuthorized(msg)) => (StatusCode::UNAUTHORIZED, msg).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
-    }
+    token_client_api
+        .get_token(&participant_context, &id, &id)
+        .await
+        .map(|result| Ok(Json(TokenResponse { token: result.token })))?
 }
 
-async fn get_jwk_set(State(handler): State<TokenApiHandler>) -> Response {
-    match handler.token_manager.jwk_set().await {
-        Ok(set) => (StatusCode::OK, Json(set)).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
-    }
+async fn get_jwk_set(
+    State(TokenApiHandler { token_manager, .. }): State<TokenApiHandler>,
+) -> Result<Json<JwkSet>, TokenApiError> {
+    token_manager.jwk_set().await.map(|set| Ok(Json(set)))?
 }
 
 async fn delete_token(
-    State(handler): State<TokenApiHandler>,
+    State(TokenApiHandler { token_client_api, .. }): State<TokenApiHandler>,
     Path((participant_context_id, id)): Path<(String, String)>,
-) -> Response {
-    match handler
-        .token_client_api
+) -> Result<StatusCode, TokenApiError> {
+    token_client_api
         .delete_token(&participant_context_id, &id, &id)
         .await
-    {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(TokenError::TokenNotFound { .. }) => (StatusCode::NOT_FOUND, "Token not found").into_response(),
-        Err(TokenError::NotAuthorized(msg)) => (StatusCode::UNAUTHORIZED, msg).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
-    }
+        .map(|_| Ok(StatusCode::NO_CONTENT))?
 }
 
-async fn verify_token(State(handler): State<TokenApiHandler>, Json(body): Json<VerifyTokenRequest>) -> Response {
-    match handler.token_manager.validate_token(&body.audience, &body.token).await {
-        Ok(claims) => (StatusCode::OK, Json(claims)).into_response(),
-        Err(TokenError::NotAuthorized(msg)) => (StatusCode::UNAUTHORIZED, msg).into_response(),
-        Err(TokenError::Invalid()) => (StatusCode::UNAUTHORIZED, "Invalid token").into_response(),
-        Err(TokenError::VerificationError(e)) => (StatusCode::UNAUTHORIZED, e.to_string()).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
-    }
+async fn verify_token(
+    State(TokenApiHandler { token_manager, .. }): State<TokenApiHandler>,
+    Json(body): Json<VerifyTokenRequest>,
+) -> Result<Json<TokenClaims>, TokenApiError> {
+    token_manager
+        .validate_token(&body.audience, &body.token)
+        .await
+        .map(|claims| Ok(Json(claims)))?
 }
