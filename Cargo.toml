@@ -47,7 +47,7 @@ base64 = "0.22"
 multibase = "0.9"
 bs58 = "0.5"
 sha2 = "0.10"
-hmac = "0.12"
+hmac = "0.13"
 
 
 [workspace.lints.clippy]
