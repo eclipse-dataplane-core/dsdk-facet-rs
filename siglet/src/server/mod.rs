@@ -11,6 +11,7 @@
 //
 
 use std::net::{IpAddr, SocketAddr};
+use std::time::Duration;
 
 use axum::{
     Router,
@@ -24,11 +25,37 @@ use signaling::auth::AuthLayer;
 use tokio::{signal, task::JoinSet};
 use tokio_util::sync::CancellationToken;
 use tower_http::trace::TraceLayer;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
+use crate::config::SignalingAuthConfig;
 use crate::error::SigletError;
 use crate::handler::TokenApiHandler;
 use crate::handler::refresh::TokenRefreshHandler;
+
+/// Builds the `AuthLayer` for the signaling API from configuration.
+///
+/// `http_client` is the shared process-wide `reqwest::Client`. Pass the same
+/// instance used elsewhere in the runtime so JWKS fetching shares the connection
+/// pool and timeout settings of every other outbound call.
+///
+/// Disabled mode logs a loud warning at startup so it's never accidentally
+/// shipped to production by anyone skimming logs.
+pub fn build_signaling_auth_layer(cfg: &SignalingAuthConfig, http_client: reqwest::Client) -> AuthLayer {
+    match cfg {
+        SignalingAuthConfig::Disabled => {
+            warn!(
+                "Signaling API authentication is DISABLED — \
+                 Do not use in production."
+            );
+            AuthLayer::Disabled
+        }
+        SignalingAuthConfig::Enabled {
+            jwks_url,
+            cache_ttl_seconds,
+            audience,
+        } => AuthLayer::enabled_http(jwks_url, Duration::from_secs(*cache_ttl_seconds), audience, http_client),
+    }
+}
 
 // ============================================================================
 // Visibility note: run_siglet_api and run_refresh_api are pub(crate) so that
@@ -71,6 +98,7 @@ const STATUS_HEALTHY: &str = "healthy";
 /// - Proper error propagation from spawned tasks
 /// - Graceful shutdown coordination via CancellationToken
 /// - Fail-fast behavior: if one server fails, all are cancelled
+#[allow(clippy::too_many_arguments)]
 pub async fn run_server<C>(
     bind: IpAddr,
     signaling_port: u16,
@@ -79,6 +107,7 @@ pub async fn run_server<C>(
     sdk: DataPlaneSdk<C>,
     token_api_handler: TokenApiHandler,
     refresh_handler: TokenRefreshHandler,
+    signaling_auth: AuthLayer,
 ) -> Result<(), SigletError>
 where
     C: TransactionalContext + 'static,
@@ -92,6 +121,7 @@ where
         bind,
         signaling_port,
         sdk.clone(),
+        signaling_auth,
         cancel_token.clone(),
     ));
 
@@ -183,6 +213,7 @@ async fn run_signaling_api<C>(
     bind: IpAddr,
     port: u16,
     sdk: DataPlaneSdk<C>,
+    auth_layer: AuthLayer,
     cancel_token: CancellationToken,
 ) -> Result<(), SigletError>
 where
@@ -196,7 +227,7 @@ where
     let router = signaling_router();
     let app = router
         .layer(TraceLayer::new_for_http())
-        .layer(AuthLayer)
+        .layer(auth_layer)
         .with_state(sdk);
 
     info!("Signaling API listening on {}", addr);

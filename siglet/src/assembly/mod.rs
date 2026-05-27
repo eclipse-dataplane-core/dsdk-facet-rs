@@ -90,7 +90,14 @@ pub struct SigletRuntime<C: TransactionalContext> {
 // ============================================================================
 
 /// Assembles the complete Siglet runtime using the in-memory storage backend.
-pub async fn assemble_memory(cfg: &SigletConfig) -> Result<SigletRuntime<MemoryContext>, SigletError> {
+///
+/// `http_client` is the shared process-wide HTTP client, threaded through to
+/// the OAuth2 token client so the consumer-side token-refresh path uses the
+/// same pool and timeouts as the rest of the runtime.
+pub async fn assemble_memory(
+    cfg: &SigletConfig,
+    http_client: Client,
+) -> Result<SigletRuntime<MemoryContext>, SigletError> {
     let vault_client: Arc<dyn VaultSigningClient> = create_vault_client(&cfg.vault).await?;
     let (jwt_generator, jwt_verifier) = create_jwt_components(vault_client.clone(), cfg.vault.use_http_resolution);
     let server_secret = generate_server_secret(cfg)?;
@@ -117,13 +124,18 @@ pub async fn assemble_memory(cfg: &SigletConfig) -> Result<SigletRuntime<MemoryC
         lock_manager,
         vault_client,
         token_manager,
+        http_client,
     ))
 }
 
 /// Assembles the complete Siglet runtime using the `PostgresVault` storage backend.
 ///
 /// Vault handles `TokenStore`; Postgres handles `RenewableTokenStore` and `LockManager`.
-pub async fn assemble_postgres(cfg: &SigletConfig) -> Result<SigletRuntime<PgContext>, SigletError> {
+/// `http_client` is the shared process-wide HTTP client (see `assemble_memory`).
+pub async fn assemble_postgres(
+    cfg: &SigletConfig,
+    http_client: Client,
+) -> Result<SigletRuntime<PgContext>, SigletError> {
     let vault_client = create_vault_client(&cfg.vault).await?;
     let signing_client = vault_client.clone() as Arc<dyn VaultSigningClient>;
     let (jwt_generator, jwt_verifier) = create_jwt_components(signing_client.clone(), cfg.vault.use_http_resolution);
@@ -155,6 +167,7 @@ pub async fn assemble_postgres(cfg: &SigletConfig) -> Result<SigletRuntime<PgCon
         lock_manager,
         signing_client,
         token_manager,
+        http_client,
     ))
 }
 
@@ -324,16 +337,19 @@ async fn create_vault_resolver_components(
 }
 
 /// Constructs the final `SigletRuntime<C>` from fully assembled components.
+///
+/// `http_client` is reused for outbound OAuth2 token refresh; it should be the
+/// same instance the rest of the process uses (see `siglet::http::build_http_client`).
 fn build_runtime<C: TransactionalContext>(
     sdk: DataPlaneSdk<C>,
     token_store: Arc<dyn TokenStore>,
     lock_manager: Arc<dyn LockManager>,
     vault_client: Arc<dyn VaultSigningClient>,
     token_manager: Arc<dyn TokenManager>,
+    http_client: Client,
 ) -> SigletRuntime<C> {
     let refresh_handler = assemble_refresh_api(token_manager.clone());
-    let client = Client::new();
-    let token_api_handler = assemble_token_api(token_store, lock_manager, vault_client, token_manager, client);
+    let token_api_handler = assemble_token_api(token_store, lock_manager, vault_client, token_manager, http_client);
     SigletRuntime {
         sdk,
         refresh_handler,

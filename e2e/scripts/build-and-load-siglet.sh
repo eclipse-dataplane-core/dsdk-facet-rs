@@ -73,6 +73,16 @@ if kubectl get deployment siglet -n "${E2E_NAMESPACE}" &>/dev/null; then
         -n "${E2E_NAMESPACE}" --timeout=120s
     echo ""
 
+    # Re-apply the siglet ConfigMap before restarting. The test fixture also applies
+    # this manifest, but only after build-siglet has already done `kubectl wait`;
+    # if uncommitted config changes haven't reached the cluster yet, the new pod
+    # would read the stale ConfigMap, fail validation, and crash-loop until the
+    # rollout times out. Apply here so the restart picks up the current contents.
+    echo "Re-applying Siglet ConfigMap..."
+    kubectl apply --server-side --force-conflicts \
+        -f "${SCRIPT_DIR}/../manifests/siglet-config.yaml"
+    echo ""
+
     echo "Restarting siglet deployment to pick up new image..."
     kubectl rollout restart deployment/siglet -n "${E2E_NAMESPACE}"
 

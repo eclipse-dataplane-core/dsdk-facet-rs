@@ -40,6 +40,22 @@ pub const DEFAULT_BIND_ADDRESS: IpAddr = IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0));
 /// Derived from `{ACCESS_TOKEN_SIGNING_KEY_PREFIX}-{SIGLET_PC_ID}` = `"signing-siglet"`.
 pub const DEFAULT_VAULT_SIGNING_KEY_NAME: &str = "signing-siglet";
 
+/// Default JWKS cache TTL in seconds for the signaling-API JWT verifier.
+pub const DEFAULT_JWKS_CACHE_TTL_SECONDS: u64 = 300;
+
+/// Default expected audience for tokens accepted on the signaling API.
+///
+/// Tokens issued for this siglet must carry `aud = "siglet"` (or whatever
+/// value the operator overrides this with). The IdP minting the JWT should
+/// be configured to use the same value as the issued token's `aud`.
+pub const DEFAULT_SIGNALING_AUDIENCE: &str = "siglet";
+
+/// Default TCP connect-phase timeout in seconds for the shared HTTP client.
+pub const DEFAULT_HTTP_CONNECT_TIMEOUT_SECS: u64 = 10;
+
+/// Default total per-request timeout in seconds for the shared HTTP client.
+pub const DEFAULT_HTTP_REQUEST_TIMEOUT_SECS: u64 = 30;
+
 /// Minimum server secret length in bytes (128 bits)
 pub const MIN_SERVER_SECRET_BYTES: usize = 16;
 
@@ -52,6 +68,80 @@ pub const ENV_CONFIG_FILE: &str = "SIGLET_CONFIG_FILE";
 // ============================================================================
 // Type Definitions
 // ============================================================================
+
+/// Authentication configuration for the signaling API.
+///
+/// Tagged union: the `mode` field selects between disabled and enabled. The `jwks_url`
+/// field is only present (and required) for the enabled variant — turning auth off
+/// makes the URL inexpressible rather than merely optional.
+///
+/// TOML/YAML examples:
+/// ```text
+/// # Production: validate JWTs against the IdP's JWKS endpoint
+/// [signaling_auth]
+/// mode = "enabled"
+/// jwks_url = "https://idp.example.com/.well-known/jwks.json"
+///
+/// # Development: skip JWT verification (still extracts participant_context_id from URL)
+/// [signaling_auth]
+/// mode = "disabled"
+/// ```
+#[derive(Deserialize, Clone, Debug, PartialEq)]
+#[serde(tag = "mode", rename_all = "lowercase", deny_unknown_fields)]
+pub enum SignalingAuthConfig {
+    Disabled,
+    Enabled {
+        jwks_url: String,
+        #[serde(default = "default_jwks_cache_ttl_seconds")]
+        cache_ttl_seconds: u64,
+        /// Expected JWT `aud` claim. The signaling-API verifier rejects tokens
+        /// whose audience doesn't match this string — that's what binds a token
+        /// minted for this siglet to *this* siglet, blocking cross-service
+        /// replay of JWTs issued by the same IdP for other recipients.
+        ///
+        /// Defaults to `"siglet"`. In multi-siglet deployments, give each
+        /// instance a distinct value (e.g. its public URL or DID).
+        #[serde(default = "default_signaling_audience")]
+        audience: String,
+    },
+}
+
+impl Default for SignalingAuthConfig {
+    /// Default is auth ON with an empty `jwks_url`, which fails validation. This
+    /// forces every deployment to either supply a JWKS URL or explicitly opt out
+    /// via `mode = "disabled"` — there is no silent "auth disabled" fallback.
+    fn default() -> Self {
+        Self::Enabled {
+            jwks_url: String::new(),
+            cache_ttl_seconds: DEFAULT_JWKS_CACHE_TTL_SECONDS,
+            audience: DEFAULT_SIGNALING_AUDIENCE.to_string(),
+        }
+    }
+}
+
+/// Timeouts for the process-wide outbound HTTP client (used for JWKS fetching,
+/// OAuth2 token refresh against upstream providers, etc.).
+///
+/// Both fields are in seconds and have to be > 0; zero values are caught by
+/// `SigletConfig::validate`. The defaults are sized for small JSON payloads
+/// over short-lived requests, which fits every current consumer.
+#[derive(Deserialize, Clone, Debug, PartialEq)]
+#[serde(default)]
+pub struct HttpClientConfig {
+    #[serde(default = "default_http_connect_timeout_seconds")]
+    pub connect_timeout_seconds: u64,
+    #[serde(default = "default_http_request_timeout_seconds")]
+    pub request_timeout_seconds: u64,
+}
+
+impl Default for HttpClientConfig {
+    fn default() -> Self {
+        Self {
+            connect_timeout_seconds: DEFAULT_HTTP_CONNECT_TIMEOUT_SECS,
+            request_timeout_seconds: DEFAULT_HTTP_REQUEST_TIMEOUT_SECS,
+        }
+    }
+}
 
 #[derive(Deserialize, Clone, Debug, Default)]
 #[serde(rename_all = "lowercase", tag = "type")]
@@ -141,6 +231,10 @@ pub struct SigletConfig {
     pub vault: VaultConfig,
     #[serde(default)]
     pub token: TokenConfig,
+    #[serde(default)]
+    pub signaling_auth: SignalingAuthConfig,
+    #[serde(default)]
+    pub http_client: HttpClientConfig,
 }
 
 impl Default for SigletConfig {
@@ -154,6 +248,8 @@ impl Default for SigletConfig {
             transfer_types: Vec::new(),
             vault: VaultConfig::default(),
             token: TokenConfig::default(),
+            signaling_auth: SignalingAuthConfig::default(),
+            http_client: HttpClientConfig::default(),
         }
     }
 }
@@ -287,6 +383,42 @@ impl SigletConfig {
             errors.push("vault_signing_key_name cannot be empty".to_string());
         }
 
+        // Validate HTTP client timeouts. Zero would disable the timeout entirely
+        // in reqwest, which is almost certainly not what the operator meant.
+        if self.http_client.connect_timeout_seconds == 0 {
+            errors.push("http_client.connect_timeout_seconds must be greater than 0".to_string());
+        }
+        if self.http_client.request_timeout_seconds == 0 {
+            errors.push("http_client.request_timeout_seconds must be greater than 0".to_string());
+        }
+
+        // Validate signaling auth config
+        if let SignalingAuthConfig::Enabled {
+            jwks_url,
+            cache_ttl_seconds,
+            audience,
+        } = &self.signaling_auth
+        {
+            if jwks_url.is_empty() {
+                errors.push(
+                    "signaling_auth.jwks_url is required when signaling_auth.mode = \"enabled\" \
+                     (set signaling_auth.mode = \"disabled\" to skip JWT verification in dev)"
+                        .to_string(),
+                );
+            } else if jwks_url.parse::<reqwest::Url>().is_err() {
+                errors.push(format!(
+                    "signaling_auth.jwks_url is not a valid URL: '{}'",
+                    jwks_url
+                ));
+            }
+            if *cache_ttl_seconds == 0 {
+                errors.push("signaling_auth.cache_ttl_seconds must be greater than 0".to_string());
+            }
+            if audience.is_empty() {
+                errors.push("signaling_auth.audience cannot be empty".to_string());
+            }
+        }
+
         if errors.is_empty() {
             Ok(())
         } else {
@@ -313,6 +445,22 @@ fn default_bind() -> IpAddr {
 
 fn default_vault_signing_key_name() -> String {
     DEFAULT_VAULT_SIGNING_KEY_NAME.to_string()
+}
+
+const fn default_jwks_cache_ttl_seconds() -> u64 {
+    DEFAULT_JWKS_CACHE_TTL_SECONDS
+}
+
+fn default_signaling_audience() -> String {
+    DEFAULT_SIGNALING_AUDIENCE.to_string()
+}
+
+const fn default_http_connect_timeout_seconds() -> u64 {
+    DEFAULT_HTTP_CONNECT_TIMEOUT_SECS
+}
+
+const fn default_http_request_timeout_seconds() -> u64 {
+    DEFAULT_HTTP_REQUEST_TIMEOUT_SECS
 }
 
 pub fn load_config() -> anyhow::Result<SigletConfig> {

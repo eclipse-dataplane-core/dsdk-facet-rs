@@ -20,9 +20,6 @@ target
 # macOS system files
 .DS_Store
 
-# Documentation scratch files
-docs/
-
 *.log
 
 bin

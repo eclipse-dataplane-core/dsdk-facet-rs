@@ -14,7 +14,8 @@ use siglet::{
     assembly::{assemble_memory, assemble_postgres},
     config::{SigletConfig, StorageBackend, load_config},
     error::SigletError,
-    server::run_server,
+    http::build_http_client,
+    server::{build_signaling_auth_layer, run_server},
 };
 use tracing::{error, info};
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
@@ -46,9 +47,12 @@ async fn main() {
 }
 
 async fn run(cfg: SigletConfig) -> Result<(), SigletError> {
+    // Single process-wide HTTP client
+    let http_client = build_http_client(&cfg.http_client);
+    let auth_layer = build_signaling_auth_layer(&cfg.signaling_auth, http_client.clone());
     match &cfg.storage_backend {
         StorageBackend::Memory => {
-            let runtime = assemble_memory(&cfg).await?;
+            let runtime = assemble_memory(&cfg, http_client).await?;
             run_server(
                 cfg.bind,
                 cfg.signaling_port,
@@ -57,11 +61,12 @@ async fn run(cfg: SigletConfig) -> Result<(), SigletError> {
                 runtime.sdk,
                 runtime.token_api_handler,
                 runtime.refresh_handler,
+                auth_layer,
             )
             .await
         }
         StorageBackend::PostgresVault { .. } => {
-            let runtime = assemble_postgres(&cfg).await?;
+            let runtime = assemble_postgres(&cfg, http_client).await?;
             run_server(
                 cfg.bind,
                 cfg.signaling_port,
@@ -70,6 +75,7 @@ async fn run(cfg: SigletConfig) -> Result<(), SigletError> {
                 runtime.sdk,
                 runtime.token_api_handler,
                 runtime.refresh_handler,
+                auth_layer,
             )
             .await
         }

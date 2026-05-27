@@ -13,11 +13,15 @@
 #![allow(clippy::unwrap_used)]
 
 use crate::config::{
-    EndpointMapping, SigletConfig, StorageBackend, TokenConfig, TokenSource, TransferType, ValidationError, VaultConfig,
+    EndpointMapping, SigletConfig, SignalingAuthConfig, StorageBackend, TokenConfig, TokenSource, TransferType,
+    ValidationError, VaultConfig,
 };
 use std::net::{IpAddr, Ipv4Addr};
 
-/// Helper function to create a valid minimal configuration
+/// Helper function to create a valid minimal configuration.
+///
+/// Signaling auth is explicitly disabled here so existing assertions about
+/// "minimal valid config" don't have to also configure a JWKS URL.
 fn create_valid_config() -> SigletConfig {
     SigletConfig {
         vault: VaultConfig {
@@ -25,6 +29,7 @@ fn create_valid_config() -> SigletConfig {
             token: Some("test-token".to_string()),
             ..Default::default()
         },
+        signaling_auth: SignalingAuthConfig::Disabled,
         ..Default::default()
     }
 }
@@ -37,6 +42,7 @@ fn create_valid_config_with_token_file() -> SigletConfig {
             token_file: Some("/var/run/secrets/vault-token".to_string()),
             ..Default::default()
         },
+        signaling_auth: SignalingAuthConfig::Disabled,
         ..Default::default()
     }
 }
@@ -77,6 +83,15 @@ fn test_valid_config_with_all_fields() {
             issuer: Some("my-issuer".to_string()),
             refresh_endpoint: Some("https://api.example.com/refresh".to_string()),
             server_secret: Some("0123456789abcdef0123456789abcdef".to_string()), // 16 bytes
+        },
+        signaling_auth: SignalingAuthConfig::Enabled {
+            jwks_url: "https://idp.example.com/.well-known/jwks.json".to_string(),
+            cache_ttl_seconds: 300,
+            audience: "https://siglet.example.com".to_string(),
+        },
+        http_client: crate::config::HttpClientConfig {
+            connect_timeout_seconds: 5,
+            request_timeout_seconds: 60,
         },
     };
 
@@ -644,6 +659,15 @@ fn test_all_possible_errors() {
             server_secret: Some("invalid-hex".to_string()), // Error 9
             ..Default::default()
         },
+        signaling_auth: SignalingAuthConfig::Enabled {
+            jwks_url: String::new(),  // Error 10: empty URL
+            cache_ttl_seconds: 0,     // Error 11: zero TTL
+            audience: String::new(),  // Error 12: empty audience
+        },
+        http_client: crate::config::HttpClientConfig {
+            connect_timeout_seconds: 0, // Error 12: zero connect timeout
+            request_timeout_seconds: 0, // Error 13: zero request timeout
+        },
     };
 
     let result = config.validate();
@@ -950,3 +974,246 @@ fn test_valid_transfer_type_with_multiple_mappings() {
 
     assert!(config.validate().is_ok());
 }
+
+// ============================================================================
+// Signaling Auth Config Validation Tests
+// ============================================================================
+
+#[test]
+fn test_signaling_auth_default_is_enabled_with_empty_url() {
+    // Pins the "default is on" contract: a SignalingAuthConfig with no field set
+    // defaults to Enabled. The empty URL is a deliberate forcing function — it
+    // makes validation fail unless the operator either supplies a JWKS URL or
+    // explicitly switches to Disabled. There is no silent "auth off" fallback.
+    let default = SignalingAuthConfig::default();
+    match default {
+        SignalingAuthConfig::Enabled { jwks_url, .. } => assert!(jwks_url.is_empty()),
+        SignalingAuthConfig::Disabled => panic!("default must be Enabled"),
+    }
+}
+
+#[test]
+fn test_signaling_auth_enabled_requires_jwks_url() {
+    let mut config = create_valid_config();
+    config.signaling_auth = SignalingAuthConfig::Enabled {
+        jwks_url: String::new(),
+        cache_ttl_seconds: 300,
+        audience: "siglet".to_string(),
+    };
+
+    let result = config.validate();
+    assert!(result.is_err());
+
+    let err = result.unwrap_err();
+    let messages = err.messages();
+    assert!(
+        messages
+            .iter()
+            .any(|msg| msg.contains("signaling_auth.jwks_url is required"))
+    );
+}
+
+#[test]
+fn test_signaling_auth_enabled_rejects_invalid_jwks_url() {
+    let mut config = create_valid_config();
+    config.signaling_auth = SignalingAuthConfig::Enabled {
+        jwks_url: "not-a-url".to_string(),
+        cache_ttl_seconds: 300,
+        audience: "siglet".to_string(),
+    };
+
+    let result = config.validate();
+    assert!(result.is_err());
+
+    let err = result.unwrap_err();
+    let messages = err.messages();
+    assert!(
+        messages
+            .iter()
+            .any(|msg| msg.contains("signaling_auth.jwks_url is not a valid URL"))
+    );
+}
+
+#[test]
+fn test_signaling_auth_enabled_with_valid_jwks_url_passes() {
+    let mut config = create_valid_config();
+    config.signaling_auth = SignalingAuthConfig::Enabled {
+        jwks_url: "https://idp.example.com/.well-known/jwks.json".to_string(),
+        cache_ttl_seconds: 300,
+        audience: "siglet".to_string(),
+    };
+
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_signaling_auth_disabled_passes_without_url() {
+    let mut config = create_valid_config();
+    config.signaling_auth = SignalingAuthConfig::Disabled;
+
+    // Disabled needs no URL — the type makes the URL inexpressible.
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_signaling_auth_rejects_zero_cache_ttl() {
+    let mut config = create_valid_config();
+    config.signaling_auth = SignalingAuthConfig::Enabled {
+        jwks_url: "https://idp.example.com/.well-known/jwks.json".to_string(),
+        cache_ttl_seconds: 0,
+        audience: "siglet".to_string(),
+    };
+
+    let result = config.validate();
+    assert!(result.is_err());
+
+    let err = result.unwrap_err();
+    let messages = err.messages();
+    assert!(
+        messages
+            .iter()
+            .any(|msg| msg.contains("signaling_auth.cache_ttl_seconds"))
+    );
+}
+
+#[test]
+fn test_signaling_auth_deserialize_disabled() {
+    let json = r#"{"mode": "disabled"}"#;
+    let parsed: SignalingAuthConfig = serde_json::from_str(json).expect("disabled variant should parse");
+    assert_eq!(parsed, SignalingAuthConfig::Disabled);
+}
+
+#[test]
+fn test_signaling_auth_deserialize_enabled() {
+    let json = r#"{
+        "mode": "enabled",
+        "jwks_url": "https://idp.example.com/.well-known/jwks.json"
+    }"#;
+    let parsed: SignalingAuthConfig = serde_json::from_str(json).expect("enabled variant should parse");
+    // cache_ttl_seconds and audience both fall back to their defaults — pin both.
+    assert_eq!(
+        parsed,
+        SignalingAuthConfig::Enabled {
+            jwks_url: "https://idp.example.com/.well-known/jwks.json".to_string(),
+            cache_ttl_seconds: 300,
+            audience: "siglet".to_string(),
+        }
+    );
+}
+
+#[test]
+fn test_signaling_auth_audience_defaults_to_siglet() {
+    // Pins the user-visible default: omitting `audience` from the [signaling_auth]
+    // table gives you `"siglet"`. Production deployments should override this with
+    // an instance-specific identifier, but the out-of-the-box default must match
+    // jwtlet's documented `token.audience` value used in dev/example configs.
+    let json = r#"{
+        "mode": "enabled",
+        "jwks_url": "https://idp.example.com/.well-known/jwks.json"
+    }"#;
+    let parsed: SignalingAuthConfig = serde_json::from_str(json).unwrap();
+    match parsed {
+        SignalingAuthConfig::Enabled { audience, .. } => {
+            assert_eq!(audience, "siglet");
+        }
+        SignalingAuthConfig::Disabled => panic!("expected Enabled variant"),
+    }
+}
+
+#[test]
+fn test_signaling_auth_audience_round_trip() {
+    let json = r#"{
+        "mode": "enabled",
+        "jwks_url": "https://idp.example.com/.well-known/jwks.json",
+        "audience": "https://siglet.example.com"
+    }"#;
+    let parsed: SignalingAuthConfig = serde_json::from_str(json).unwrap();
+    match parsed {
+        SignalingAuthConfig::Enabled { audience, .. } => {
+            assert_eq!(audience, "https://siglet.example.com");
+        }
+        SignalingAuthConfig::Disabled => panic!("expected Enabled variant"),
+    }
+}
+
+#[test]
+fn test_signaling_auth_rejects_empty_audience() {
+    let mut config = create_valid_config();
+    config.signaling_auth = SignalingAuthConfig::Enabled {
+        jwks_url: "https://idp.example.com/.well-known/jwks.json".to_string(),
+        cache_ttl_seconds: 300,
+        audience: String::new(),
+    };
+
+    let err = config.validate().expect_err("empty audience must fail");
+    assert!(
+        err.messages()
+            .iter()
+            .any(|msg| msg.contains("signaling_auth.audience cannot be empty"))
+    );
+}
+
+// ============================================================================
+// HTTP Client Config Validation Tests
+// ============================================================================
+
+#[test]
+fn test_http_client_defaults_pass_validation() {
+    // The default values must produce a valid config — operators who never
+    // touch [http_client] should not have their deployment refuse to start.
+    let config = create_valid_config();
+    assert_eq!(
+        config.http_client,
+        crate::config::HttpClientConfig::default()
+    );
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_http_client_rejects_zero_connect_timeout() {
+    let mut config = create_valid_config();
+    config.http_client.connect_timeout_seconds = 0;
+
+    let err = config.validate().expect_err("zero connect_timeout must fail");
+    assert!(
+        err.messages()
+            .iter()
+            .any(|msg| msg.contains("http_client.connect_timeout_seconds")),
+        "validation error must mention the offending field, got: {:?}",
+        err.messages()
+    );
+}
+
+#[test]
+fn test_http_client_rejects_zero_request_timeout() {
+    let mut config = create_valid_config();
+    config.http_client.request_timeout_seconds = 0;
+
+    let err = config.validate().expect_err("zero request_timeout must fail");
+    assert!(
+        err.messages()
+            .iter()
+            .any(|msg| msg.contains("http_client.request_timeout_seconds"))
+    );
+}
+
+#[test]
+fn test_http_client_accepts_custom_timeouts() {
+    let mut config = create_valid_config();
+    config.http_client = crate::config::HttpClientConfig {
+        connect_timeout_seconds: 1,
+        request_timeout_seconds: 600,
+    };
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_http_client_deserialize_partial_fills_defaults() {
+    use crate::config::{DEFAULT_HTTP_CONNECT_TIMEOUT_SECS, HttpClientConfig};
+    // Specifying request_timeout but not connect_timeout — the unspecified
+    // field must fall back to the constant default, not to zero.
+    let parsed: HttpClientConfig = serde_json::from_str(r#"{"request_timeout_seconds": 120}"#).unwrap();
+    assert_eq!(parsed.connect_timeout_seconds, DEFAULT_HTTP_CONNECT_TIMEOUT_SECS);
+    assert_eq!(parsed.request_timeout_seconds, 120);
+}
+

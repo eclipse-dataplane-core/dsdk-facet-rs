@@ -10,24 +10,36 @@ End-to-end tests for Siglet deployed in a Kind cluster with HashiCorp Vault side
 
 ```bash
 cd e2e
-make all        # setup + test + cleanup
-make setup      # one-time cluster setup (Vault, consumer DID, images)
-make test-fast  # rebuild images and run tests (dev workflow)
+make test       # bootstraps cluster on first run, rebuilds images, runs tests
+make cleanup    # tear down Kind cluster when done
 ```
+
+`make test` is self-bootstrapping: it runs `verify-setup.sh` first, and if any
+required component (Kind cluster, Vault, Postgres, consumer DID) is missing,
+it runs the full `setup.sh` before building images. On subsequent runs the
+verify check is a no-op and only the image rebuild + test execution happens.
 
 ## Make Targets
 
 | Target               | Description                                                             |
 |----------------------|-------------------------------------------------------------------------|
-| `setup`              | Create Kind cluster, deploy Vault, provision consumer DID, build images |
-| `build-siglet`       | Full Siglet Docker build                                                |
-| `rebuild-siglet`     | Incremental rebuild                                                     |
-| `build`              | Build vault-test image                                                  |
+| `setup`              | Bootstrap infra + build/load images (full ready state)                  |
+| `ensure-environment` | Run setup.sh only if `verify-setup.sh` fails — used as `test` prereq    |
+| `build-siglet`       | Build Siglet image and load into Kind                                   |
+| `build`              | Build vault-test image and load into Kind                               |
 | `setup-consumer-did` | (Re)provision consumer DID server — idempotent                          |
-| `test`               | Full build + run tests                                                  |
-| `test-fast`          | Incremental rebuild + run tests                                         |
-| `test-verbose`       | Same as `test` with captured output                                     |
+| `test`               | Bootstrap environment (if needed) + rebuild images + run tests          |
+| `test-fast`          | Alias for `test`                                                        |
+| `test-verbose`       | Same as `test` with uncaptured stdout                                   |
 | `cleanup`            | Delete Kind cluster                                                     |
+
+### Setup vs. test boundary
+
+`setup.sh` provisions infrastructure only (Kind cluster, Vault, PostgreSQL,
+consumer DID). Application image builds (`siglet:local`, `vault-test:local`)
+are owned by the `build` / `build-siglet` targets. This split means
+`make test` from a clean machine bootstraps infra once and builds images
+exactly once — no duplicate `kind load` pass.
 
 ## Consumer DID
 

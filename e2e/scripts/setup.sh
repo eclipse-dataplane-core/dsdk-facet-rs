@@ -110,26 +110,24 @@ echo ""
 "${SCRIPT_DIR}/setup-consumer-did.sh"
 echo ""
 
-# Build test client binary and load into Kind
-echo "Building test client image and loading into Kind..."
-"${SCRIPT_DIR}/build-and-load-image.sh"
-echo "Test client image built and loaded"
-echo ""
-
-# Build Siglet image and load into Kind
-echo "Building Siglet image and loading into Kind..."
-"${SCRIPT_DIR}/build-and-load-siglet.sh"
-echo "Siglet image built and loaded"
-echo ""
+# NOTE: This script intentionally does NOT build/load application images. Image
+# build + load is the responsibility of the test-runner targets (e.g. `make test`
+# → build-and-load-image.sh + build-and-load-siglet.sh). Keeping the split lets
+# `make test` bootstrap from a clean machine without a duplicate build pass:
+# `ensure-environment` calls this script, then `make test` rebuilds the images
+# exactly once before running.
 
 echo "======================================"
-echo "E2E environment setup complete!"
+echo "E2E infrastructure setup complete!"
 echo "======================================"
+echo ""
+echo "Infrastructure ready: Kind cluster, Vault, PostgreSQL, consumer DID."
+echo "Application images (siglet, vault-test) are NOT built by this script."
 echo ""
 echo "Next steps:"
-echo "  1. Run tests: cargo test --package dsdk-facet-e2e-tests --features e2e -- --ignored --test-threads=1"
-echo "  2. Or use Make: cd e2e && make test"
-echo "  3. Cleanup: cd e2e && ./scripts/cleanup.sh"
+echo "  - Run tests (will build images on first run): cd e2e && make test"
+echo "  - Or build images standalone: cd e2e && make build build-siglet"
+echo "  - Cleanup: cd e2e && ./scripts/cleanup.sh"
 echo ""
 echo "Useful commands:"
 echo "  - View Vault logs: kubectl logs -n ${NAMESPACE} -l app=vault"
