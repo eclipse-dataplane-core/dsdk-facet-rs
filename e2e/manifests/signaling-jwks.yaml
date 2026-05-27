@@ -1,0 +1,80 @@
+---
+#  Copyright (c) 2026 Metaform Systems, Inc
+#
+#  This program and the accompanying materials are made available under the
+#  terms of the Apache License, Version 2.0 which is available at
+#  https://www.apache.org/licenses/LICENSE-2.0
+#
+#  SPDX-License-Identifier: Apache-2.0
+#
+#  Contributors:
+#       Metaform Systems, Inc. - initial API and implementation
+#
+# Signaling-API JWKS server: nginx serving the JWKS document consumed by siglet's
+# signaling_auth HttpKeyProvider (signaling_auth.jwks_url). The ConfigMap
+# (signaling-jwks) carrying jwks.json is created by the `ensure_signaling_jwks`
+# test fixture *before* this Deployment is applied, so the subPath mount sees it
+# at container start (subPath mounts do not hot-reload on ConfigMap changes).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: signaling-jwks
+  namespace: vault-e2e-test
+  labels:
+    app: signaling-jwks
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: signaling-jwks
+  template:
+    metadata:
+      labels:
+        app: signaling-jwks
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:alpine
+        ports:
+        - containerPort: 80
+          name: http
+        volumeMounts:
+        - name: jwks
+          mountPath: /usr/share/nginx/html/.well-known/jwks.json
+          subPath: jwks.json
+        readinessProbe:
+          httpGet:
+            path: /.well-known/jwks.json
+            port: http
+          initialDelaySeconds: 3
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        resources:
+          requests:
+            memory: "32Mi"
+            cpu: "50m"
+          limits:
+            memory: "64Mi"
+            cpu: "100m"
+      volumes:
+      - name: jwks
+        configMap:
+          name: signaling-jwks
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: signaling-jwks
+  namespace: vault-e2e-test
+  labels:
+    app: signaling-jwks
+spec:
+  type: ClusterIP
+  selector:
+    app: signaling-jwks
+  ports:
+  - name: http
+    port: 80
+    targetPort: http
+    protocol: TCP

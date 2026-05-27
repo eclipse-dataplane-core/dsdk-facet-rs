@@ -15,4 +15,5 @@
 pub mod consumer_did;
 pub mod postgres;
 pub mod siglet;
+pub mod signaling_jwks;
 pub mod vault;

@@ -39,6 +39,11 @@ pub async fn ensure_siglet_deployed() -> Result<Arc<SigletDeployment>> {
             // PostgreSQL must be running before Siglet starts (PostgresVault backend).
             crate::fixtures::postgres::ensure_postgres_deployed().await?;
 
+            // The signaling API runs with JWT auth enabled; its HttpKeyProvider fetches
+            // the JWKS from the signaling-jwks server, which must exist before Siglet
+            // verifies any signaling request.
+            crate::fixtures::signaling_jwks::ensure_signaling_jwks().await?;
+
             let config_manifest = "manifests/siglet-config.yaml";
             let deployment_manifest = "manifests/siglet-deployment.yaml";
             let service_manifest = "manifests/siglet-service.yaml";

@@ -19,20 +19,29 @@
 
 use crate::fixtures::consumer_did::ensure_consumer_did;
 use crate::fixtures::siglet::{SigletDeployment, ensure_siglet_deployed};
+use crate::fixtures::signaling_jwks::{SignalingJwksDeployment, ensure_signaling_jwks};
 use crate::fixtures::vault::ensure_vault_client;
 use crate::utils::*;
 use anyhow::{Context, Result};
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use dsdk_facet_core::context::ParticipantContext;
-use dsdk_facet_core::jwt::{JwkSet, VaultJwtGenerator};
+use dsdk_facet_core::jwt::{
+    JwkSet, JwtGenerator, KeyFormat, LocalJwtGenerator, SigningAlgorithm, StaticSigningKeyResolver, TokenClaims,
+    VaultJwtGenerator,
+};
 use dsdk_facet_core::token::client::TokenClient;
 use dsdk_facet_core::token::client::oauth::OAuth2TokenClient;
 use dsdk_facet_core::vault::VaultSigningClient;
 use jsonwebtoken::Algorithm;
 use reqwest::Client;
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
+
+/// Expected `aud` claim for signaling-API tokens — must match
+/// `signaling_auth.audience` in `manifests/siglet-config.yaml`.
+const SIGNALING_AUDIENCE: &str = "siglet";
 
 /// Test that Siglet deploys successfully and responds to health checks
 #[tokio::test]
@@ -91,11 +100,12 @@ async fn test_siglet_deployment_and_health() -> Result<()> {
 async fn test_pull_operations() -> Result<()> {
     let deployment = ensure_siglet_deployed().await?;
     ensure_consumer_did().await?;
+    let jwks = ensure_signaling_jwks().await?;
 
     // Use unique IDs per run so retries don't collide with flows left in Siglet
     // state from a prior attempt.
     let run_id = Uuid::new_v4().to_string();
-    let ctx = TestCtx::new(&deployment, &run_id);
+    let ctx = TestCtx::new(&deployment, &run_id, jwks);
 
     preflight_verify_did(&ctx).await?;
     step_prepare(&ctx).await?;
@@ -106,6 +116,62 @@ async fn test_pull_operations() -> Result<()> {
     let refresh_out = do_refresh(&ctx, &api_token, &start_out.refresh_token).await?;
     check_token_rotation(&ctx, &api_token, &refresh_out.new_access_token).await?;
     step_terminate(&ctx).await?;
+
+    Ok(())
+}
+
+/// Verifies the signaling API rejects unauthenticated and mis-scoped requests
+/// when JWT auth is enabled. Exercises the `AuthLayer::Enabled` path end-to-end:
+/// the JWKS is fetched over HTTP from the signaling-jwks server and the token
+/// signature/subject are checked before the request reaches any handler.
+#[tokio::test]
+#[ignore]
+async fn test_signaling_auth_rejects_invalid_tokens() -> Result<()> {
+    let deployment = ensure_siglet_deployed().await?;
+    let jwks = ensure_signaling_jwks().await?;
+
+    let run_id = Uuid::new_v4().to_string();
+    let ctx = TestCtx::new(&deployment, &run_id, jwks);
+
+    // Auth runs as a tower layer ahead of the handler, so it rejects before the
+    // body is parsed — a minimal payload is enough to reach it.
+    let prepare_url = format!(
+        "{}/api/v1/{}/dataflows/prepare",
+        ctx.signaling_url, ctx.consumer_participant_context_id
+    );
+    let message = serde_json::json!({});
+
+    // No bearer token → 401 Unauthorized.
+    let no_token = ctx
+        .client
+        .post(&prepare_url)
+        .header("Content-Type", "application/json")
+        .json(&message)
+        .send()
+        .await
+        .context("Failed to send unauthenticated prepare request")?;
+    assert_eq!(
+        no_token.status(),
+        reqwest::StatusCode::UNAUTHORIZED,
+        "Signaling API should reject a request with no bearer token"
+    );
+
+    // Valid signature, but `sub` doesn't match the path participant context → 403 Forbidden.
+    let wrong_sub = ctx.signaling_token(&format!("intruder-{}", run_id)).await?;
+    let mismatched = ctx
+        .client
+        .post(&prepare_url)
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {}", wrong_sub))
+        .json(&message)
+        .send()
+        .await
+        .context("Failed to send subject-mismatch prepare request")?;
+    assert_eq!(
+        mismatched.status(),
+        reqwest::StatusCode::FORBIDDEN,
+        "Signaling API should reject a token whose sub doesn't match the path participant context"
+    );
 
     Ok(())
 }
@@ -125,10 +191,23 @@ struct TestCtx {
     consumer_participant_context_id: String,
     provider_participant_context_id: String,
     pod_name: String,
+    /// Signs signaling-API bearer tokens with the key whose public half the
+    /// signaling-jwks server advertises. Verified by Siglet's signaling auth layer.
+    signaling_token_gen: LocalJwtGenerator,
 }
 
 impl TestCtx {
-    fn new(deployment: &SigletDeployment, run_id: &str) -> Self {
+    fn new(deployment: &SigletDeployment, run_id: &str, jwks: &SignalingJwksDeployment) -> Self {
+        let resolver = StaticSigningKeyResolver::builder()
+            .key(jwks.private_key_der.clone())
+            .kid(jwks.kid.clone())
+            .key_format(KeyFormat::DER)
+            .build();
+        let signaling_token_gen = LocalJwtGenerator::builder()
+            .signing_key_resolver(Arc::new(resolver))
+            .signing_algorithm(SigningAlgorithm::EdDSA)
+            .build();
+
         TestCtx {
             client: Client::new(),
             signaling_url: format!("http://localhost:{}", deployment.signaling_port),
@@ -143,8 +222,34 @@ impl TestCtx {
             consumer_participant_context_id: format!("consumer-participant-{}", run_id),
             provider_participant_context_id: format!("provider-participant-{}", run_id),
             pod_name: deployment.pod_name.clone(),
+            signaling_token_gen,
         }
     }
+
+    /// Mints a signaling-API bearer token whose `sub` is `pc_id`. Siglet's auth
+    /// layer requires `sub` to equal the `participant_context_id` in the request
+    /// path and `aud` to equal the configured signaling audience.
+    async fn signaling_token(&self, pc_id: &str) -> Result<String> {
+        let claims = TokenClaims::builder()
+            .sub(pc_id)
+            .aud(SIGNALING_AUDIENCE)
+            .exp(unix_now_plus_secs(300))
+            .build();
+        let pc = ParticipantContext::builder().id(pc_id).build();
+        self.signaling_token_gen
+            .generate_token(&pc, claims)
+            .await
+            .context("Failed to mint signaling-API token")
+    }
+}
+
+/// Returns a Unix timestamp `secs` seconds in the future, for JWT `exp` claims.
+fn unix_now_plus_secs(secs: i64) -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system clock before Unix epoch")
+        .as_secs() as i64
+        + secs
 }
 
 /// Data returned by `step_start` that subsequent steps depend on.
@@ -239,6 +344,7 @@ async fn step_prepare(ctx: &TestCtx) -> Result<()> {
         "metadata": {},
     });
 
+    let token = ctx.signaling_token(&ctx.consumer_participant_context_id).await?;
     let response = ctx
         .client
         .post(format!(
@@ -246,6 +352,7 @@ async fn step_prepare(ctx: &TestCtx) -> Result<()> {
             ctx.signaling_url, ctx.consumer_participant_context_id
         ))
         .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {}", token))
         .json(&message)
         .send()
         .await
@@ -289,6 +396,7 @@ async fn step_start(ctx: &TestCtx) -> Result<StartOutput> {
         }
     });
 
+    let token = ctx.signaling_token(&ctx.provider_participant_context_id).await?;
     let response = ctx
         .client
         .post(format!(
@@ -296,6 +404,7 @@ async fn step_start(ctx: &TestCtx) -> Result<StartOutput> {
             ctx.signaling_url, ctx.provider_participant_context_id
         ))
         .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {}", token))
         .json(&message)
         .send()
         .await
@@ -388,6 +497,7 @@ async fn step_started(ctx: &TestCtx, data_address: &serde_json::Value) -> Result
         "messageId": format!("msg-started-{}", ctx.run_id)
     });
 
+    let token = ctx.signaling_token(&ctx.consumer_participant_context_id).await?;
     let response = ctx
         .client
         .post(format!(
@@ -395,6 +505,7 @@ async fn step_started(ctx: &TestCtx, data_address: &serde_json::Value) -> Result
             ctx.signaling_url, ctx.consumer_participant_context_id, ctx.consumer_flow_id
         ))
         .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {}", token))
         .json(&message)
         .send()
         .await
@@ -598,6 +709,7 @@ async fn check_token_rotation(ctx: &TestCtx, old_token: &str, new_token: &str) -
 
 /// Step 10: Provider terminates the transfer.
 async fn step_terminate(ctx: &TestCtx) -> Result<()> {
+    let token = ctx.signaling_token(&ctx.provider_participant_context_id).await?;
     let response = ctx
         .client
         .post(format!(
@@ -605,6 +717,7 @@ async fn step_terminate(ctx: &TestCtx) -> Result<()> {
             ctx.signaling_url, ctx.provider_participant_context_id, ctx.provider_flow_id
         ))
         .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {}", token))
         .json(&serde_json::json!({ "reason": "Test termination" }))
         .send()
         .await

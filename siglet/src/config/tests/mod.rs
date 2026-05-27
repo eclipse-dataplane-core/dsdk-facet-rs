@@ -660,9 +660,9 @@ fn test_all_possible_errors() {
             ..Default::default()
         },
         signaling_auth: SignalingAuthConfig::Enabled {
-            jwks_url: String::new(),  // Error 10: empty URL
-            cache_ttl_seconds: 0,     // Error 11: zero TTL
-            audience: String::new(),  // Error 12: empty audience
+            jwks_url: String::new(), // Error 10: empty URL
+            cache_ttl_seconds: 0,    // Error 11: zero TTL
+            audience: String::new(), // Error 12: empty audience
         },
         http_client: crate::config::HttpClientConfig {
             connect_timeout_seconds: 0, // Error 12: zero connect timeout
@@ -1162,10 +1162,7 @@ fn test_http_client_defaults_pass_validation() {
     // The default values must produce a valid config — operators who never
     // touch [http_client] should not have their deployment refuse to start.
     let config = create_valid_config();
-    assert_eq!(
-        config.http_client,
-        crate::config::HttpClientConfig::default()
-    );
+    assert_eq!(config.http_client, crate::config::HttpClientConfig::default());
     assert!(config.validate().is_ok());
 }
 
@@ -1216,4 +1213,3 @@ fn test_http_client_deserialize_partial_fills_defaults() {
     assert_eq!(parsed.connect_timeout_seconds, DEFAULT_HTTP_CONNECT_TIMEOUT_SECS);
     assert_eq!(parsed.request_timeout_seconds, 120);
 }
-

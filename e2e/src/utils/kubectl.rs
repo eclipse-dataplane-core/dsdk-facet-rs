@@ -98,6 +98,17 @@ pub fn kubectl_apply_stdin(manifest_content: &str) -> Result<()> {
     kubectl_stdin_cmd(&["apply", "-f", "-"], manifest_content, "apply")
 }
 
+/// Apply a Kubernetes manifest from a string using server-side apply with conflict
+/// override. Safe to call concurrently from multiple processes with identical
+/// content — all callers succeed, mirroring [`kubectl_apply_server_side`].
+pub fn kubectl_apply_server_side_stdin(manifest_content: &str) -> Result<()> {
+    kubectl_stdin_cmd(
+        &["apply", "--server-side", "--force-conflicts", "-f", "-"],
+        manifest_content,
+        "server-side apply",
+    )
+}
+
 fn kubectl_stdin_cmd(args: &[&str], manifest_content: &str, op: &str) -> Result<()> {
     use std::io::Write;
     use std::process::Stdio;

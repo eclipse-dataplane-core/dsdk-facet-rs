@@ -406,10 +406,7 @@ impl SigletConfig {
                         .to_string(),
                 );
             } else if jwks_url.parse::<reqwest::Url>().is_err() {
-                errors.push(format!(
-                    "signaling_auth.jwks_url is not a valid URL: '{}'",
-                    jwks_url
-                ));
+                errors.push(format!("signaling_auth.jwks_url is not a valid URL: '{}'", jwks_url));
             }
             if *cache_ttl_seconds == 0 {
                 errors.push("signaling_auth.cache_ttl_seconds must be greater than 0".to_string());
