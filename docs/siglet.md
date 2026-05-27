@@ -202,6 +202,8 @@ The verifier is interoperable with providers that expose keys via JWKS sets.
 {
   "sub": "<participant_context_id>",
   // MUST equal the URL path parameter
+  "scope": "dplane-signaling",
+  // required — space-delimited; MUST contain "dplane-signaling"
   "exp": 1713440400,
   // required — Unix seconds
   "iat": 1713436800,
@@ -221,6 +223,10 @@ Required:
 - `sub` must be byte-equal to the `{participant_context_id}` path segment on the
   requested URL. A mismatch returns `403 Forbidden` (the caller authenticated, but
   is not authorized for the targeted context).
+- `scope` must grant `dplane-signaling`. The claim follows the OAuth2 convention
+  (RFC 6749 §3.3) of a single space-delimited string, so a token may carry other
+  scopes alongside it (e.g. `"read:data dplane-signaling"`). A missing `scope`, or
+  one that doesn't include `dplane-signaling` as a whole entry, returns `403 Forbidden`.
 - `aud` must contain the value configured in `signaling_auth.audience`
   (default `"siglet"`). String- and array-valued `aud` claims are both accepted.
   A missing or non-matching `aud` returns `401`.
@@ -260,6 +266,7 @@ parameters (`n`/`e` for RSA; `crv`/`x`/`y` for EC).
 | Missing or malformed `Authorization: Bearer <jwt>` | 401    |
 | Token signature invalid / expired / unknown `kid`  | 401    |
 | `sub` claim does not match the URL path id         | 403    |
+| `scope` claim missing or lacks `dplane-signaling`  | 403    |
 | JWKS endpoint unreachable                          | 503    |
 
 ### Configuration
@@ -275,6 +282,7 @@ mode = "enabled"
 jwks_url = "https://idp.example.com/.well-known/jwks.json"
 audience = "https://siglet.example.com"   # optional, defaults to "siglet"
 cache_ttl_seconds = 300                    # optional, defaults to 300
+required_scope = "dplane-signaling"        # optional, defaults to "dplane-signaling"
 ```
 
 `audience` is the value the verifier requires in the JWT's `aud` claim. Pick an
@@ -283,6 +291,12 @@ The upstream IdP / token-exchange service must mint tokens with `aud` set to
 the same string — that binding is what prevents a JWT minted for some *other*
 recipient (off the same JWKS) from being replayed against this siglet. The
 default `"siglet"` is suitable for single-instance dev deployments only.
+
+`required_scope` is the scope the JWT's `scope` claim must grant (matched as a
+whole entry within the OAuth2 space-delimited string). It defaults to
+`"dplane-signaling"`, so it doesn't need to be set explicitly; override it only if
+your IdP issues signaling access under a different scope name. An empty value is
+rejected at startup — it could never be satisfied and would lock out every caller.
 
 ```toml
 # Development — skip JWT verification entirely.
@@ -298,6 +312,7 @@ Environment-variable overrides follow the standard `SIGLET__` convention:
 SIGLET__SIGNALING_AUTH__MODE=enabled
 SIGLET__SIGNALING_AUTH__JWKS_URL=https://idp.example.com/.well-known/jwks.json
 SIGLET__SIGNALING_AUTH__AUDIENCE=https://siglet.example.com
+SIGLET__SIGNALING_AUTH__REQUIRED_SCOPE=dplane-signaling
 ```
 
 The JWKS is fetched lazily and cached in-process for `cache_ttl_seconds`. A request

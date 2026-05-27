@@ -43,6 +43,10 @@ use uuid::Uuid;
 /// `signaling_auth.audience` in `manifests/siglet-config.yaml`.
 const SIGNALING_AUDIENCE: &str = "siglet";
 
+/// Scope the signaling-API auth layer requires on incoming JWTs. Minted into the
+/// `scope` claim below; mirrors `signaling::auth::REQUIRED_SCOPE` on the siglet side.
+const SIGNALING_SCOPE: &str = "dplane-signaling";
+
 /// Test that Siglet deploys successfully and responds to health checks
 #[tokio::test]
 #[ignore]
@@ -173,6 +177,25 @@ async fn test_signaling_auth_rejects_invalid_tokens() -> Result<()> {
         "Signaling API should reject a token whose sub doesn't match the path participant context"
     );
 
+    // Valid signature and matching sub, but the token carries no signaling scope → 403 Forbidden.
+    let no_scope = ctx
+        .signaling_token_with_scope(&ctx.consumer_participant_context_id, None)
+        .await?;
+    let missing_scope = ctx
+        .client
+        .post(&prepare_url)
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {}", no_scope))
+        .json(&message)
+        .send()
+        .await
+        .context("Failed to send missing-scope prepare request")?;
+    assert_eq!(
+        missing_scope.status(),
+        reqwest::StatusCode::FORBIDDEN,
+        "Signaling API should reject a token lacking the required signaling scope"
+    );
+
     Ok(())
 }
 
@@ -228,12 +251,25 @@ impl TestCtx {
 
     /// Mints a signaling-API bearer token whose `sub` is `pc_id`. Siglet's auth
     /// layer requires `sub` to equal the `participant_context_id` in the request
-    /// path and `aud` to equal the configured signaling audience.
+    /// path, `aud` to equal the configured signaling audience, and `scope` to grant
+    /// the signaling scope.
     async fn signaling_token(&self, pc_id: &str) -> Result<String> {
+        self.signaling_token_with_scope(pc_id, Some(SIGNALING_SCOPE)).await
+    }
+
+    /// Like [`Self::signaling_token`] but lets a test control the `scope` claim —
+    /// pass `None` to omit it entirely — so the auth layer's scope enforcement can
+    /// be exercised directly.
+    async fn signaling_token_with_scope(&self, pc_id: &str, scope: Option<&str>) -> Result<String> {
+        let mut custom = serde_json::Map::new();
+        if let Some(scope) = scope {
+            custom.insert("scope".to_string(), serde_json::Value::String(scope.to_string()));
+        }
         let claims = TokenClaims::builder()
             .sub(pc_id)
             .aud(SIGNALING_AUDIENCE)
             .exp(unix_now_plus_secs(300))
+            .custom(custom)
             .build();
         let pc = ParticipantContext::builder().id(pc_id).build();
         self.signaling_token_gen

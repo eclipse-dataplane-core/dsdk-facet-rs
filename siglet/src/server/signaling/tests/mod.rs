@@ -162,11 +162,16 @@ fn router_without_pc_id(layer: AuthLayer) -> Router {
 
 const TEST_AUDIENCE: &str = "siglet";
 
+/// The scope the signaling-API middleware requires (mirrors `auth::REQUIRED_SCOPE`,
+/// which is private to that module).
+const REQUIRED_SCOPE: &str = "dplane-signaling";
+
 fn standard_claims(sub: &str) -> Value {
     let exp = chrono::Utc::now().timestamp() + 3600;
     json!({
         "sub": sub,
         "aud": TEST_AUDIENCE,
+        "scope": REQUIRED_SCOPE,
         "iat": chrono::Utc::now().timestamp(),
         "exp": exp,
     })
@@ -215,7 +220,11 @@ async fn disabled_mode_passes_through_routes_without_pc_id() {
 async fn enabled_mode_accepts_valid_jwt_with_matching_sub() {
     let key = TestKey::new("kid-1");
     let provider = Box::new(StaticKeyProvider::new(key.jwk_set.clone()));
-    let app = echo_router(AuthLayer::enabled_with_provider(provider, TEST_AUDIENCE));
+    let app = echo_router(AuthLayer::enabled_with_provider(
+        provider,
+        TEST_AUDIENCE,
+        REQUIRED_SCOPE,
+    ));
 
     let token = key.issue(standard_claims("ctx-abc"));
 
@@ -243,7 +252,11 @@ async fn enabled_mode_accepts_valid_jwt_with_matching_sub() {
 async fn enabled_mode_rejects_missing_authorization_header() {
     let key = TestKey::new("kid-1");
     let provider = Box::new(StaticKeyProvider::new(key.jwk_set.clone()));
-    let app = echo_router(AuthLayer::enabled_with_provider(provider, TEST_AUDIENCE));
+    let app = echo_router(AuthLayer::enabled_with_provider(
+        provider,
+        TEST_AUDIENCE,
+        REQUIRED_SCOPE,
+    ));
 
     let response = app
         .oneshot(
@@ -264,7 +277,11 @@ async fn enabled_mode_rejects_missing_authorization_header() {
 async fn enabled_mode_rejects_non_bearer_scheme() {
     let key = TestKey::new("kid-1");
     let provider = Box::new(StaticKeyProvider::new(key.jwk_set.clone()));
-    let app = echo_router(AuthLayer::enabled_with_provider(provider, TEST_AUDIENCE));
+    let app = echo_router(AuthLayer::enabled_with_provider(
+        provider,
+        TEST_AUDIENCE,
+        REQUIRED_SCOPE,
+    ));
 
     let response = app
         .oneshot(
@@ -284,7 +301,11 @@ async fn enabled_mode_rejects_non_bearer_scheme() {
 async fn enabled_mode_rejects_malformed_jwt() {
     let key = TestKey::new("kid-1");
     let provider = Box::new(StaticKeyProvider::new(key.jwk_set.clone()));
-    let app = echo_router(AuthLayer::enabled_with_provider(provider, TEST_AUDIENCE));
+    let app = echo_router(AuthLayer::enabled_with_provider(
+        provider,
+        TEST_AUDIENCE,
+        REQUIRED_SCOPE,
+    ));
 
     let response = app
         .oneshot(
@@ -306,7 +327,11 @@ async fn enabled_mode_rejects_unknown_kid() {
     // The JWKS only contains a *different* kid than the one stamped on the token.
     let advertised_key = TestKey::new("kid-advertised");
     let provider = Box::new(StaticKeyProvider::new(advertised_key.jwk_set.clone()));
-    let app = echo_router(AuthLayer::enabled_with_provider(provider, TEST_AUDIENCE));
+    let app = echo_router(AuthLayer::enabled_with_provider(
+        provider,
+        TEST_AUDIENCE,
+        REQUIRED_SCOPE,
+    ));
 
     let token = signing_key.issue(standard_claims("ctx-abc"));
 
@@ -333,7 +358,11 @@ async fn enabled_mode_rejects_subject_mismatch_with_403() {
     // authorization failure, not an authentication failure, so 403 is correct.
     let key = TestKey::new("kid-1");
     let provider = Box::new(StaticKeyProvider::new(key.jwk_set.clone()));
-    let app = echo_router(AuthLayer::enabled_with_provider(provider, TEST_AUDIENCE));
+    let app = echo_router(AuthLayer::enabled_with_provider(
+        provider,
+        TEST_AUDIENCE,
+        REQUIRED_SCOPE,
+    ));
 
     let token = key.issue(standard_claims("ctx-other"));
 
@@ -358,7 +387,11 @@ async fn enabled_mode_rejects_subject_mismatch_with_403() {
 async fn enabled_mode_rejects_expired_token() {
     let key = TestKey::new("kid-1");
     let provider = Box::new(StaticKeyProvider::new(key.jwk_set.clone()));
-    let app = echo_router(AuthLayer::enabled_with_provider(provider, TEST_AUDIENCE));
+    let app = echo_router(AuthLayer::enabled_with_provider(
+        provider,
+        TEST_AUDIENCE,
+        REQUIRED_SCOPE,
+    ));
 
     // Far enough in the past that the default 60s leeway in jsonwebtoken's
     // Validation can't rescue it.
@@ -391,7 +424,11 @@ async fn enabled_mode_rejects_wrong_signature() {
     let advertised = TestKey::new("kid-1");
     let attacker = TestKey::new("kid-1");
     let provider = Box::new(StaticKeyProvider::new(advertised.jwk_set.clone()));
-    let app = echo_router(AuthLayer::enabled_with_provider(provider, TEST_AUDIENCE));
+    let app = echo_router(AuthLayer::enabled_with_provider(
+        provider,
+        TEST_AUDIENCE,
+        REQUIRED_SCOPE,
+    ));
 
     let token = attacker.issue(standard_claims("ctx-abc"));
 
@@ -413,7 +450,11 @@ async fn enabled_mode_rejects_wrong_signature() {
 async fn enabled_mode_rejects_token_without_kid() {
     let key = TestKey::new("kid-1");
     let provider = Box::new(StaticKeyProvider::new(key.jwk_set.clone()));
-    let app = echo_router(AuthLayer::enabled_with_provider(provider, TEST_AUDIENCE));
+    let app = echo_router(AuthLayer::enabled_with_provider(
+        provider,
+        TEST_AUDIENCE,
+        REQUIRED_SCOPE,
+    ));
 
     // Manually build a token with no kid in the header so the middleware
     // can't pick a key from the JWKS.
@@ -448,7 +489,11 @@ async fn enabled_mode_rejects_token_without_kid() {
 async fn enabled_mode_rejects_wrong_audience() {
     let key = TestKey::new("kid-1");
     let provider = Box::new(StaticKeyProvider::new(key.jwk_set.clone()));
-    let app = echo_router(AuthLayer::enabled_with_provider(provider, TEST_AUDIENCE));
+    let app = echo_router(AuthLayer::enabled_with_provider(
+        provider,
+        TEST_AUDIENCE,
+        REQUIRED_SCOPE,
+    ));
 
     // Same signature, same sub, same exp — but the token was minted for a
     // different recipient.
@@ -480,7 +525,11 @@ async fn enabled_mode_rejects_wrong_audience() {
 async fn enabled_mode_rejects_missing_audience() {
     let key = TestKey::new("kid-1");
     let provider = Box::new(StaticKeyProvider::new(key.jwk_set.clone()));
-    let app = echo_router(AuthLayer::enabled_with_provider(provider, TEST_AUDIENCE));
+    let app = echo_router(AuthLayer::enabled_with_provider(
+        provider,
+        TEST_AUDIENCE,
+        REQUIRED_SCOPE,
+    ));
 
     let now = chrono::Utc::now().timestamp();
     let token = key.issue(json!({
@@ -510,12 +559,17 @@ async fn enabled_mode_rejects_missing_audience() {
 async fn enabled_mode_accepts_audience_array_containing_expected() {
     let key = TestKey::new("kid-1");
     let provider = Box::new(StaticKeyProvider::new(key.jwk_set.clone()));
-    let app = echo_router(AuthLayer::enabled_with_provider(provider, TEST_AUDIENCE));
+    let app = echo_router(AuthLayer::enabled_with_provider(
+        provider,
+        TEST_AUDIENCE,
+        REQUIRED_SCOPE,
+    ));
 
     let now = chrono::Utc::now().timestamp();
     let token = key.issue(json!({
         "sub": "ctx-abc",
         "aud": ["other-service", TEST_AUDIENCE, "yet-another"],
+        "scope": REQUIRED_SCOPE,
         "iat": now,
         "exp": now + 3600,
     }));
@@ -532,6 +586,182 @@ async fn enabled_mode_accepts_audience_array_containing_expected() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
+}
+
+// ============================================================================
+// Scope Authorization
+// ============================================================================
+
+/// A signature-valid JWT with a matching `sub` and correct `aud` is still
+/// rejected if it carries no `scope` claim at all. Holding a valid identity
+/// isn't sufficient — the token must be explicitly authorized for signaling.
+/// This is an authorization failure, so 403 (not 401).
+#[tokio::test]
+async fn enabled_mode_rejects_missing_scope() {
+    let key = TestKey::new("kid-1");
+    let provider = Box::new(StaticKeyProvider::new(key.jwk_set.clone()));
+    let app = echo_router(AuthLayer::enabled_with_provider(
+        provider,
+        TEST_AUDIENCE,
+        REQUIRED_SCOPE,
+    ));
+
+    let now = chrono::Utc::now().timestamp();
+    let token = key.issue(json!({
+        "sub": "ctx-abc",
+        "aud": TEST_AUDIENCE,
+        "iat": now,
+        "exp": now + 3600,
+        // no "scope" claim
+    }));
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/dataflows/ctx-abc/start")
+                .header("authorization", format!("Bearer {}", token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    let body = response_text(response).await;
+    assert!(body.contains(REQUIRED_SCOPE));
+}
+
+/// A `scope` claim that is present but doesn't include the required signaling
+/// scope is rejected with 403. Substring matches don't count — the value must
+/// appear as a whole space-delimited entry.
+#[tokio::test]
+async fn enabled_mode_rejects_insufficient_scope() {
+    let key = TestKey::new("kid-1");
+    let provider = Box::new(StaticKeyProvider::new(key.jwk_set.clone()));
+    let app = echo_router(AuthLayer::enabled_with_provider(
+        provider,
+        TEST_AUDIENCE,
+        REQUIRED_SCOPE,
+    ));
+
+    let now = chrono::Utc::now().timestamp();
+    // `dplane-signaling-extra` shares a prefix with the required scope but is a
+    // distinct entry — it must not satisfy the requirement.
+    let token = key.issue(json!({
+        "sub": "ctx-abc",
+        "aud": TEST_AUDIENCE,
+        "scope": "read:data dplane-signaling-extra",
+        "iat": now,
+        "exp": now + 3600,
+    }));
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/dataflows/ctx-abc/start")
+                .header("authorization", format!("Bearer {}", token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    let body = response_text(response).await;
+    assert!(body.contains(REQUIRED_SCOPE));
+}
+
+/// A `scope` claim carrying several space-delimited entries is accepted as long
+/// as one of them is the required signaling scope. This is the common real-world
+/// shape — an IdP grants signaling alongside other scopes.
+#[tokio::test]
+async fn enabled_mode_accepts_multi_scope_token() {
+    let key = TestKey::new("kid-1");
+    let provider = Box::new(StaticKeyProvider::new(key.jwk_set.clone()));
+    let app = echo_router(AuthLayer::enabled_with_provider(
+        provider,
+        TEST_AUDIENCE,
+        REQUIRED_SCOPE,
+    ));
+
+    let now = chrono::Utc::now().timestamp();
+    let token = key.issue(json!({
+        "sub": "ctx-abc",
+        "aud": TEST_AUDIENCE,
+        "scope": format!("read:data {} write:data", REQUIRED_SCOPE),
+        "iat": now,
+        "exp": now + 3600,
+    }));
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/dataflows/ctx-abc/start")
+                .header("authorization", format!("Bearer {}", token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response_text(response).await;
+    assert_eq!(body, "ctx-abc");
+}
+
+/// The required scope is configurable per instance, not hardcoded. A layer built
+/// with a custom required scope accepts a token granting *that* scope, and rejects
+/// one that only carries the default `dplane-signaling`. Proves `required_scope`
+/// is threaded from config through to the verifier.
+#[tokio::test]
+async fn enabled_mode_honors_custom_required_scope() {
+    let custom_scope = "custom:signaling";
+    let key = TestKey::new("kid-1");
+
+    // A token granting the custom scope is accepted.
+    let app = echo_router(AuthLayer::enabled_with_provider(
+        Box::new(StaticKeyProvider::new(key.jwk_set.clone())),
+        TEST_AUDIENCE,
+        custom_scope,
+    ));
+    let now = chrono::Utc::now().timestamp();
+    let token = key.issue(json!({
+        "sub": "ctx-abc",
+        "aud": TEST_AUDIENCE,
+        "scope": custom_scope,
+        "iat": now,
+        "exp": now + 3600,
+    }));
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/dataflows/ctx-abc/start")
+                .header("authorization", format!("Bearer {}", token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // The default scope no longer satisfies a layer configured for the custom one.
+    let app = echo_router(AuthLayer::enabled_with_provider(
+        Box::new(StaticKeyProvider::new(key.jwk_set.clone())),
+        TEST_AUDIENCE,
+        custom_scope,
+    ));
+    let token = key.issue(standard_claims("ctx-abc")); // scope = "dplane-signaling"
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/dataflows/ctx-abc/start")
+                .header("authorization", format!("Bearer {}", token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
 }
 
 // ============================================================================
@@ -595,7 +825,11 @@ async fn enabled_mode_accepts_shaped_jwt() {
     // value here to prove the layer respects whatever audience was configured,
     // not just the "siglet" baseline.
     let expected_audience = "https://siglet.example.com";
-    let app = echo_router(AuthLayer::enabled_with_provider(provider, expected_audience));
+    let app = echo_router(AuthLayer::enabled_with_provider(
+        provider,
+        expected_audience,
+        REQUIRED_SCOPE,
+    ));
 
     let now = chrono::Utc::now().timestamp();
     // `sub` is whatever participant_context value was requested at the
@@ -605,6 +839,7 @@ async fn enabled_mode_accepts_shaped_jwt() {
     let claims = json!({
         "sub": pc_id,
         "aud": expected_audience,
+        "scope": format!("{} resource:read", REQUIRED_SCOPE),
         "iat": now,
         "nbf": now,
         "exp": now + 3600,
@@ -645,7 +880,11 @@ async fn enabled_mode_accepts_shaped_jwt() {
 async fn enabled_mode_rejects_alg_none() {
     let key = TestKey::new("kid-1");
     let provider = Box::new(StaticKeyProvider::new(key.jwk_set.clone()));
-    let app = echo_router(AuthLayer::enabled_with_provider(provider, TEST_AUDIENCE));
+    let app = echo_router(AuthLayer::enabled_with_provider(
+        provider,
+        TEST_AUDIENCE,
+        REQUIRED_SCOPE,
+    ));
 
     // Hand-craft an alg=none token: base64url("{\"alg\":\"none\",\"kid\":\"kid-1\"}") + payload + empty signature.
     use base64::Engine;
@@ -678,7 +917,11 @@ async fn enabled_mode_rejects_jwk_alg_mismatch() {
     let mut jwk_set = key.jwk_set.clone();
     jwk_set.keys[0].common.key_algorithm = Some(KeyAlgorithm::RS256);
     let provider = Box::new(StaticKeyProvider::new(jwk_set));
-    let app = echo_router(AuthLayer::enabled_with_provider(provider, TEST_AUDIENCE));
+    let app = echo_router(AuthLayer::enabled_with_provider(
+        provider,
+        TEST_AUDIENCE,
+        REQUIRED_SCOPE,
+    ));
 
     // Token still uses EdDSA — JWK says RS256 — so cross-check fails.
     let token = key.issue(standard_claims("ctx-abc"));

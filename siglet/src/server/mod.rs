@@ -53,7 +53,14 @@ pub fn build_signaling_auth_layer(cfg: &SignalingAuthConfig, http_client: reqwes
             jwks_url,
             cache_ttl_seconds,
             audience,
-        } => AuthLayer::enabled_http(jwks_url, Duration::from_secs(*cache_ttl_seconds), audience, http_client),
+            required_scope,
+        } => AuthLayer::enabled_http(
+            jwks_url,
+            Duration::from_secs(*cache_ttl_seconds),
+            audience,
+            required_scope,
+            http_client,
+        ),
     }
 }
 

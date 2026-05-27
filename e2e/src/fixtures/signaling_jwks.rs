@@ -18,7 +18,8 @@
 //!
 //! With `signaling_auth.mode = "enabled"`, siglet's `HttpKeyProvider` fetches this
 //! JWKS over HTTP and verifies every incoming signaling JWT against it (matching
-//! `kid` → JWKS key, `aud` == configured audience, `sub` == participant context).
+//! `kid` → JWKS key, `aud` == configured audience, `sub` == participant context,
+//! and `scope` granting `dplane-signaling`).
 //!
 //! The keypair is derived from a fixed seed so every nextest test *process*
 //! produces the identical key. The JWKS served by the cluster therefore always

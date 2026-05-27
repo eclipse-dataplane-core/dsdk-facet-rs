@@ -88,6 +88,7 @@ fn test_valid_config_with_all_fields() {
             jwks_url: "https://idp.example.com/.well-known/jwks.json".to_string(),
             cache_ttl_seconds: 300,
             audience: "https://siglet.example.com".to_string(),
+            required_scope: "dplane-signaling".to_string(),
         },
         http_client: crate::config::HttpClientConfig {
             connect_timeout_seconds: 5,
@@ -660,9 +661,10 @@ fn test_all_possible_errors() {
             ..Default::default()
         },
         signaling_auth: SignalingAuthConfig::Enabled {
-            jwks_url: String::new(), // Error 10: empty URL
-            cache_ttl_seconds: 0,    // Error 11: zero TTL
-            audience: String::new(), // Error 12: empty audience
+            jwks_url: String::new(),       // Error 10: empty URL
+            cache_ttl_seconds: 0,          // Error 11: zero TTL
+            audience: String::new(),       // Error 12: empty audience
+            required_scope: String::new(), // Error 13: empty required scope
         },
         http_client: crate::config::HttpClientConfig {
             connect_timeout_seconds: 0, // Error 12: zero connect timeout
@@ -999,6 +1001,7 @@ fn test_signaling_auth_enabled_requires_jwks_url() {
         jwks_url: String::new(),
         cache_ttl_seconds: 300,
         audience: "siglet".to_string(),
+        required_scope: "dplane-signaling".to_string(),
     };
 
     let result = config.validate();
@@ -1020,6 +1023,7 @@ fn test_signaling_auth_enabled_rejects_invalid_jwks_url() {
         jwks_url: "not-a-url".to_string(),
         cache_ttl_seconds: 300,
         audience: "siglet".to_string(),
+        required_scope: "dplane-signaling".to_string(),
     };
 
     let result = config.validate();
@@ -1041,6 +1045,7 @@ fn test_signaling_auth_enabled_with_valid_jwks_url_passes() {
         jwks_url: "https://idp.example.com/.well-known/jwks.json".to_string(),
         cache_ttl_seconds: 300,
         audience: "siglet".to_string(),
+        required_scope: "dplane-signaling".to_string(),
     };
 
     assert!(config.validate().is_ok());
@@ -1062,6 +1067,7 @@ fn test_signaling_auth_rejects_zero_cache_ttl() {
         jwks_url: "https://idp.example.com/.well-known/jwks.json".to_string(),
         cache_ttl_seconds: 0,
         audience: "siglet".to_string(),
+        required_scope: "dplane-signaling".to_string(),
     };
 
     let result = config.validate();
@@ -1090,13 +1096,15 @@ fn test_signaling_auth_deserialize_enabled() {
         "jwks_url": "https://idp.example.com/.well-known/jwks.json"
     }"#;
     let parsed: SignalingAuthConfig = serde_json::from_str(json).expect("enabled variant should parse");
-    // cache_ttl_seconds and audience both fall back to their defaults — pin both.
+    // cache_ttl_seconds, audience, and required_scope all fall back to their
+    // defaults — pin all three.
     assert_eq!(
         parsed,
         SignalingAuthConfig::Enabled {
             jwks_url: "https://idp.example.com/.well-known/jwks.json".to_string(),
             cache_ttl_seconds: 300,
             audience: "siglet".to_string(),
+            required_scope: "dplane-signaling".to_string(),
         }
     );
 }
@@ -1143,6 +1151,7 @@ fn test_signaling_auth_rejects_empty_audience() {
         jwks_url: "https://idp.example.com/.well-known/jwks.json".to_string(),
         cache_ttl_seconds: 300,
         audience: String::new(),
+        required_scope: "dplane-signaling".to_string(),
     };
 
     let err = config.validate().expect_err("empty audience must fail");
@@ -1150,6 +1159,61 @@ fn test_signaling_auth_rejects_empty_audience() {
         err.messages()
             .iter()
             .any(|msg| msg.contains("signaling_auth.audience cannot be empty"))
+    );
+}
+
+#[test]
+fn test_signaling_auth_required_scope_defaults_to_dplane_signaling() {
+    // Pins the user-visible default: omitting `required_scope` from the
+    // [signaling_auth] table yields `"dplane-signaling"`, so existing configs that
+    // predate this option keep working without edits.
+    let json = r#"{
+        "mode": "enabled",
+        "jwks_url": "https://idp.example.com/.well-known/jwks.json"
+    }"#;
+    let parsed: SignalingAuthConfig = serde_json::from_str(json).unwrap();
+    match parsed {
+        SignalingAuthConfig::Enabled { required_scope, .. } => {
+            assert_eq!(required_scope, "dplane-signaling");
+        }
+        SignalingAuthConfig::Disabled => panic!("expected Enabled variant"),
+    }
+}
+
+#[test]
+fn test_signaling_auth_required_scope_round_trip() {
+    let json = r#"{
+        "mode": "enabled",
+        "jwks_url": "https://idp.example.com/.well-known/jwks.json",
+        "required_scope": "custom:signaling"
+    }"#;
+    let parsed: SignalingAuthConfig = serde_json::from_str(json).unwrap();
+    match parsed {
+        SignalingAuthConfig::Enabled { required_scope, .. } => {
+            assert_eq!(required_scope, "custom:signaling");
+        }
+        SignalingAuthConfig::Disabled => panic!("expected Enabled variant"),
+    }
+}
+
+#[test]
+fn test_signaling_auth_rejects_empty_required_scope() {
+    // An explicitly blank required_scope can't be satisfied by any token, so it
+    // must fail validation rather than silently locking out every caller. A
+    // whitespace-only value is treated the same.
+    let mut config = create_valid_config();
+    config.signaling_auth = SignalingAuthConfig::Enabled {
+        jwks_url: "https://idp.example.com/.well-known/jwks.json".to_string(),
+        cache_ttl_seconds: 300,
+        audience: "siglet".to_string(),
+        required_scope: "   ".to_string(),
+    };
+
+    let err = config.validate().expect_err("empty required_scope must fail");
+    assert!(
+        err.messages()
+            .iter()
+            .any(|msg| msg.contains("signaling_auth.required_scope cannot be empty"))
     );
 }
 

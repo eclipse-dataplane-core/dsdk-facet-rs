@@ -50,6 +50,13 @@ pub const DEFAULT_JWKS_CACHE_TTL_SECONDS: u64 = 300;
 /// be configured to use the same value as the issued token's `aud`.
 pub const DEFAULT_SIGNALING_AUDIENCE: &str = "siglet";
 
+/// Default scope required on signaling-API JWTs.
+///
+/// Incoming tokens must carry this value as one of the space-delimited entries in
+/// their `scope` claim. Operators can override it via `signaling_auth.required_scope`;
+/// the default is the data-plane-signaling protocol scope.
+pub const DEFAULT_SIGNALING_SCOPE: &str = "dplane-signaling";
+
 /// Default TCP connect-phase timeout in seconds for the shared HTTP client.
 pub const DEFAULT_HTTP_CONNECT_TIMEOUT_SECS: u64 = 10;
 
@@ -103,6 +110,14 @@ pub enum SignalingAuthConfig {
         /// instance a distinct value (e.g. its public URL or DID).
         #[serde(default = "default_signaling_audience")]
         audience: String,
+        /// Scope the signaling-API verifier requires in the JWT's `scope` claim.
+        /// The claim is OAuth2 space-delimited (RFC 6749 §3.3): a token is accepted
+        /// as long as this value is one of its whitespace-separated entries.
+        ///
+        /// Defaults to `"dplane-signaling"`, so it doesn't need to be set
+        /// explicitly. Must be non-empty when auth is enabled.
+        #[serde(default = "default_signaling_scope")]
+        required_scope: String,
     },
 }
 
@@ -115,6 +130,7 @@ impl Default for SignalingAuthConfig {
             jwks_url: String::new(),
             cache_ttl_seconds: DEFAULT_JWKS_CACHE_TTL_SECONDS,
             audience: DEFAULT_SIGNALING_AUDIENCE.to_string(),
+            required_scope: DEFAULT_SIGNALING_SCOPE.to_string(),
         }
     }
 }
@@ -397,6 +413,7 @@ impl SigletConfig {
             jwks_url,
             cache_ttl_seconds,
             audience,
+            required_scope,
         } = &self.signaling_auth
         {
             if jwks_url.is_empty() {
@@ -413,6 +430,13 @@ impl SigletConfig {
             }
             if audience.is_empty() {
                 errors.push("signaling_auth.audience cannot be empty".to_string());
+            }
+            // A blank required_scope can't be satisfied by any token (scope entries
+            // are non-empty), so it would fail every request closed. Reject it at
+            // startup with a clear message rather than letting it silently lock out
+            // all callers. `serde` already supplies the default for a *missing* key.
+            if required_scope.trim().is_empty() {
+                errors.push("signaling_auth.required_scope cannot be empty".to_string());
             }
         }
 
@@ -450,6 +474,10 @@ const fn default_jwks_cache_ttl_seconds() -> u64 {
 
 fn default_signaling_audience() -> String {
     DEFAULT_SIGNALING_AUDIENCE.to_string()
+}
+
+fn default_signaling_scope() -> String {
+    DEFAULT_SIGNALING_SCOPE.to_string()
 }
 
 const fn default_http_connect_timeout_seconds() -> u64 {

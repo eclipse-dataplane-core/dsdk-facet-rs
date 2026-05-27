@@ -17,8 +17,10 @@
 //!   injects it into the request extensions without verifying any bearer token. Intended
 //!   for development and existing tests; not safe for production.
 //! - [`AuthLayer::Enabled`] — additionally requires an `Authorization: Bearer <jwt>` header,
-//!   verifies the JWT signature against a JWKS fetched from a configurable URL, and
-//!   asserts that the `sub` claim matches the `participant_context_id` from the URL path.
+//!   verifies the JWT signature against a JWKS fetched from a configurable URL, asserts
+//!   that the `sub` claim matches the `participant_context_id` from the URL path, and
+//!   requires the `scope` claim to grant the configured required scope
+//!   (`signaling_auth.required_scope`, default `dplane-signaling`).
 //!
 //! ## Expected JWT shape (enabled mode)
 //!
@@ -27,13 +29,17 @@
 //!   "kid": "<key id present in JWKS>",   // header
 //!   "alg": "EdDSA" | "RS256" | "ES256",  // header
 //!   "sub": "<participant_context_id>",   // payload — MUST equal URL param
+//!   "scope": "dplane-signaling",          // payload — space-delimited; MUST contain "dplane-signaling"
 //!   "exp": <unix-seconds>,                // payload
 //!   "iat": <unix-seconds>                 // payload, optional
 //! }
 //! ```
 //!
 //! The `kid` header is required so the middleware can pick the right key from the JWKS.
-//! `aud` and `iss` are not validated here — add a separate check downstream if needed.
+//! The `scope` claim follows the OAuth2 convention (RFC 6749 §3.3): a single string of
+//! space-delimited scope tokens. A token may carry other scopes alongside the required
+//! one (e.g. `"read:data dplane-signaling"`). `aud` and `iss` are not validated here —
+//! add a separate check downstream if needed.
 
 use std::{
     collections::HashMap,
@@ -89,25 +95,35 @@ impl AuthLayer {
     /// `expected_audience` is the string the verifier requires in the JWT's
     /// `aud` claim. This binds a token to *this* siglet instance and blocks
     /// cross-service replay of JWTs issued by the same IdP for other recipients.
+    ///
+    /// `required_scope` is the scope the JWT's `scope` claim must grant. Comes from
+    /// `signaling_auth.required_scope` in config (default `"dplane-signaling"`).
     pub fn enabled_http(
         jwks_url: impl Into<String>,
         cache_ttl: Duration,
         expected_audience: impl Into<String>,
+        required_scope: impl Into<String>,
         client: reqwest::Client,
     ) -> Self {
         let provider = HttpKeyProvider::new(jwks_url.into(), cache_ttl, client);
         Self::Enabled(Arc::new(AuthState {
             key_provider: Box::new(provider),
             expected_audience: expected_audience.into(),
+            required_scope: required_scope.into(),
         }))
     }
 
     /// Builds an enabled `AuthLayer` backed by a caller-supplied key provider.
     /// Tests use this with an in-memory provider to avoid hitting the network.
-    pub fn enabled_with_provider(provider: Box<dyn KeyProvider>, expected_audience: impl Into<String>) -> Self {
+    pub fn enabled_with_provider(
+        provider: Box<dyn KeyProvider>,
+        expected_audience: impl Into<String>,
+        required_scope: impl Into<String>,
+    ) -> Self {
         Self::Enabled(Arc::new(AuthState {
             key_provider: provider,
             expected_audience: expected_audience.into(),
+            required_scope: required_scope.into(),
         }))
     }
 }
@@ -118,6 +134,10 @@ pub struct AuthState {
     /// The string the JWT's `aud` claim must contain for the request to be
     /// accepted. Comes from `signaling_auth.audience` in config (default `"siglet"`).
     expected_audience: String,
+    /// The scope the JWT's `scope` claim must grant. Comes from
+    /// `signaling_auth.required_scope` in config (default `"dplane-signaling"`).
+    /// Validated non-empty at config load, so an empty value never reaches here.
+    required_scope: String,
 }
 
 /// Resolves the verifying key for a given JWT `kid`.
@@ -226,12 +246,13 @@ pub enum AuthError {
     UnsupportedKey(String),
     InvalidSignature(String),
     SubjectMismatch { expected: String, got: String },
+    InsufficientScope { required: String },
 }
 
 impl AuthError {
     fn status(&self) -> StatusCode {
         match self {
-            AuthError::SubjectMismatch { .. } => StatusCode::FORBIDDEN,
+            AuthError::SubjectMismatch { .. } | AuthError::InsufficientScope { .. } => StatusCode::FORBIDDEN,
             AuthError::JwksFetch(_) => StatusCode::SERVICE_UNAVAILABLE,
             _ => StatusCode::UNAUTHORIZED,
         }
@@ -249,6 +270,9 @@ impl AuthError {
                 "Token subject '{}' does not match participant context '{}'",
                 got, expected
             ),
+            AuthError::InsufficientScope { required } => {
+                format!("Token is missing required scope '{}'", required)
+            }
         }
     }
 }
@@ -399,7 +423,25 @@ async fn verify_jwt(state: &AuthState, headers: &axum::http::HeaderMap, expected
         });
     }
 
+    // Authorization check: the caller proved their identity (signature + sub), but
+    // must additionally hold the signaling scope. `required_spec_claims` only covers
+    // registered claims, so a missing `scope` isn't caught by `decode` — handle it
+    // here. Both "no scope claim" and "scope present but lacking the value" are the
+    // same authorization failure → 403.
+    if !scope_grants(token_data.claims.scope.as_deref(), &state.required_scope) {
+        return Err(AuthError::InsufficientScope {
+            required: state.required_scope.clone(),
+        });
+    }
+
     Ok(())
+}
+
+/// Returns true if `scope` (an OAuth2 space-delimited scope string) contains
+/// `required` as one of its whitespace-separated entries. A `None` scope claim
+/// never grants anything.
+fn scope_grants(scope: Option<&str>, required: &str) -> bool {
+    scope.is_some_and(|s| s.split_whitespace().any(|entry| entry == required))
 }
 
 /// Pairs a JWK-advertised `alg` (`KeyAlgorithm`) with the `Algorithm` parsed from
@@ -431,9 +473,16 @@ fn extract_bearer(headers: &axum::http::HeaderMap) -> Result<&str, AuthError> {
         .ok_or_else(|| AuthError::MalformedAuthHeader("expected 'Bearer <token>' scheme".to_string()))
 }
 
-/// Minimal claim shape required for participant-context binding. Other claims
-/// (iss, aud, custom) are tolerated and ignored at this layer.
+/// Minimal claim shape required for participant-context binding and scope
+/// authorization. `aud`/`exp`/`nbf` are validated by `decode` via the `Validation`
+/// struct rather than deserialized here; other claims (iss, custom) are tolerated
+/// and ignored at this layer.
 #[derive(serde::Deserialize)]
 struct Claims {
     sub: String,
+    /// OAuth2 `scope` claim (RFC 6749 §3.3): a single space-delimited string.
+    /// Optional in the wire format — absence is treated as granting no scopes,
+    /// and rejected by the scope check in `verify_jwt`.
+    #[serde(default)]
+    scope: Option<String>,
 }
