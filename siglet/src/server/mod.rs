@@ -62,7 +62,7 @@ pub fn build_signaling_auth_layer(cfg: &SignalingAuthConfig, http_client: reqwes
 // server tests can exercise them directly.
 // ============================================================================
 
-mod signaling;
+pub mod signaling;
 #[cfg(test)]
 mod tests;
 

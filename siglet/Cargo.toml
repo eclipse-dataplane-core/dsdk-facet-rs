@@ -49,6 +49,7 @@ dsdk-facet-core = { path = "../crates/facet-core", features = ["test-fixtures"] 
 dsdk-facet-testcontainers = { path = "../crates/facet-testcontainers" }
 ed25519-dalek = { workspace = true }
 jsonwebtoken = { workspace = true, features = ["rust_crypto"] }
+wiremock = { workspace = true }
 
 [lints]
 workspace = true

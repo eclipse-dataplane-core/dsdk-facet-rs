@@ -19,8 +19,6 @@
 //! key provider is an in-memory `StaticKeyProvider` that returns a fixed
 //! `JwkSet` derived from a freshly generated Ed25519 keypair.
 
-use std::time::Duration;
-
 use async_trait::async_trait;
 use axum::{
     Router,
@@ -42,7 +40,7 @@ use rand::RngCore;
 use serde_json::{Value, json};
 use tower::ServiceExt;
 
-use crate::server::signaling::auth::{AuthError, AuthLayer, HttpKeyProvider, KeyProvider};
+use crate::server::signaling::auth::{AuthError, AuthLayer, KeyProvider};
 
 // ============================================================================
 // Test Fixtures
@@ -162,9 +160,6 @@ fn router_without_pc_id(layer: AuthLayer) -> Router {
     Router::new().route("/health", get(handler)).layer(layer)
 }
 
-/// The audience tests pair with the AuthLayer constructors. Kept in one place so
-/// all "happy path" tests use the same string and the audience-mismatch tests
-/// can deliberately drift from it.
 const TEST_AUDIENCE: &str = "siglet";
 
 fn standard_claims(sub: &str) -> Value {
@@ -700,22 +695,6 @@ async fn enabled_mode_rejects_jwk_alg_mismatch() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-}
-
-// ============================================================================
-// HttpKeyProvider — Sanity Checks
-// ============================================================================
-
-#[tokio::test]
-async fn http_key_provider_constructs_cleanly() {
-    // Sanity: the constructor doesn't panic and accepts a reasonable URL.
-    // Full end-to-end coverage of the HTTP path would require a mock server;
-    // those tests live in integration tests if/when added.
-    let _ = HttpKeyProvider::new(
-        "https://idp.example.com/.well-known/jwks.json".to_string(),
-        Duration::from_secs(300),
-        reqwest::Client::new(),
-    );
 }
 
 // ============================================================================
