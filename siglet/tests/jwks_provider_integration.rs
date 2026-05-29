@@ -20,7 +20,7 @@ use jsonwebtoken::jwk::{
     PublicKeyUse,
 };
 use rand::RngCore;
-use siglet::server::signaling::auth::{AuthError, HttpKeyProvider, KeyProvider};
+use siglet::server::auth::{AuthError, HttpKeyProvider, KeyProvider};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 

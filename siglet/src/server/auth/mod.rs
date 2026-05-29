@@ -10,17 +10,25 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
-//! Signaling-API authentication middleware.
+//! JWT authentication middleware shared by the signaling API and the token-management API.
 //!
 //! Two modes:
-//! - [`AuthLayer::Disabled`] — extracts `participant_context_id` from the URL path and
-//!   injects it into the request extensions without verifying any bearer token. Intended
-//!   for development and existing tests; not safe for production.
+//! - [`AuthLayer::Disabled`] — extracts `participant_context_id` from the URL path (when
+//!   present) and injects it into the request extensions without verifying any bearer
+//!   token. Intended for development and existing tests; not safe for production.
 //! - [`AuthLayer::Enabled`] — additionally requires an `Authorization: Bearer <jwt>` header,
-//!   verifies the JWT signature against a JWKS fetched from a configurable URL, asserts
-//!   that the `sub` claim matches the `participant_context_id` from the URL path, and
-//!   requires the `scope` claim to grant the configured required scope
-//!   (`signaling_auth.required_scope`, default `dplane-signaling`).
+//!   verifies the JWT signature against a JWKS fetched from a configurable URL, requires the
+//!   `scope` claim to grant a configured scope, and — when the route carries a
+//!   `participant_context_id` — asserts that the `sub` claim matches it.
+//!
+//! ## Subject binding and pathless routes
+//!
+//! Routes are keyed on `participant_context_id` on the signaling API and on the
+//! per-participant token routes; there the `sub` claim must equal that path segment. Some
+//! protected routes have no participant context (e.g. the token API's `/tokens/verify`).
+//! [`NoParticipantContext`] selects what happens then: the signaling API passes such
+//! requests through unauthenticated (its only pathless routes are intentionally open),
+//! while the token API still requires a valid scoped token but skips subject binding.
 //!
 //! ## Expected JWT shape (enabled mode)
 //!
@@ -28,8 +36,8 @@
 //! {
 //!   "kid": "<key id present in JWKS>",   // header
 //!   "alg": "EdDSA" | "RS256" | "ES256",  // header
-//!   "sub": "<participant_context_id>",   // payload — MUST equal URL param
-//!   "scope": "dplane-signaling",          // payload — space-delimited; MUST contain "dplane-signaling"
+//!   "sub": "<participant_context_id>",   // payload — MUST equal URL param when present
+//!   "scope": "dplane-signaling",          // payload — space-delimited; MUST contain the required scope
 //!   "exp": <unix-seconds>,                // payload
 //!   "iat": <unix-seconds>                 // payload, optional
 //! }
@@ -40,6 +48,9 @@
 //! space-delimited scope tokens. A token may carry other scopes alongside the required
 //! one (e.g. `"read:data dplane-signaling"`). `aud` and `iss` are not validated here —
 //! add a separate check downstream if needed.
+
+#[cfg(test)]
+mod tests;
 
 use std::{
     collections::HashMap,
@@ -65,12 +76,12 @@ use reqwest::StatusCode;
 use tokio::sync::RwLock;
 use tower::{Layer, Service};
 
-/// The path parameter that carries the participant-context identifier on the
-/// signaling routes. Kept here (rather than inline) so any future renaming
-/// stays at one location.
+/// The path parameter that carries the participant-context identifier on
+/// participant-scoped routes (signaling routes and the per-participant token routes).
+/// Kept here (rather than inline) so any future renaming stays at one location.
 const PATH_PARAM_PC_ID: &str = "participant_context_id";
 
-/// Allowlist of signing algorithms accepted on incoming signaling-API JWTs.
+/// Allowlist of signing algorithms accepted on incoming JWTs.
 ///
 /// Constraining this list (rather than trusting `header.alg`) defeats the classic
 /// alg-confusion attack where a forged token claims a weaker algorithm than the
@@ -78,7 +89,24 @@ const PATH_PARAM_PC_ID: &str = "participant_context_id";
 /// or other OIDC IdPs work out of the box.
 const ALLOWED_ALGORITHMS: &[Algorithm] = &[Algorithm::EdDSA, Algorithm::RS256, Algorithm::ES256];
 
-/// JWT-auth middleware for the signaling API.
+/// What the middleware does with an enabled-mode request whose path carries no
+/// `participant_context_id`.
+///
+/// Subject binding requires a participant-context id to bind against; this enum
+/// covers the routes that don't have one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NoParticipantContext {
+    /// Pass the request through without authenticating it. The signaling router only
+    /// mounts participant-scoped routes plus intentionally-open ones (e.g. health), so
+    /// a missing id means an open route. (Signaling API.)
+    PassThrough,
+    /// Still require a valid, correctly-scoped JWT, but skip subject binding. Used by
+    /// the token API, whose `/tokens/verify` route is protected yet has no participant
+    /// context to bind `sub` against.
+    RequireToken,
+}
+
+/// JWT-auth middleware shared by the signaling and token-management APIs.
 #[derive(Clone)]
 pub enum AuthLayer {
     Disabled,
@@ -98,6 +126,10 @@ impl AuthLayer {
     ///
     /// `required_scope` is the scope the JWT's `scope` claim must grant. Comes from
     /// `signaling_auth.required_scope` in config (default `"dplane-signaling"`).
+    ///
+    /// Built for the signaling API: pathless requests pass through unauthenticated
+    /// ([`NoParticipantContext::PassThrough`]). Use [`AuthLayer::enabled_http_require_token`]
+    /// for the token API.
     pub fn enabled_http(
         jwks_url: impl Into<String>,
         cache_ttl: Duration,
@@ -106,24 +138,73 @@ impl AuthLayer {
         client: reqwest::Client,
     ) -> Self {
         let provider = HttpKeyProvider::new(jwks_url.into(), cache_ttl, client);
-        Self::Enabled(Arc::new(AuthState {
-            key_provider: Box::new(provider),
-            expected_audience: expected_audience.into(),
-            required_scope: required_scope.into(),
-        }))
+        Self::enabled(
+            Box::new(provider),
+            expected_audience,
+            required_scope,
+            NoParticipantContext::PassThrough,
+        )
     }
 
-    /// Builds an enabled `AuthLayer` backed by a caller-supplied key provider.
-    /// Tests use this with an in-memory provider to avoid hitting the network.
+    /// Like [`AuthLayer::enabled_http`] but authenticates *every* request even when the
+    /// path carries no participant context ([`NoParticipantContext::RequireToken`]).
+    /// Built for the token-management API, whose `/tokens/verify` route is protected but
+    /// has no participant context to bind `sub` against.
+    pub fn enabled_http_require_token(
+        jwks_url: impl Into<String>,
+        cache_ttl: Duration,
+        expected_audience: impl Into<String>,
+        required_scope: impl Into<String>,
+        client: reqwest::Client,
+    ) -> Self {
+        let provider = HttpKeyProvider::new(jwks_url.into(), cache_ttl, client);
+        Self::enabled(
+            Box::new(provider),
+            expected_audience,
+            required_scope,
+            NoParticipantContext::RequireToken,
+        )
+    }
+
+    /// Builds an enabled `AuthLayer` backed by a caller-supplied key provider, using the
+    /// signaling pass-through policy. Tests use this with an in-memory provider to avoid
+    /// hitting the network.
     pub fn enabled_with_provider(
         provider: Box<dyn KeyProvider>,
         expected_audience: impl Into<String>,
         required_scope: impl Into<String>,
     ) -> Self {
+        Self::enabled(
+            provider,
+            expected_audience,
+            required_scope,
+            NoParticipantContext::PassThrough,
+        )
+    }
+
+    /// Builds an enabled `AuthLayer` backed by a caller-supplied key provider, with an
+    /// explicit [`NoParticipantContext`] policy. Lets token-API tests exercise the
+    /// require-token behavior with an in-memory provider.
+    pub fn enabled_with_provider_and_policy(
+        provider: Box<dyn KeyProvider>,
+        expected_audience: impl Into<String>,
+        required_scope: impl Into<String>,
+        no_participant_context: NoParticipantContext,
+    ) -> Self {
+        Self::enabled(provider, expected_audience, required_scope, no_participant_context)
+    }
+
+    fn enabled(
+        provider: Box<dyn KeyProvider>,
+        expected_audience: impl Into<String>,
+        required_scope: impl Into<String>,
+        no_participant_context: NoParticipantContext,
+    ) -> Self {
         Self::Enabled(Arc::new(AuthState {
             key_provider: provider,
             expected_audience: expected_audience.into(),
             required_scope: required_scope.into(),
+            no_participant_context,
         }))
     }
 }
@@ -134,10 +215,13 @@ pub struct AuthState {
     /// The string the JWT's `aud` claim must contain for the request to be
     /// accepted. Comes from `signaling_auth.audience` in config (default `"siglet"`).
     expected_audience: String,
-    /// The scope the JWT's `scope` claim must grant. Comes from
-    /// `signaling_auth.required_scope` in config (default `"dplane-signaling"`).
-    /// Validated non-empty at config load, so an empty value never reaches here.
+    /// The scope the JWT's `scope` claim must grant. For the signaling API this comes
+    /// from `signaling_auth.required_scope` (default `"dplane-signaling"`); for the token
+    /// API it is the fixed `siglet-token-api` scope. Validated non-empty at config load,
+    /// so an empty value never reaches here.
     required_scope: String,
+    /// How to handle an enabled-mode request whose path carries no participant context.
+    no_participant_context: NoParticipantContext,
 }
 
 /// Resolves the verifying key for a given JWT `kid`.
@@ -326,8 +410,8 @@ where
         Box::pin(async move {
             let (mut parts, body) = req.into_parts();
 
-            // Every signaling route is keyed on participant_context_id. If the path
-            // doesn't have it, we have nothing to authenticate against.
+            // Participant-scoped routes carry participant_context_id in the path; pull it
+            // out (if any) to drive subject binding below.
             let path: Path<HashMap<String, String>> = match parts.extract().await {
                 Ok(p) => p,
                 Err(e) => {
@@ -336,36 +420,63 @@ where
                 }
             };
 
-            let pc_id = match path.get(PATH_PARAM_PC_ID) {
-                Some(id) => id.clone(),
-                None => {
-                    // Backward-compat: previously this middleware passed through requests
-                    // without a participant_context_id silently. Maintain that for routes
-                    // that don't carry the parameter rather than breaking them.
-                    let req = Request::from_parts(parts, body);
-                    return inner.call(req).await;
+            let pc_id = path.get(PATH_PARAM_PC_ID).cloned();
+
+            match (&layer, pc_id) {
+                // Disabled mode never verifies a token. When the route carries a
+                // participant context we still inject it (legacy behavior); otherwise we
+                // pass through untouched.
+                (AuthLayer::Disabled, pc_id) => {
+                    let mut req = Request::from_parts(parts, body);
+                    if let Some(pc_id) = pc_id {
+                        req.extensions_mut()
+                            .insert(ParticipantContext::builder().id(&pc_id).build());
+                    }
+                    inner.call(req).await
                 }
-            };
 
-            // Enabled mode does JWT verification; disabled mode trusts the path
-            // identifier directly (legacy behavior).
-            if let AuthLayer::Enabled(state) = &layer
-                && let Err(err) = verify_jwt(state.as_ref(), &parts.headers, &pc_id).await
-            {
-                return Ok(err.into_response());
+                // Enabled mode, participant-scoped route: verify the token and bind
+                // `sub` to the path id, then inject the participant context.
+                (AuthLayer::Enabled(state), Some(pc_id)) => {
+                    if let Err(err) = verify_jwt(state.as_ref(), &parts.headers, Some(&pc_id)).await {
+                        return Ok(err.into_response());
+                    }
+                    let mut req = Request::from_parts(parts, body);
+                    req.extensions_mut()
+                        .insert(ParticipantContext::builder().id(&pc_id).build());
+                    inner.call(req).await
+                }
+
+                // Enabled mode, pathless route: behavior depends on the configured policy.
+                (AuthLayer::Enabled(state), None) => match state.no_participant_context {
+                    NoParticipantContext::PassThrough => {
+                        let req = Request::from_parts(parts, body);
+                        inner.call(req).await
+                    }
+                    NoParticipantContext::RequireToken => {
+                        // Require a valid, correctly-scoped token, but with no subject to
+                        // bind against.
+                        if let Err(err) = verify_jwt(state.as_ref(), &parts.headers, None).await {
+                            return Ok(err.into_response());
+                        }
+                        let req = Request::from_parts(parts, body);
+                        inner.call(req).await
+                    }
+                },
             }
-
-            let mut req = Request::from_parts(parts, body);
-            req.extensions_mut()
-                .insert(ParticipantContext::builder().id(&pc_id).build());
-            inner.call(req).await
         })
     }
 }
 
-/// Verifies the bearer token in the request headers against the JWKS and asserts
-/// that the token's `sub` claim equals the expected participant-context id.
-async fn verify_jwt(state: &AuthState, headers: &axum::http::HeaderMap, expected_pc_id: &str) -> Result<(), AuthError> {
+/// Verifies the bearer token in the request headers against the JWKS, enforcing the
+/// audience and required scope. When `expected_pc_id` is `Some`, additionally asserts
+/// that the token's `sub` claim equals that participant-context id; when `None`
+/// (pathless routes) the subject is not bound.
+async fn verify_jwt(
+    state: &AuthState,
+    headers: &axum::http::HeaderMap,
+    expected_pc_id: Option<&str>,
+) -> Result<(), AuthError> {
     let token = extract_bearer(headers)?;
 
     let header = decode_header(token).map_err(|e| AuthError::InvalidSignature(format!("bad JWT header: {}", e)))?;
@@ -416,16 +527,20 @@ async fn verify_jwt(state: &AuthState, headers: &axum::http::HeaderMap, expected
     let token_data =
         decode::<Claims>(token, &decoding_key, &validation).map_err(|e| AuthError::InvalidSignature(e.to_string()))?;
 
-    if token_data.claims.sub != expected_pc_id {
+    // Subject binding only applies on participant-scoped routes. Pathless routes
+    // (token API's `/tokens/verify`) pass `None` and skip this check.
+    if let Some(expected_pc_id) = expected_pc_id
+        && token_data.claims.sub != expected_pc_id
+    {
         return Err(AuthError::SubjectMismatch {
             expected: expected_pc_id.to_string(),
             got: token_data.claims.sub,
         });
     }
 
-    // Authorization check: the caller proved their identity (signature + sub), but
-    // must additionally hold the signaling scope. `required_spec_claims` only covers
-    // registered claims, so a missing `scope` isn't caught by `decode` — handle it
+    // Authorization check: the caller proved their identity (signature, and `sub` when
+    // bound), but must additionally hold the required scope. `required_spec_claims` only
+    // covers registered claims, so a missing `scope` isn't caught by `decode` — handle it
     // here. Both "no scope claim" and "scope present but lacking the value" are the
     // same authorization failure → 403.
     if !scope_grants(token_data.claims.scope.as_deref(), &state.required_scope) {

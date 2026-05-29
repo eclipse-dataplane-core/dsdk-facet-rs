@@ -135,6 +135,9 @@ Response (JSON Web Key Set):
 }
 ```
 
+The `/keys` endpoint is **public** — it publishes only public keys and is the discovery mechanism consumers use to
+verify Siglet-issued tokens, so it requires no authentication even when token-API auth is enabled.
+
 Use a standard JWT library to verify the signature, expiration, `aud`, and `iss` claims. Cache the JWKS response and
 refresh it on key rotation (when verification fails with the cached key).
 
@@ -145,6 +148,7 @@ until it expires. If revocation must be detected immediately, use the verificati
 
 ```
 POST http://siglet:8080/tokens/verify
+Authorization: Bearer <siglet-token-api JWT>
 Content-Type: application/json
 
 {
@@ -152,6 +156,9 @@ Content-Type: application/json
   "audience": "did:web:your-component.example.com"
 }
 ```
+
+When token-API auth is enabled, this endpoint requires a caller JWT granting the `siglet-token-api` scope (see
+[Token API Authentication](#token-api-authentication)); it is distinct from the `token` being verified in the body.
 
 Siglet checks the JWT signature **and** looks up the token's `jti` in the renewable token store. If the token has been
 revoked (flow terminated), this returns `401` even if the JWT is cryptographically valid.
@@ -317,6 +324,38 @@ SIGLET__SIGNALING_AUTH__REQUIRED_SCOPE=dplane-signaling
 
 The JWKS is fetched lazily and cached in-process for `cache_ttl_seconds`. A request
 arriving after the TTL pays the round-trip cost of refreshing the cache.
+
+---
+
+## Token API Authentication
+
+The token-management API (port 8080) authenticates the same way as the signaling API,
+against the **same** JWKS and audience configured under `[signaling_auth]` — there is no
+separate auth config block. The only differences are the required scope and which routes
+are protected.
+
+### Protected vs. public routes
+
+| Route                                     | Auth required | Notes                                              |
+|-------------------------------------------|---------------|----------------------------------------------------|
+| `GET`/`DELETE /tokens/{participant_context_id}/{id}` | yes | `sub` must equal the `{participant_context_id}` path segment |
+| `POST /tokens/verify`                     | yes           | No participant context, so `sub` is not bound      |
+| `GET /keys` (JWKS)                        | no            | Public discovery endpoint                          |
+| `GET /` , `GET /health`                   | no            | Liveness/readiness                                 |
+
+### Required scope
+
+Protected routes require a JWT whose space-delimited `scope` claim contains
+`siglet-token-api` (rather than the signaling API's `dplane-signaling`). The matching
+and rejection semantics are identical to the signaling API: a missing or non-matching
+scope returns `403`, a missing/invalid/expired token or wrong `aud` returns `401`, and a
+`sub` that doesn't match the path participant context returns `403`. Unlike the signaling
+API — whose only pathless routes are intentionally open — every protected token-API route
+requires a valid token, including `POST /tokens/verify`.
+
+Unlike `signaling_auth.required_scope`, the token-API scope is a fixed value, not a config
+knob; enabling/disabling token-API auth follows `signaling_auth.mode` together with the
+signaling API.
 
 ---
 

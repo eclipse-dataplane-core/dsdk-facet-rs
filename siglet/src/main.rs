@@ -15,7 +15,7 @@ use siglet::{
     config::{SigletConfig, StorageBackend, load_config},
     error::SigletError,
     http::build_http_client,
-    server::{build_signaling_auth_layer, run_server},
+    server::{build_signaling_auth_layer, build_token_api_auth_layer, run_server},
 };
 use tracing::{error, info};
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
@@ -50,6 +50,8 @@ async fn run(cfg: SigletConfig) -> Result<(), SigletError> {
     // Single process-wide HTTP client
     let http_client = build_http_client(&cfg.http_client);
     let auth_layer = build_signaling_auth_layer(&cfg.signaling_auth, http_client.clone());
+    // The token API reuses the signaling JWKS/audience but requires the siglet-token-api scope.
+    let token_auth_layer = build_token_api_auth_layer(&cfg.signaling_auth, http_client.clone());
     match &cfg.storage_backend {
         StorageBackend::Memory => {
             let runtime = assemble_memory(&cfg, http_client).await?;
@@ -62,6 +64,7 @@ async fn run(cfg: SigletConfig) -> Result<(), SigletError> {
                 runtime.token_api_handler,
                 runtime.refresh_handler,
                 auth_layer,
+                token_auth_layer,
             )
             .await
         }
@@ -76,6 +79,7 @@ async fn run(cfg: SigletConfig) -> Result<(), SigletError> {
                 runtime.token_api_handler,
                 runtime.refresh_handler,
                 auth_layer,
+                token_auth_layer,
             )
             .await
         }

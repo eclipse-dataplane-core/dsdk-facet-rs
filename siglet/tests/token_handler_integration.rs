@@ -24,6 +24,7 @@ use dsdk_facet_core::token::manager::{RenewableTokenPair, TokenManager};
 use dsdk_facet_testcontainers::utils::{get_available_port, wait_for_port_ready};
 use serde_json::Value;
 use siglet::handler::token::TokenApiHandler;
+use siglet::server::auth::AuthLayer;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -115,7 +116,7 @@ async fn test_token_operations() {
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     tokio::spawn(async move {
-        axum::serve(listener, handler.router()).await.unwrap();
+        axum::serve(listener, handler.router(AuthLayer::Disabled)).await.unwrap();
     });
 
     wait_for_port_ready(addr, Duration::from_secs(5)).await.unwrap();

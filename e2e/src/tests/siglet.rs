@@ -44,8 +44,11 @@ use uuid::Uuid;
 const SIGNALING_AUDIENCE: &str = "siglet";
 
 /// Scope the signaling-API auth layer requires on incoming JWTs. Minted into the
-/// `scope` claim below; mirrors `signaling::auth::REQUIRED_SCOPE` on the siglet side.
+/// `scope` claim below; mirrors `signaling_auth.required_scope` on the siglet side.
 const SIGNALING_SCOPE: &str = "dplane-signaling";
+
+/// Scope the token-management-API auth layer requires on incoming JWTs.
+const TOKEN_API_SCOPE: &str = "siglet-token-api";
 
 /// Test that Siglet deploys successfully and responds to health checks
 #[tokio::test]
@@ -199,6 +202,83 @@ async fn test_signaling_auth_rejects_invalid_tokens() -> Result<()> {
     Ok(())
 }
 
+/// Verifies the token-management API enforces JWT auth analogously to the signaling
+/// API: protected routes require a `siglet-token-api`-scoped token, the per-participant
+/// route binds `sub`, and the JWKS endpoint stays public.
+#[tokio::test]
+#[ignore]
+async fn test_token_api_auth_rejects_invalid_tokens() -> Result<()> {
+    let deployment = ensure_siglet_deployed().await?;
+    let jwks = ensure_signaling_jwks().await?;
+
+    let run_id = Uuid::new_v4().to_string();
+    let ctx = TestCtx::new(&deployment, &run_id, jwks);
+
+    let token_url = format!(
+        "http://localhost:{}/tokens/{}/{}",
+        ctx.siglet_api_port, ctx.consumer_participant_context_id, ctx.consumer_flow_id
+    );
+
+    // No bearer token → 401 Unauthorized.
+    let no_token = ctx
+        .client
+        .get(&token_url)
+        .send()
+        .await
+        .context("Failed to send unauthenticated token request")?;
+    assert_eq!(
+        no_token.status(),
+        reqwest::StatusCode::UNAUTHORIZED,
+        "Token API should reject a request with no bearer token"
+    );
+
+    // A signaling-scoped token (wrong scope) → 403 Forbidden.
+    let wrong_scope = ctx.signaling_token(&ctx.consumer_participant_context_id).await?;
+    let wrong_scope_response = ctx
+        .client
+        .get(&token_url)
+        .header("Authorization", format!("Bearer {}", wrong_scope))
+        .send()
+        .await
+        .context("Failed to send wrong-scope token request")?;
+    assert_eq!(
+        wrong_scope_response.status(),
+        reqwest::StatusCode::FORBIDDEN,
+        "Token API should reject a token lacking the siglet-token-api scope"
+    );
+
+    // Correct scope but `sub` doesn't match the path participant context → 403 Forbidden.
+    let wrong_sub = ctx.token_api_token(&format!("intruder-{}", run_id)).await?;
+    let wrong_sub_response = ctx
+        .client
+        .get(&token_url)
+        .header("Authorization", format!("Bearer {}", wrong_sub))
+        .send()
+        .await
+        .context("Failed to send subject-mismatch token request")?;
+    assert_eq!(
+        wrong_sub_response.status(),
+        reqwest::StatusCode::FORBIDDEN,
+        "Token API should reject a token whose sub doesn't match the path participant context"
+    );
+
+    // The JWKS endpoint is public — reachable with no token.
+    let jwks_url = format!("http://localhost:{}/keys", ctx.siglet_api_port);
+    let jwks_response = ctx
+        .client
+        .get(&jwks_url)
+        .send()
+        .await
+        .context("Failed to fetch JWKS without a token")?;
+    assert!(
+        jwks_response.status().is_success(),
+        "JWKS endpoint must stay public, got: {}",
+        jwks_response.status()
+    );
+
+    Ok(())
+}
+
 /// Immutable setup shared across all steps of the pull transfer test sequence.
 struct TestCtx {
     client: Client,
@@ -276,6 +356,30 @@ impl TestCtx {
             .generate_token(&pc, claims)
             .await
             .context("Failed to mint signaling-API token")
+    }
+
+    /// Mints a token-management-API bearer token granting the `siglet-token-api` scope.
+    ///
+    /// The token API reuses the signaling JWKS/audience, so the same generator signs it.
+    /// On the per-participant token routes Siglet binds `sub` to the path participant
+    /// context, so pass that id as `sub`; on `/tokens/verify` the subject isn't bound.
+    async fn token_api_token(&self, sub: &str) -> Result<String> {
+        let mut custom = serde_json::Map::new();
+        custom.insert(
+            "scope".to_string(),
+            serde_json::Value::String(TOKEN_API_SCOPE.to_string()),
+        );
+        let claims = TokenClaims::builder()
+            .sub(sub)
+            .aud(SIGNALING_AUDIENCE)
+            .exp(unix_now_plus_secs(300))
+            .custom(custom)
+            .build();
+        let pc = ParticipantContext::builder().id(sub).build();
+        self.signaling_token_gen
+            .generate_token(&pc, claims)
+            .await
+            .context("Failed to mint token-API token")
     }
 }
 
@@ -566,9 +670,13 @@ async fn retrieve_and_verify_token(ctx: &TestCtx) -> Result<String> {
         "http://localhost:{}/tokens/{}/{}",
         ctx.siglet_api_port, ctx.consumer_participant_context_id, ctx.consumer_flow_id
     );
+    // The token API requires a siglet-token-api-scoped JWT; on this per-participant
+    // route `sub` must equal the participant context in the path.
+    let api_auth = ctx.token_api_token(&ctx.consumer_participant_context_id).await?;
     let get_response = ctx
         .client
         .get(&get_token_url)
+        .header("Authorization", format!("Bearer {}", api_auth))
         .send()
         .await
         .context("Failed to retrieve token from token API")?;
@@ -591,9 +699,12 @@ async fn retrieve_and_verify_token(ctx: &TestCtx) -> Result<String> {
         .with_context(|| format!("Retrieved token should not be empty, got: {}", get_result))?
         .to_string();
 
+    // `/tokens/verify` is protected too, but has no participant context to bind `sub`
+    // against — the scoped token alone authorizes it.
     let verify_response = ctx
         .client
         .post(&ctx.verify_url)
+        .header("Authorization", format!("Bearer {}", api_auth))
         .header("Content-Type", "application/json")
         .json(&serde_json::json!({ "token": api_token, "audience": "did:web:provider" }))
         .send()
@@ -713,9 +824,14 @@ async fn do_refresh(ctx: &TestCtx, api_token: &str, refresh_token: &str) -> Resu
 /// Steps 8–9: Verify that the old access token is rejected after rotation and
 /// that the new token is accepted.
 async fn check_token_rotation(ctx: &TestCtx, old_token: &str, new_token: &str) -> Result<()> {
+    // The verify endpoint is auth-protected; supply a token-API token so requests reach
+    // the handler and the 401/200 below reflect the *verified* token's state (revoked vs
+    // valid), not the auth layer rejecting the call itself.
+    let api_auth = ctx.token_api_token(&ctx.consumer_participant_context_id).await?;
     let stale_response = ctx
         .client
         .post(&ctx.verify_url)
+        .header("Authorization", format!("Bearer {}", api_auth))
         .header("Content-Type", "application/json")
         .json(&serde_json::json!({ "token": old_token, "audience": "did:web:provider" }))
         .send()
@@ -730,6 +846,7 @@ async fn check_token_rotation(ctx: &TestCtx, old_token: &str, new_token: &str) -
     let new_response = ctx
         .client
         .post(&ctx.verify_url)
+        .header("Authorization", format!("Bearer {}", api_auth))
         .header("Content-Type", "application/json")
         .json(&serde_json::json!({ "token": new_token, "audience": "did:web:provider" }))
         .send()

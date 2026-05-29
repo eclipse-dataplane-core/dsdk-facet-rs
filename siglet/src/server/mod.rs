@@ -13,6 +13,7 @@
 use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
 
+use auth::AuthLayer;
 use axum::{
     Router,
     response::{IntoResponse, Json},
@@ -21,7 +22,6 @@ use axum::{
 use dataplane_sdk::{core::db::tx::TransactionalContext, sdk::DataPlaneSdk};
 use dataplane_sdk_axum::router::participants_router as signaling_router;
 use serde_json::json;
-use signaling::auth::AuthLayer;
 use tokio::{signal, task::JoinSet};
 use tokio_util::sync::CancellationToken;
 use tower_http::trace::TraceLayer;
@@ -64,12 +64,44 @@ pub fn build_signaling_auth_layer(cfg: &SignalingAuthConfig, http_client: reqwes
     }
 }
 
+/// Scope required on token-management-API JWTs.
+///
+/// The token API reuses the signaling JWKS and audience (see [`build_token_api_auth_layer`])
+/// but requires this scope in place of the signaling one. Kept as a fixed value rather
+/// than a config knob to keep the shared `signaling_auth` block small.
+const TOKEN_API_REQUIRED_SCOPE: &str = "siglet-token-api";
+
+/// Builds the `AuthLayer` for the token-management API from the (shared) signaling auth
+/// configuration.
+///
+/// Reuses `jwks_url`, `cache_ttl_seconds`, and `audience` from `signaling_auth`, but
+/// requires the `siglet-token-api` scope and authenticates pathless protected routes
+/// (`/tokens/verify`) rather than passing them through. `build_signaling_auth_layer`
+/// already logs the "auth disabled" warning, so the disabled branch here stays quiet.
+pub fn build_token_api_auth_layer(cfg: &SignalingAuthConfig, http_client: reqwest::Client) -> AuthLayer {
+    match cfg {
+        SignalingAuthConfig::Disabled => AuthLayer::Disabled,
+        SignalingAuthConfig::Enabled {
+            jwks_url,
+            cache_ttl_seconds,
+            audience,
+            ..
+        } => AuthLayer::enabled_http_require_token(
+            jwks_url,
+            Duration::from_secs(*cache_ttl_seconds),
+            audience,
+            TOKEN_API_REQUIRED_SCOPE,
+            http_client,
+        ),
+    }
+}
+
 // ============================================================================
 // Visibility note: run_siglet_api and run_refresh_api are pub(crate) so that
 // server tests can exercise them directly.
 // ============================================================================
 
-pub mod signaling;
+pub mod auth;
 #[cfg(test)]
 mod tests;
 
@@ -115,6 +147,7 @@ pub async fn run_server<C>(
     token_api_handler: TokenApiHandler,
     refresh_handler: TokenRefreshHandler,
     signaling_auth: AuthLayer,
+    token_api_auth: AuthLayer,
 ) -> Result<(), SigletError>
 where
     C: TransactionalContext + 'static,
@@ -136,6 +169,7 @@ where
         bind,
         siglet_api_port,
         token_api_handler,
+        token_api_auth,
         cancel_token.clone(),
     ));
 
@@ -262,13 +296,14 @@ pub(crate) async fn run_siglet_api(
     bind: IpAddr,
     port: u16,
     token_api_handler: TokenApiHandler,
+    token_api_auth: AuthLayer,
     cancel_token: CancellationToken,
 ) -> Result<(), SigletError> {
     let addr: SocketAddr = format!("{}:{}", bind, port)
         .parse()
         .map_err(|e: std::net::AddrParseError| SigletError::Network(Box::new(e)))?;
 
-    let app = create_router().merge(token_api_handler.router());
+    let app = create_router().merge(token_api_handler.router(token_api_auth));
 
     info!("Siglet API listening on {}", addr);
 

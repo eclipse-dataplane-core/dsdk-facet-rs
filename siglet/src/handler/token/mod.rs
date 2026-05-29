@@ -24,6 +24,8 @@ use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
+use crate::server::auth::AuthLayer;
+
 pub mod error;
 
 #[derive(Serialize)]
@@ -45,15 +47,27 @@ pub struct TokenApiHandler {
 }
 
 impl TokenApiHandler {
-    pub fn router(self) -> Router {
-        Router::new()
+    /// Builds the token-API router with `auth_layer` guarding the protected routes.
+    ///
+    /// The token CRUD routes (`/tokens/{participant_context_id}/{id}`) and the verify
+    /// route (`/tokens/verify`) require a valid `siglet-token-api`-scoped JWT; on the
+    /// CRUD routes the auth layer additionally binds `sub` to the participant context.
+    /// The JWKS endpoint (`/keys`) is intentionally left public — consumers fetch it to
+    /// verify the tokens Siglet issues, so requiring auth there would break them. Pass
+    /// [`AuthLayer::Disabled`] to skip verification (dev/tests).
+    pub fn router(self, auth_layer: AuthLayer) -> Router {
+        let protected = Router::new()
             .route(
                 "/tokens/{participant_context_id}/{id}",
                 get(get_token).delete(delete_token),
             )
             .route("/tokens/verify", post(verify_token))
-            .route("/keys", get(get_jwk_set))
-            .with_state(self)
+            .layer(auth_layer)
+            .with_state(self.clone());
+
+        let public = Router::new().route("/keys", get(get_jwk_set)).with_state(self);
+
+        protected.merge(public)
     }
 }
 

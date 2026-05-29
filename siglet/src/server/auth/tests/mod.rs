@@ -12,7 +12,7 @@
 
 #![allow(clippy::unwrap_used)]
 
-//! Unit tests for the signaling-API auth middleware.
+//! Unit tests for the shared JWT auth middleware.
 //!
 //! These tests drive `AuthLayer` directly through a minimal axum router so we
 //! never need to spin up a real server or a real JWKS endpoint. The shared
@@ -40,7 +40,7 @@ use rand::RngCore;
 use serde_json::{Value, json};
 use tower::ServiceExt;
 
-use crate::server::signaling::auth::{AuthError, AuthLayer, KeyProvider};
+use crate::server::auth::{AuthError, AuthLayer, KeyProvider, NoParticipantContext};
 
 // ============================================================================
 // Test Fixtures
@@ -162,9 +162,12 @@ fn router_without_pc_id(layer: AuthLayer) -> Router {
 
 const TEST_AUDIENCE: &str = "siglet";
 
-/// The scope the signaling-API middleware requires (mirrors `auth::REQUIRED_SCOPE`,
-/// which is private to that module).
+/// The signaling scope these tests configure the layer with (the default value of
+/// `signaling_auth.required_scope`).
 const REQUIRED_SCOPE: &str = "dplane-signaling";
+
+/// The scope the token-management API requires (the fixed `TOKEN_API_REQUIRED_SCOPE`).
+const TOKEN_API_SCOPE: &str = "siglet-token-api";
 
 fn standard_claims(sub: &str) -> Value {
     let exp = chrono::Utc::now().timestamp() + 3600;
@@ -938,6 +941,165 @@ async fn enabled_mode_rejects_jwk_alg_mismatch() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
+// ============================================================================
+// Token-API policy (NoParticipantContext::RequireToken)
+// ============================================================================
+//
+// The token API reuses this middleware with the RequireToken policy and the
+// siglet-token-api scope. Unlike the signaling API, a protected route with no
+// participant_context_id (e.g. /tokens/verify) must still present a valid scoped
+// token rather than passing through.
+
+/// Builds a token-API-style layer: RequireToken policy + the siglet-token-api scope.
+fn token_api_layer(jwk_set: JwkSet) -> AuthLayer {
+    AuthLayer::enabled_with_provider_and_policy(
+        Box::new(StaticKeyProvider::new(jwk_set)),
+        TEST_AUDIENCE,
+        TOKEN_API_SCOPE,
+        NoParticipantContext::RequireToken,
+    )
+}
+
+/// Router with a pathless protected route, mirroring `/tokens/verify`.
+fn pathless_router(layer: AuthLayer) -> Router {
+    async fn handler() -> &'static str {
+        "ok"
+    }
+    Router::new().route("/tokens/verify", get(handler)).layer(layer)
+}
+
+/// Claims carrying the token-API scope. `sub` is irrelevant on pathless routes but
+/// matters on participant-scoped ones.
+fn token_api_claims(sub: &str) -> Value {
+    let now = chrono::Utc::now().timestamp();
+    json!({
+        "sub": sub,
+        "aud": TEST_AUDIENCE,
+        "scope": TOKEN_API_SCOPE,
+        "iat": now,
+        "exp": now + 3600,
+    })
+}
+
+#[tokio::test]
+async fn require_token_mode_accepts_pathless_scoped_token() {
+    let key = TestKey::new("kid-1");
+    let app = pathless_router(token_api_layer(key.jwk_set.clone()));
+
+    // No participant context on the path, but a valid siglet-token-api token → 200.
+    let token = key.issue(token_api_claims("any-subject"));
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/tokens/verify")
+                .header("authorization", format!("Bearer {}", token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn require_token_mode_rejects_pathless_without_token() {
+    // The key difference from the signaling API: a pathless protected route is NOT
+    // passed through. With no Authorization header it's rejected.
+    let key = TestKey::new("kid-1");
+    let app = pathless_router(token_api_layer(key.jwk_set.clone()));
+
+    let response = app
+        .oneshot(Request::builder().uri("/tokens/verify").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn require_token_mode_rejects_pathless_wrong_scope() {
+    let key = TestKey::new("kid-1");
+    let app = pathless_router(token_api_layer(key.jwk_set.clone()));
+
+    // A token scoped for the signaling API must not satisfy the token API.
+    let now = chrono::Utc::now().timestamp();
+    let token = key.issue(json!({
+        "sub": "any-subject",
+        "aud": TEST_AUDIENCE,
+        "scope": REQUIRED_SCOPE, // dplane-signaling, not siglet-token-api
+        "iat": now,
+        "exp": now + 3600,
+    }));
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/tokens/verify")
+                .header("authorization", format!("Bearer {}", token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    let body = response_text(response).await;
+    assert!(body.contains(TOKEN_API_SCOPE));
+}
+
+#[tokio::test]
+async fn require_token_mode_still_binds_subject_on_participant_route() {
+    // When a participant context IS present (the per-participant token routes), the
+    // RequireToken policy still binds `sub` to it — exactly like the signaling API.
+    let key = TestKey::new("kid-1");
+
+    // Matching sub → 200.
+    let app = echo_router(token_api_layer(key.jwk_set.clone()));
+    let token = key.issue(token_api_claims("ctx-abc"));
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/dataflows/ctx-abc/start")
+                .header("authorization", format!("Bearer {}", token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Mismatched sub → 403, even with the correct scope.
+    let app = echo_router(token_api_layer(key.jwk_set.clone()));
+    let token = key.issue(token_api_claims("ctx-other"));
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/dataflows/ctx-abc/start")
+                .header("authorization", format!("Bearer {}", token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn pass_through_mode_allows_pathless_route_without_token() {
+    // Contrast with RequireToken: the signaling (PassThrough) policy lets a pathless
+    // route through unauthenticated even when auth is enabled.
+    let key = TestKey::new("kid-1");
+    let provider = Box::new(StaticKeyProvider::new(key.jwk_set.clone()));
+    let app = router_without_pc_id(AuthLayer::enabled_with_provider(provider, TEST_AUDIENCE, REQUIRED_SCOPE));
+
+    let response = app
+        .oneshot(Request::builder().uri("/health").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
 }
 
 // ============================================================================
