@@ -1092,7 +1092,11 @@ async fn pass_through_mode_allows_pathless_route_without_token() {
     // route through unauthenticated even when auth is enabled.
     let key = TestKey::new("kid-1");
     let provider = Box::new(StaticKeyProvider::new(key.jwk_set.clone()));
-    let app = router_without_pc_id(AuthLayer::enabled_with_provider(provider, TEST_AUDIENCE, REQUIRED_SCOPE));
+    let app = router_without_pc_id(AuthLayer::enabled_with_provider(
+        provider,
+        TEST_AUDIENCE,
+        REQUIRED_SCOPE,
+    ));
 
     let response = app
         .oneshot(Request::builder().uri("/health").body(Body::empty()).unwrap())

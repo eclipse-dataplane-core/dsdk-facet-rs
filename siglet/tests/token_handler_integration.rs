@@ -116,7 +116,9 @@ async fn test_token_operations() {
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     tokio::spawn(async move {
-        axum::serve(listener, handler.router(AuthLayer::Disabled)).await.unwrap();
+        axum::serve(listener, handler.router(AuthLayer::Disabled))
+            .await
+            .unwrap();
     });
 
     wait_for_port_ready(addr, Duration::from_secs(5)).await.unwrap();
