@@ -405,15 +405,17 @@ async fn test_on_terminate_ignores_token_not_found_error() {
 
     // Add a token to the store so that remove_token succeeds when cleanup_tokens is called
     // Note: use participant_context_id from the flow, not participant_id
-    let token_data = TokenData {
-        identifier: "flow-1".to_string(),
-        participant_context: "context-1".to_string(), // Match flow.participant_context_id
-        token: "test_token".to_string(),
-        refresh_token: "test_refresh".to_string(),
-        expires_at: chrono::Utc::now() + chrono::Duration::hours(1),
-        refresh_endpoint: "https://test.endpoint/refresh".to_string(),
-        endpoint: "https://test.endpoint/data".to_string(),
-    };
+    let token_data = TokenData::builder()
+        .participant_context("context-1") // Match flow.participant_context_id
+        .participant_id("participant-1")
+        .counter_party_id("counter-party-1")
+        .identifier("flow-1")
+        .token("test_token")
+        .refresh_token("test_refresh")
+        .expires_at(chrono::Utc::now() + chrono::Duration::hours(1))
+        .refresh_endpoint("https://test.endpoint/refresh")
+        .endpoint("https://test.endpoint/data")
+        .build();
     token_store.save_token(token_data).await.unwrap();
 
     let mut mappings = HashMap::new();

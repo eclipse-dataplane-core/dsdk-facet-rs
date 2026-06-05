@@ -21,6 +21,8 @@ use std::sync::Arc;
 
 #[derive(Serialize, Deserialize)]
 struct VaultTokenRecord {
+    participant_id: String,
+    counter_party_id: String,
     token: String,
     refresh_token: String,
     expires_at: DateTime<Utc>,
@@ -68,19 +70,23 @@ impl TokenStore for VaultTokenStore {
         let record: VaultTokenRecord = serde_json::from_str(&json)
             .map_err(|e| TokenError::database_error(format!("Failed to deserialize token record: {}", e)))?;
 
-        Ok(TokenData {
-            identifier: identifier.to_string(),
-            participant_context: participant_context.id.clone(),
-            token: record.token,
-            refresh_token: record.refresh_token,
-            expires_at: record.expires_at,
-            refresh_endpoint: record.refresh_endpoint,
-            endpoint: record.endpoint,
-        })
+        Ok(TokenData::builder()
+            .identifier(identifier)
+            .participant_context(participant_context.id.clone())
+            .participant_id(record.participant_id)
+            .counter_party_id(record.counter_party_id)
+            .token(record.token)
+            .refresh_token(record.refresh_token)
+            .expires_at(record.expires_at)
+            .refresh_endpoint(record.refresh_endpoint)
+            .endpoint(record.endpoint)
+            .build())
     }
 
     async fn save_token(&self, data: TokenData) -> Result<(), TokenError> {
         let record = VaultTokenRecord {
+            participant_id: data.participant_id.clone(),
+            counter_party_id: data.counter_party_id.clone(),
             token: data.token,
             refresh_token: data.refresh_token,
             expires_at: data.expires_at,
@@ -116,6 +122,8 @@ impl TokenStore for VaultTokenStore {
             .map_err(|e| TokenError::database_error(format!("Failed to deserialize token record: {}", e)))?;
 
         let updated = VaultTokenRecord {
+            participant_id: current.participant_id.clone(),
+            counter_party_id: current.counter_party_id.clone(),
             token: data.token,
             refresh_token: data.refresh_token,
             expires_at: data.expires_at,

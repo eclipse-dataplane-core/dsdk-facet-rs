@@ -315,15 +315,17 @@ impl<Tx: Send> DataFlowHandler for SigletDataFlowHandler<Tx> {
             let expires_at = chrono::DateTime::from_timestamp(expires_at_timestamp, 0)
                 .ok_or_else(|| HandlerError::Generic("Invalid expiration timestamp".into()))?;
 
-            let token_data = TokenData {
-                identifier: flow.id.clone(),
-                participant_context: flow.participant_context_id.clone(),
-                token: token.to_string(),
-                refresh_token: refresh_token.to_string(),
-                expires_at,
-                refresh_endpoint: refresh_endpoint.to_string(),
-                endpoint: data_address.endpoint.to_string(),
-            };
+            let token_data = TokenData::builder()
+                .identifier(flow.id.clone())
+                .participant_context(flow.participant_context_id.clone())
+                .participant_id(flow.participant_id.clone())
+                .counter_party_id(flow.counter_party_id.clone())
+                .token(token.to_string())
+                .refresh_token(refresh_token.to_string())
+                .expires_at(expires_at)
+                .refresh_endpoint(refresh_endpoint.to_string())
+                .endpoint(data_address.endpoint.to_string())
+                .build();
 
             self.token_store
                 .save_token(token_data)

@@ -35,15 +35,17 @@ async fn test_get_token_not_expiring_does_not_refresh() {
         .once()
         .with(eq(pc), eq("identifier1"))
         .returning(|_, _| {
-            Ok(TokenData {
-                participant_context: "participant1".to_string(),
-                identifier: "identifier1".to_string(),
-                token: "active_token".to_string(),
-                refresh_token: "refresh".to_string(),
-                expires_at: Utc::now() + TimeDelta::seconds(60),
-                refresh_endpoint: "https://example.com/refresh".to_string(),
-                endpoint: "https://example.com/data".to_string(),
-            })
+            Ok(TokenData::builder()
+                .participant_context("participant1")
+                .participant_id("participant-1")
+                .counter_party_id("counter-party-1")
+                .identifier("identifier1")
+                .token("active_token")
+                .refresh_token("refresh")
+                .expires_at(Utc::now() + TimeDelta::seconds(60))
+                .refresh_endpoint("https://example.com/refresh")
+                .endpoint("https://example.com/data")
+                .build())
         });
 
     let mut token_client = MockTokenClient::new();
@@ -78,7 +80,10 @@ async fn test_get_token_expiring_soon_triggers_refresh() {
     let mut token_store = MockTokenStore::new();
     let mut seq = mockall::Sequence::new();
 
-    let pc = ParticipantContext::builder().id("participant1").build();
+    let pc = ParticipantContext::builder()
+        .id("participant1")
+        .identifier("participant-1")
+        .build();
 
     token_store
         .expect_get_token()
@@ -86,15 +91,17 @@ async fn test_get_token_expiring_soon_triggers_refresh() {
         .in_sequence(&mut seq)
         .with(eq(pc), eq("identifier1"))
         .returning(|_, _| {
-            Ok(TokenData {
-                participant_context: "participant1".to_string(),
-                identifier: "identifier1".to_string(),
-                token: "old_token".to_string(),
-                refresh_token: "old_refresh".to_string(),
-                expires_at: Utc::now() + TimeDelta::seconds(10),
-                refresh_endpoint: "https://example.com/refresh".to_string(),
-                endpoint: "https://example.com/data".to_string(),
-            })
+            Ok(TokenData::builder()
+                .participant_context("participant1")
+                .participant_id("participant-1")
+                .counter_party_id("counter-party-1")
+                .identifier("identifier1")
+                .token("old_token")
+                .refresh_token("old_refresh")
+                .expires_at(Utc::now() + TimeDelta::seconds(10))
+                .refresh_endpoint("https://example.com/refresh")
+                .endpoint("https://example.com/data")
+                .build())
         });
 
     token_store
@@ -108,8 +115,11 @@ async fn test_get_token_expiring_soon_triggers_refresh() {
         .expect_refresh_token()
         .once()
         .with(
-            eq(ParticipantContext::builder().id("participant1").build()),
-            eq("identifier1"),
+            eq(ParticipantContext::builder()
+                .id("participant1")
+                .identifier("participant-1")
+                .build()),
+            eq("counter-party-1"),
             eq("old_token"),
             eq("old_refresh"),
             eq("https://example.com/refresh"),
@@ -134,7 +144,10 @@ async fn test_get_token_expiring_soon_triggers_refresh() {
     // Advance time so the token is within the 5s refresh threshold
     clock.advance(TimeDelta::seconds(6));
 
-    let pc = ParticipantContext::builder().id("participant1").build();
+    let pc = ParticipantContext::builder()
+        .id("participant1")
+        .identifier("participant-1")
+        .build();
 
     let result = token_api.get_token(&pc, "identifier1", "owner1").await.unwrap();
     assert_eq!(result.token, "new_token");
@@ -163,15 +176,17 @@ async fn test_get_token_expired_triggers_refresh() {
         .in_sequence(&mut seq)
         .with(eq(pc), eq("identifier1"))
         .returning(|_, _| {
-            Ok(TokenData {
-                participant_context: "participant1".to_string(),
-                identifier: "identifier1".to_string(),
-                token: "expired_token".to_string(),
-                refresh_token: "refresh".to_string(),
-                expires_at: Utc::now() - TimeDelta::seconds(10),
-                refresh_endpoint: "https://example.com/refresh".to_string(),
-                endpoint: "https://example.com/data".to_string(),
-            })
+            Ok(TokenData::builder()
+                .participant_context("participant1")
+                .participant_id("participant-1")
+                .counter_party_id("counter-party-1")
+                .identifier("identifier1")
+                .token("expired_token")
+                .refresh_token("refresh")
+                .expires_at(Utc::now() - TimeDelta::seconds(10))
+                .refresh_endpoint("https://example.com/refresh")
+                .endpoint("https://example.com/data")
+                .build())
         });
 
     token_store
@@ -226,15 +241,17 @@ async fn test_refresh_updates_stored_token() {
         .in_sequence(&mut seq)
         .with(eq(pc), eq("identifier1"))
         .returning(|_, _| {
-            Ok(TokenData {
-                participant_context: "participant1".to_string(),
-                identifier: "identifier1".to_string(),
-                token: "old_token".to_string(),
-                refresh_token: "old_refresh".to_string(),
-                expires_at: Utc::now() + TimeDelta::seconds(3),
-                refresh_endpoint: "https://example.com/refresh".to_string(),
-                endpoint: "https://example.com/data".to_string(),
-            })
+            Ok(TokenData::builder()
+                .participant_context("participant1")
+                .participant_id("participant-1")
+                .counter_party_id("counter-party-1")
+                .identifier("identifier1")
+                .token("old_token")
+                .refresh_token("old_refresh")
+                .expires_at(Utc::now() + TimeDelta::seconds(3))
+                .refresh_endpoint("https://example.com/refresh")
+                .endpoint("https://example.com/data")
+                .build())
         });
 
     token_store
@@ -289,15 +306,17 @@ async fn test_refresh_failure_returns_error() {
         .times(2)
         .with(eq(pc), eq("identifier1"))
         .returning(|_, _| {
-            Ok(TokenData {
-                participant_context: "participant1".to_string(),
-                identifier: "identifier1".to_string(),
-                token: "token".to_string(),
-                refresh_token: "refresh".to_string(),
-                expires_at: Utc::now() + TimeDelta::seconds(3),
-                refresh_endpoint: "https://example.com/refresh".to_string(),
-                endpoint: "https://example.com/data".to_string(),
-            })
+            Ok(TokenData::builder()
+                .participant_context("participant1")
+                .participant_id("participant-1")
+                .counter_party_id("counter-party-1")
+                .identifier("identifier1")
+                .token("token")
+                .refresh_token("refresh")
+                .expires_at(Utc::now() + TimeDelta::seconds(3))
+                .refresh_endpoint("https://example.com/refresh")
+                .endpoint("https://example.com/data")
+                .build())
         });
 
     let mut token_client = MockTokenClient::new();
@@ -345,15 +364,17 @@ async fn test_lock_acquired_during_refresh() {
         .in_sequence(&mut seq)
         .with(eq(pc), eq("identifier1"))
         .returning(|_, _| {
-            Ok(TokenData {
-                participant_context: "participant1".to_string(),
-                identifier: "identifier1".to_string(),
-                token: "token".to_string(),
-                refresh_token: "refresh".to_string(),
-                expires_at: Utc::now() + TimeDelta::seconds(3),
-                refresh_endpoint: "https://example.com/refresh".to_string(),
-                endpoint: "https://example.com/data".to_string(),
-            })
+            Ok(TokenData::builder()
+                .participant_context("participant1")
+                .participant_id("participant-1")
+                .counter_party_id("counter-party-1")
+                .identifier("identifier1")
+                .token("token")
+                .refresh_token("refresh")
+                .expires_at(Utc::now() + TimeDelta::seconds(3))
+                .refresh_endpoint("https://example.com/refresh")
+                .endpoint("https://example.com/data")
+                .build())
         });
 
     token_store
@@ -416,15 +437,17 @@ async fn test_lock_prevents_concurrent_refresh() {
         .once()
         .with(eq(pc), eq("identifier1"))
         .returning(move |_, _| {
-            Ok(TokenData {
-                participant_context: "participant1".to_string(),
-                identifier: "identifier1".to_string(),
-                token: "token".to_string(),
-                refresh_token: "refresh".to_string(),
-                expires_at: initial_time + TimeDelta::seconds(3),
-                refresh_endpoint: "https://example.com/refresh".to_string(),
-                endpoint: "https://example.com/data".to_string(),
-            })
+            Ok(TokenData::builder()
+                .participant_context("participant1")
+                .participant_id("participant-1")
+                .counter_party_id("counter-party-1")
+                .identifier("identifier1")
+                .token("token")
+                .refresh_token("refresh")
+                .expires_at(initial_time + TimeDelta::seconds(3))
+                .refresh_endpoint("https://example.com/refresh")
+                .endpoint("https://example.com/data")
+                .build())
         });
 
     let mut token_client = MockTokenClient::new();
@@ -506,15 +529,17 @@ async fn test_refresh_with_custom_refresh_threshold() {
         .in_sequence(&mut seq)
         .with(eq(pc), eq("identifier1"))
         .returning(|_, _| {
-            Ok(TokenData {
-                participant_context: "participant1".to_string(),
-                identifier: "identifier1".to_string(),
-                token: "token".to_string(),
-                refresh_token: "refresh".to_string(),
-                expires_at: Utc::now() + TimeDelta::seconds(20),
-                refresh_endpoint: "https://example.com/refresh".to_string(),
-                endpoint: "https://example.com/data".to_string(),
-            })
+            Ok(TokenData::builder()
+                .participant_context("participant1")
+                .participant_id("participant-1")
+                .counter_party_id("counter-party-1")
+                .identifier("identifier1")
+                .token("token")
+                .refresh_token("refresh")
+                .expires_at(Utc::now() + TimeDelta::seconds(20))
+                .refresh_endpoint("https://example.com/refresh")
+                .endpoint("https://example.com/data")
+                .build())
         });
 
     token_store
@@ -564,22 +589,27 @@ async fn test_multiple_tokens_independent_refresh() {
     let mut token_store = MockTokenStore::new();
     let mut seq = mockall::Sequence::new();
 
-    let pc = ParticipantContext::builder().id("participant1").build();
+    let pc = ParticipantContext::builder()
+        .id("participant1")
+        .identifier("participant-1")
+        .build();
 
     token_store
         .expect_get_token()
         .with(eq(pc.clone()), eq("token1"))
         .times(2)
         .returning(|_, _| {
-            Ok(TokenData {
-                participant_context: "participant1".to_string(),
-                identifier: "token1".to_string(),
-                token: "token1".to_string(),
-                refresh_token: "refresh1".to_string(),
-                expires_at: Utc::now() + TimeDelta::seconds(3),
-                refresh_endpoint: "https://example.com/refresh".to_string(),
-                endpoint: "https://example.com/data".to_string(),
-            })
+            Ok(TokenData::builder()
+                .participant_context("participant1")
+                .participant_id("participant-1")
+                .counter_party_id("counter-party-1")
+                .identifier("token1")
+                .token("token1")
+                .refresh_token("refresh1")
+                .expires_at(Utc::now() + TimeDelta::seconds(3))
+                .refresh_endpoint("https://example.com/refresh")
+                .endpoint("https://example.com/data")
+                .build())
         });
 
     token_store
@@ -587,15 +617,17 @@ async fn test_multiple_tokens_independent_refresh() {
         .with(eq(pc), eq("token2"))
         .times(1)
         .returning(|_, _| {
-            Ok(TokenData {
-                participant_context: "participant1".to_string(),
-                identifier: "token2".to_string(),
-                token: "token2".to_string(),
-                refresh_token: "refresh2".to_string(),
-                expires_at: Utc::now() + TimeDelta::seconds(100),
-                refresh_endpoint: "https://example.com/refresh".to_string(),
-                endpoint: "https://example.com/data".to_string(),
-            })
+            Ok(TokenData::builder()
+                .participant_context("participant1")
+                .participant_id("participant-1")
+                .counter_party_id("counter-party-1")
+                .identifier("token2")
+                .token("token2")
+                .refresh_token("refresh2")
+                .expires_at(Utc::now() + TimeDelta::seconds(100))
+                .refresh_endpoint("https://example.com/refresh")
+                .endpoint("https://example.com/data")
+                .build())
         });
 
     token_store
@@ -608,8 +640,11 @@ async fn test_multiple_tokens_independent_refresh() {
         .expect_refresh_token()
         .once()
         .with(
-            eq(ParticipantContext::builder().id("participant1").build()),
-            eq("token1"),
+            eq(ParticipantContext::builder()
+                .id("participant1")
+                .identifier("participant-1")
+                .build()),
+            eq("counter-party-1"),
             eq("token1"),
             eq("refresh1"),
             eq("https://example.com/refresh"),
@@ -633,7 +668,10 @@ async fn test_multiple_tokens_independent_refresh() {
 
     clock.advance(TimeDelta::seconds(4));
 
-    let pc = ParticipantContext::builder().id("participant1").build();
+    let pc = ParticipantContext::builder()
+        .id("participant1")
+        .identifier("participant-1")
+        .build();
 
     // token1 should trigger refresh
     let result1 = token_api.get_token(&pc, "token1", "owner1").await.unwrap();

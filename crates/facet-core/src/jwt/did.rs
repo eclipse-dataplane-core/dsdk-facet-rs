@@ -67,7 +67,7 @@ impl DidWebVerificationKeyResolver {
         // Remove "did:web:" prefix
         let method_specific_id = did
             .strip_prefix("did:web:")
-            .ok_or_else(|| JwtVerificationError::VerificationFailed("Invalid did:web format".to_string()))?;
+            .ok_or_else(|| JwtVerificationError::VerificationFailed(format!("Invalid did:web format: {}", did)))?;
 
         // Split by colon to get domain and path segments
         let parts: Vec<&str> = method_specific_id.split(':').collect();

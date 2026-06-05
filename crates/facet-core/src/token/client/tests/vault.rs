@@ -22,15 +22,17 @@ fn make_store() -> VaultTokenStore {
 }
 
 fn sample_token(participant_context: &str, identifier: &str, token: &str) -> TokenData {
-    TokenData {
-        participant_context: participant_context.to_string(),
-        identifier: identifier.to_string(),
-        token: token.to_string(),
-        refresh_token: format!("refresh-{}", token),
-        expires_at: Utc::now() + TimeDelta::seconds(3600),
-        refresh_endpoint: "https://provider.example.com/token/refresh".to_string(),
-        endpoint: "https://provider.example.com/data".to_string(),
-    }
+    TokenData::builder()
+        .participant_context(participant_context)
+        .participant_id("participant-1")
+        .counter_party_id("counter-party-1")
+        .identifier(identifier)
+        .token(token)
+        .refresh_token(format!("refresh-{}", token))
+        .expires_at(Utc::now() + TimeDelta::seconds(3600))
+        .refresh_endpoint("https://provider.example.com/token/refresh")
+        .endpoint("https://provider.example.com/data")
+        .build()
 }
 
 #[tokio::test]
@@ -47,15 +49,19 @@ async fn test_save_and_get_round_trip() {
     let expiration = Utc::now() + TimeDelta::seconds(3600);
 
     store
-        .save_token(TokenData {
-            participant_context: "pc1".to_string(),
-            identifier: "id1".to_string(),
-            token: "access".to_string(),
-            refresh_token: "refresh".to_string(),
-            expires_at: expiration,
-            refresh_endpoint: "https://example.com/refresh".to_string(),
-            endpoint: "https://example.com/data".to_string(),
-        })
+        .save_token(
+            TokenData::builder()
+                .participant_context("pc1")
+                .participant_id("participant-1")
+                .counter_party_id("counter-party-1")
+                .identifier("id1")
+                .token("access")
+                .refresh_token("refresh")
+                .expires_at(expiration)
+                .refresh_endpoint("https://example.com/refresh")
+                .endpoint("https://example.com/data")
+                .build(),
+        )
         .await
         .unwrap();
 
@@ -78,28 +84,36 @@ async fn test_save_upserts_on_duplicate() {
     let t2 = Utc::now() + TimeDelta::seconds(2000);
 
     store
-        .save_token(TokenData {
-            participant_context: "pc1".to_string(),
-            identifier: "id1".to_string(),
-            token: "old".to_string(),
-            refresh_token: "old-refresh".to_string(),
-            expires_at: t1,
-            refresh_endpoint: "https://old.example.com/refresh".to_string(),
-            endpoint: "https://old.example.com/data".to_string(),
-        })
+        .save_token(
+            TokenData::builder()
+                .participant_context("pc1")
+                .participant_id("participant-1")
+                .counter_party_id("counter-party-1")
+                .identifier("id1")
+                .token("old")
+                .refresh_token("old-refresh")
+                .expires_at(t1)
+                .refresh_endpoint("https://old.example.com/refresh")
+                .endpoint("https://old.example.com/data")
+                .build(),
+        )
         .await
         .unwrap();
 
     store
-        .save_token(TokenData {
-            participant_context: "pc1".to_string(),
-            identifier: "id1".to_string(),
-            token: "new".to_string(),
-            refresh_token: "new-refresh".to_string(),
-            expires_at: t2,
-            refresh_endpoint: "https://new.example.com/refresh".to_string(),
-            endpoint: "https://new.example.com/data".to_string(),
-        })
+        .save_token(
+            TokenData::builder()
+                .participant_context("pc1")
+                .participant_id("participant-1")
+                .counter_party_id("counter-party-1")
+                .identifier("id1")
+                .token("new")
+                .refresh_token("new-refresh")
+                .expires_at(t2)
+                .refresh_endpoint("https://new.example.com/refresh")
+                .endpoint("https://new.example.com/data")
+                .build(),
+        )
         .await
         .unwrap();
 
@@ -119,15 +133,19 @@ async fn test_update_token_preserves_endpoint() {
     let original_endpoint = "https://provider.example.com/data/asset-1";
 
     store
-        .save_token(TokenData {
-            participant_context: "pc1".to_string(),
-            identifier: "flow-1".to_string(),
-            token: "old-token".to_string(),
-            refresh_token: "old-refresh".to_string(),
-            expires_at: expiration,
-            refresh_endpoint: "https://provider.example.com/refresh".to_string(),
-            endpoint: original_endpoint.to_string(),
-        })
+        .save_token(
+            TokenData::builder()
+                .participant_context("pc1")
+                .participant_id("participant-1")
+                .counter_party_id("counter-party-1")
+                .identifier("flow-1")
+                .token("old-token")
+                .refresh_token("old-refresh")
+                .expires_at(expiration)
+                .refresh_endpoint("https://provider.example.com/refresh")
+                .endpoint(original_endpoint)
+                .build(),
+        )
         .await
         .unwrap();
 

@@ -68,7 +68,7 @@ impl TokenClientApi {
         }
 
         // Token is expiring, acquire lock for refresh
-        let guard = self
+        let _guard = self
             .lock_manager
             .lock(identifier, owner)
             .await
@@ -77,13 +77,19 @@ impl TokenClientApi {
         // Re-fetch token after acquiring lock (another thread may have already refreshed)
         let data = self.token_store.get_token(participant_context, identifier).await?;
 
+        // override participant context identifiers with the one from the token store to ensure consistency during refresh
+        let pc = ParticipantContext::builder()
+            .id(participant_context.id.clone())
+            .identifier(data.participant_id)
+            .build();
+
         let token = if self.clock.now() >= (data.expires_at - TimeDelta::milliseconds(self.refresh_before_expiry_ms)) {
             // Token still expired after recheck, perform refresh
             let refreshed_data = self
                 .token_client
                 .refresh_token(
-                    participant_context,
-                    identifier,
+                    &pc,
+                    &data.counter_party_id,
                     &data.token,
                     &data.refresh_token,
                     &data.refresh_endpoint,
@@ -99,7 +105,6 @@ impl TokenClientApi {
             data.token
         };
 
-        drop(guard);
         Ok(TokenResult { token, endpoint })
     }
 
@@ -158,10 +163,13 @@ pub struct TokenResult {
     pub endpoint: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Builder)]
+#[builder(on(String, into))]
 pub struct TokenData {
     pub identifier: String,
     pub participant_context: String,
+    pub participant_id: String,
+    pub counter_party_id: String,
     pub token: String,
     pub refresh_token: String,
     pub expires_at: chrono::DateTime<Utc>,

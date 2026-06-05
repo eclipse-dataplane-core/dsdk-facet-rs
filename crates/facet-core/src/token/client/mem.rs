@@ -63,6 +63,8 @@ impl Default for MemoryTokenStore {
 
 struct TokenRecord {
     participant_context: String,
+    participant_id: String,
+    counter_party_id: String,
     identifier: String,
     token: String,
     refresh_token: String,
@@ -90,15 +92,17 @@ impl TokenStore for MemoryTokenStore {
         }
 
         let now = self.clock.now();
-        let token_data = TokenData {
-            participant_context: record.participant_context.clone(),
-            identifier: record.identifier.clone(),
-            token: record.token.clone(),
-            refresh_token: record.refresh_token.clone(),
-            expires_at: record.expires_at,
-            refresh_endpoint: record.refresh_endpoint.clone(),
-            endpoint: record.endpoint.clone(),
-        };
+        let token_data = TokenData::builder()
+            .participant_context(record.participant_context.clone())
+            .participant_id(record.participant_id.clone())
+            .counter_party_id(record.counter_party_id.clone())
+            .identifier(record.identifier.clone())
+            .token(record.token.clone())
+            .refresh_token(record.refresh_token.clone())
+            .expires_at(record.expires_at)
+            .refresh_endpoint(record.refresh_endpoint.clone())
+            .endpoint(record.endpoint.clone())
+            .build();
 
         // Update last_accessed after cloning the data
         guard.entry(key).and_modify(|record| {
@@ -111,6 +115,8 @@ impl TokenStore for MemoryTokenStore {
     async fn save_token(&self, data: TokenData) -> Result<(), TokenError> {
         let record = TokenRecord {
             participant_context: data.participant_context.clone(),
+            participant_id: data.participant_id,
+            counter_party_id: data.counter_party_id,
             identifier: data.identifier.clone(),
             token: data.token,
             expires_at: data.expires_at,

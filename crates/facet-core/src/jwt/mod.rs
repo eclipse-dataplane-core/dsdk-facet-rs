@@ -77,7 +77,7 @@ pub enum JwtGenerationError {
     #[error("Failed to generate token: {0}")]
     GenerationError(String),
 
-    #[error("Vault error during token generation")]
+    #[error("Vault error during token generation: {0}")]
     VaultError(#[from] VaultError),
 }
 

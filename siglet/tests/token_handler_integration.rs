@@ -87,15 +87,19 @@ async fn test_token_operations() {
 
     // Prime the store with a non-expiring token
     token_store
-        .save_token(TokenData {
-            identifier: flow_id.to_string(),
-            participant_context: participant_context_id.to_string(),
-            token: expected_token.to_string(),
-            refresh_token: "refresh-token-value".to_string(),
-            expires_at: Utc::now() + chrono::Duration::hours(1),
-            refresh_endpoint: "http://localhost/refresh".to_string(),
-            endpoint: "https://example.com/data".to_string(),
-        })
+        .save_token(
+            TokenData::builder()
+                .participant_context(participant_context_id)
+                .participant_id("participant-1")
+                .counter_party_id("counter-party-1")
+                .identifier(flow_id)
+                .token(expected_token)
+                .refresh_token("refresh-token-value")
+                .expires_at(Utc::now() + chrono::Duration::hours(1))
+                .refresh_endpoint("http://localhost/refresh")
+                .endpoint("https://example.com/data")
+                .build(),
+        )
         .await
         .unwrap();
 

@@ -51,7 +51,7 @@ async fn test_api_end_to_end_with_refresh() {
     let public_key = keypair.public_key.clone();
     let verification_context = ParticipantContext::builder()
         .id("mock-verifier")
-        .audience("token1") // Must match the audience in the JWT (endpoint_identifier)
+        .audience("counter-party-1") // Must match the audience in the JWT (endpoint_identifier)
         .build();
     let bearer_verifier = BearerTokenVerifier::new(public_key, verification_context, DID.to_string());
 
@@ -70,15 +70,17 @@ async fn test_api_end_to_end_with_refresh() {
 
     let refresh_endpoint = format!("{}/token/refresh", mock_server.uri());
 
-    let data = TokenData {
-        participant_context: "participant1".to_string(),
-        identifier: "token1".to_string(),
-        token: "old_token".to_string(),
-        refresh_token: "old_refresh_token".to_string(),
-        expires_at: Utc::now() - TimeDelta::hours(10),
-        refresh_endpoint,
-        endpoint: "https://provider.example.com/data/asset-1".to_string(),
-    };
+    let data = TokenData::builder()
+        .participant_context("participant1")
+        .participant_id(DID)
+        .counter_party_id("counter-party-1")
+        .identifier("token1")
+        .token("old_token")
+        .refresh_token("old_refresh_token")
+        .expires_at(Utc::now() - TimeDelta::hours(10))
+        .refresh_endpoint(refresh_endpoint)
+        .endpoint("https://provider.example.com/data/asset-1")
+        .build();
     token_store.save_token(data).await.unwrap();
 
     let token_api = TokenClientApi::builder()
@@ -95,6 +97,7 @@ async fn test_api_end_to_end_with_refresh() {
         .build();
 
     let result = token_api.get_token(&pc1, "token1", "participant1").await;
+    dbg!(&result);
     assert!(result.is_ok());
     let token_result = result.unwrap();
     assert_eq!(token_result.token, "new_access_token");

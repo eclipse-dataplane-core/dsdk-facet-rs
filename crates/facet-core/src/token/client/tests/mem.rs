@@ -22,41 +22,53 @@ async fn create_store_with_tokens() -> MemoryTokenStore {
     let expiration = Utc::now() + TimeDelta::seconds(10);
 
     store
-        .save_token(TokenData {
-            participant_context: "participant1".to_string(),
-            identifier: "provider1".to_string(),
-            token: "token1".to_string(),
-            refresh_token: "refresh1".to_string(),
-            expires_at: expiration,
-            refresh_endpoint: "https://example.com/refresh".to_string(),
-            endpoint: "https://provider1.example.com/data".to_string(),
-        })
+        .save_token(
+            TokenData::builder()
+                .participant_context("participant1")
+                .participant_id("participant-1")
+                .counter_party_id("counter-party-1")
+                .identifier("provider1")
+                .token("token1")
+                .refresh_token("refresh1")
+                .expires_at(expiration)
+                .refresh_endpoint("https://example.com/refresh")
+                .endpoint("https://provider1.example.com/data")
+                .build(),
+        )
         .await
         .expect("Failed to save token");
 
     store
-        .save_token(TokenData {
-            identifier: "provider2".to_string(),
-            participant_context: "participant1".to_string(),
-            token: "token2".to_string(),
-            refresh_token: "refresh2".to_string(),
-            expires_at: expiration,
-            refresh_endpoint: "https://example.com/refresh".to_string(),
-            endpoint: "https://provider2.example.com/data".to_string(),
-        })
+        .save_token(
+            TokenData::builder()
+                .participant_context("participant1")
+                .participant_id("participant-1")
+                .counter_party_id("counter-party-1")
+                .identifier("provider2")
+                .token("token2")
+                .refresh_token("refresh2")
+                .expires_at(expiration)
+                .refresh_endpoint("https://example.com/refresh")
+                .endpoint("https://provider2.example.com/data")
+                .build(),
+        )
         .await
         .expect("Failed to save token");
 
     store
-        .save_token(TokenData {
-            identifier: "provider3".to_string(),
-            participant_context: "participant1".to_string(),
-            token: "token3".to_string(),
-            refresh_token: "refresh3".to_string(),
-            expires_at: expiration,
-            refresh_endpoint: "https://example.com/refresh".to_string(),
-            endpoint: "https://provider3.example.com/data".to_string(),
-        })
+        .save_token(
+            TokenData::builder()
+                .participant_context("participant1")
+                .participant_id("participant-1")
+                .counter_party_id("counter-party-1")
+                .identifier("provider3")
+                .token("token3")
+                .refresh_token("refresh3")
+                .expires_at(expiration)
+                .refresh_endpoint("https://example.com/refresh")
+                .endpoint("https://provider3.example.com/data")
+                .build(),
+        )
         .await
         .expect("Failed to save token");
 
@@ -77,15 +89,17 @@ async fn test_new_store_is_empty() {
 async fn test_save_token_success() {
     let store = MemoryTokenStore::new();
     let expiration = Utc::now() + TimeDelta::seconds(10);
-    let test_data = TokenData {
-        identifier: "provider1".to_string(),
-        participant_context: "participant1".to_string(),
-        token: "token123".to_string(),
-        refresh_token: "refresh123".to_string(),
-        expires_at: expiration,
-        refresh_endpoint: "https://example.com/refresh".to_string(),
-        endpoint: "https://example.com/data".to_string(),
-    };
+    let test_data = TokenData::builder()
+        .participant_context("participant1")
+        .participant_id("participant-1")
+        .counter_party_id("counter-party-1")
+        .identifier("provider1")
+        .token("token123")
+        .refresh_token("refresh123")
+        .expires_at(expiration)
+        .refresh_endpoint("https://example.com/refresh")
+        .endpoint("https://example.com/data")
+        .build();
 
     let result = store.save_token(test_data.clone()).await;
     assert!(result.is_ok(), "save_token should return Ok");
@@ -125,25 +139,29 @@ async fn test_save_token_upserts_on_duplicate() {
     let expires_at_1 = initial_time + TimeDelta::seconds(1000);
     let expires_at_2 = initial_time + TimeDelta::seconds(2000);
 
-    let token_data1 = TokenData {
-        participant_context: "participant1".to_string(),
-        identifier: "provider1".to_string(),
-        token: "old_token".to_string(),
-        refresh_token: "old_refresh".to_string(),
-        expires_at: expires_at_1,
-        refresh_endpoint: "https://old.example.com/refresh".to_string(),
-        endpoint: "https://old.example.com/data".to_string(),
-    };
+    let token_data1 = TokenData::builder()
+        .participant_context("participant1")
+        .participant_id("participant-1")
+        .counter_party_id("counter-party-1")
+        .identifier("provider1")
+        .token("old_token")
+        .refresh_token("old_refresh")
+        .expires_at(expires_at_1)
+        .refresh_endpoint("https://old.example.com/refresh")
+        .endpoint("https://old.example.com/data")
+        .build();
 
-    let token_data2 = TokenData {
-        participant_context: "participant1".to_string(),
-        identifier: "provider1".to_string(),
-        token: "new_token".to_string(),
-        refresh_token: "new_refresh".to_string(),
-        expires_at: expires_at_2,
-        refresh_endpoint: "https://new.example.com/refresh".to_string(),
-        endpoint: "https://new.example.com/data".to_string(),
-    };
+    let token_data2 = TokenData::builder()
+        .participant_context("participant1")
+        .participant_id("participant-1")
+        .counter_party_id("counter-party-1")
+        .identifier("provider1")
+        .token("new_token")
+        .refresh_token("new_refresh")
+        .expires_at(expires_at_2)
+        .refresh_endpoint("https://new.example.com/refresh")
+        .endpoint("https://new.example.com/data")
+        .build();
 
     // First save succeeds
     store.save_token(token_data1).await.unwrap();
@@ -170,15 +188,19 @@ async fn test_remove_tokens_used_before_success() {
     let expiration = initial + TimeDelta::seconds(10);
 
     store
-        .save_token(TokenData {
-            identifier: "provider1".to_string(),
-            participant_context: "participant1".to_string(),
-            token: "token1".to_string(),
-            refresh_token: "refresh1".to_string(),
-            expires_at: expiration,
-            refresh_endpoint: "https://example.com/refresh".to_string(),
-            endpoint: "https://example.com/data".to_string(),
-        })
+        .save_token(
+            TokenData::builder()
+                .participant_context("participant1")
+                .participant_id("participant-1")
+                .counter_party_id("counter-party-1")
+                .identifier("provider1")
+                .token("token1")
+                .refresh_token("refresh1")
+                .expires_at(expiration)
+                .refresh_endpoint("https://example.com/refresh")
+                .endpoint("https://example.com/data")
+                .build(),
+        )
         .await
         .expect("Failed to save");
 
@@ -202,15 +224,19 @@ async fn test_endpoint_is_stored_and_retrieved() {
     let expiration = Utc::now() + TimeDelta::seconds(10);
 
     store
-        .save_token(TokenData {
-            participant_context: "participant1".to_string(),
-            identifier: "flow-1".to_string(),
-            token: "access-token".to_string(),
-            refresh_token: "refresh-token".to_string(),
-            expires_at: expiration,
-            refresh_endpoint: "https://provider.example.com/refresh".to_string(),
-            endpoint: "https://provider.example.com/data/asset-1".to_string(),
-        })
+        .save_token(
+            TokenData::builder()
+                .participant_context("participant1")
+                .participant_id("participant-1")
+                .counter_party_id("counter-party-1")
+                .identifier("flow-1")
+                .token("access-token")
+                .refresh_token("refresh-token")
+                .expires_at(expiration)
+                .refresh_endpoint("https://provider.example.com/refresh")
+                .endpoint("https://provider.example.com/data/asset-1")
+                .build(),
+        )
         .await
         .unwrap();
 
@@ -227,15 +253,19 @@ async fn test_update_token_preserves_endpoint() {
     let original_endpoint = "https://provider.example.com/data/asset-1";
 
     store
-        .save_token(TokenData {
-            participant_context: "participant1".to_string(),
-            identifier: "flow-1".to_string(),
-            token: "old-token".to_string(),
-            refresh_token: "old-refresh".to_string(),
-            expires_at: expiration,
-            refresh_endpoint: "https://provider.example.com/refresh".to_string(),
-            endpoint: original_endpoint.to_string(),
-        })
+        .save_token(
+            TokenData::builder()
+                .participant_context("participant1")
+                .participant_id("participant-1")
+                .counter_party_id("counter-party-1")
+                .identifier("flow-1")
+                .token("old-token")
+                .refresh_token("old-refresh")
+                .expires_at(expiration)
+                .refresh_endpoint("https://provider.example.com/refresh")
+                .endpoint(original_endpoint)
+                .build(),
+        )
         .await
         .unwrap();
 
@@ -269,25 +299,29 @@ async fn test_context_isolation_save() {
     let store = MemoryTokenStore::new();
     let now = Utc::now();
 
-    let token_p1 = TokenData {
-        participant_context: "participant1".to_string(),
-        identifier: "provider".to_string(),
-        token: "token_p1".to_string(),
-        refresh_token: "refresh_p1".to_string(),
-        expires_at: now,
-        refresh_endpoint: "https://p1.example.com/refresh".to_string(),
-        endpoint: "https://p1.example.com/data".to_string(),
-    };
+    let token_p1 = TokenData::builder()
+        .participant_context("participant1")
+        .participant_id("participant-1")
+        .counter_party_id("counter-party-1")
+        .identifier("provider")
+        .token("token_p1")
+        .refresh_token("refresh_p1")
+        .expires_at(now)
+        .refresh_endpoint("https://p1.example.com/refresh")
+        .endpoint("https://p1.example.com/data")
+        .build();
 
-    let token_p2 = TokenData {
-        participant_context: "participant2".to_string(),
-        identifier: "provider".to_string(),
-        token: "token_p2".to_string(),
-        refresh_token: "refresh_p2".to_string(),
-        expires_at: now,
-        refresh_endpoint: "https://p2.example.com/refresh".to_string(),
-        endpoint: "https://p2.example.com/data".to_string(),
-    };
+    let token_p2 = TokenData::builder()
+        .participant_context("participant2")
+        .participant_id("participant-1")
+        .counter_party_id("counter-party-1")
+        .identifier("provider")
+        .token("token_p2")
+        .refresh_token("refresh_p2")
+        .expires_at(now)
+        .refresh_endpoint("https://p2.example.com/refresh")
+        .endpoint("https://p2.example.com/data")
+        .build();
 
     store.save_token(token_p1).await.unwrap();
     store.save_token(token_p2).await.unwrap();
@@ -320,25 +354,29 @@ async fn test_context_isolation_get() {
     let store = MemoryTokenStore::new();
     let now = Utc::now();
 
-    let token_p1 = TokenData {
-        participant_context: "participant1".to_string(),
-        identifier: "provider".to_string(),
-        token: "token_p1".to_string(),
-        refresh_token: "refresh_p1".to_string(),
-        expires_at: now,
-        refresh_endpoint: "https://p1.example.com/refresh".to_string(),
-        endpoint: "https://p1.example.com/data".to_string(),
-    };
+    let token_p1 = TokenData::builder()
+        .participant_context("participant1")
+        .participant_id("participant-1")
+        .counter_party_id("counter-party-1")
+        .identifier("provider")
+        .token("token_p1")
+        .refresh_token("refresh_p1")
+        .expires_at(now)
+        .refresh_endpoint("https://p1.example.com/refresh")
+        .endpoint("https://p1.example.com/data")
+        .build();
 
-    let token_p2 = TokenData {
-        participant_context: "participant2".to_string(),
-        identifier: "provider".to_string(),
-        token: "token_p2".to_string(),
-        refresh_token: "refresh_p2".to_string(),
-        expires_at: now,
-        refresh_endpoint: "https://p2.example.com/refresh".to_string(),
-        endpoint: "https://p2.example.com/data".to_string(),
-    };
+    let token_p2 = TokenData::builder()
+        .participant_context("participant2")
+        .participant_id("participant-1")
+        .counter_party_id("counter-party-1")
+        .identifier("provider")
+        .token("token_p2")
+        .refresh_token("refresh_p2")
+        .expires_at(now)
+        .refresh_endpoint("https://p2.example.com/refresh")
+        .endpoint("https://p2.example.com/data")
+        .build();
 
     store.save_token(token_p1).await.unwrap();
     store.save_token(token_p2).await.unwrap();
@@ -374,38 +412,44 @@ async fn test_context_isolation_update() {
     let store = MemoryTokenStore::new();
     let now = Utc::now();
 
-    let token_p1 = TokenData {
-        participant_context: "participant1".to_string(),
-        identifier: "provider".to_string(),
-        token: "token_p1".to_string(),
-        refresh_token: "refresh_p1".to_string(),
-        expires_at: now,
-        refresh_endpoint: "https://p1.example.com/refresh".to_string(),
-        endpoint: "https://p1.example.com/data".to_string(),
-    };
+    let token_p1 = TokenData::builder()
+        .participant_context("participant1")
+        .participant_id("participant-1")
+        .counter_party_id("counter-party-1")
+        .identifier("provider")
+        .token("token_p1")
+        .refresh_token("refresh_p1")
+        .expires_at(now)
+        .refresh_endpoint("https://p1.example.com/refresh")
+        .endpoint("https://p1.example.com/data")
+        .build();
 
-    let token_p2 = TokenData {
-        participant_context: "participant2".to_string(),
-        identifier: "provider".to_string(),
-        token: "token_p2".to_string(),
-        refresh_token: "refresh_p2".to_string(),
-        expires_at: now,
-        refresh_endpoint: "https://p2.example.com/refresh".to_string(),
-        endpoint: "https://p2.example.com/data".to_string(),
-    };
+    let token_p2 = TokenData::builder()
+        .participant_context("participant2")
+        .participant_id("participant-1")
+        .counter_party_id("counter-party-1")
+        .identifier("provider")
+        .token("token_p2")
+        .refresh_token("refresh_p2")
+        .expires_at(now)
+        .refresh_endpoint("https://p2.example.com/refresh")
+        .endpoint("https://p2.example.com/data")
+        .build();
 
     store.save_token(token_p1).await.unwrap();
     store.save_token(token_p2).await.unwrap();
 
-    let updated_p1 = TokenData {
-        participant_context: "participant1".to_string(),
-        identifier: "provider".to_string(),
-        token: "token_p1_updated".to_string(),
-        refresh_token: "refresh_p1_updated".to_string(),
-        expires_at: now,
-        refresh_endpoint: "https://p1.example.com/refresh".to_string(),
-        endpoint: "https://p1.example.com/data".to_string(),
-    };
+    let updated_p1 = TokenData::builder()
+        .participant_context("participant1")
+        .participant_id("participant-1")
+        .counter_party_id("counter-party-1")
+        .identifier("provider")
+        .token("token_p1_updated")
+        .refresh_token("refresh_p1_updated")
+        .expires_at(now)
+        .refresh_endpoint("https://p1.example.com/refresh")
+        .endpoint("https://p1.example.com/data")
+        .build();
 
     store
         .update_token(
@@ -435,15 +479,17 @@ async fn test_context_isolation_update() {
     assert_eq!(p2_result.token, "token_p2");
 
     // Verify participant3 cannot update a non-existent token
-    let update_p3 = TokenData {
-        participant_context: "participant3".to_string(),
-        identifier: "provider".to_string(),
-        token: "token_p3".to_string(),
-        refresh_token: "refresh_p3".to_string(),
-        expires_at: now,
-        refresh_endpoint: "https://p3.example.com/refresh".to_string(),
-        endpoint: "https://p3.example.com/data".to_string(),
-    };
+    let update_p3 = TokenData::builder()
+        .participant_context("participant3")
+        .participant_id("participant-1")
+        .counter_party_id("counter-party-1")
+        .identifier("provider")
+        .token("token_p3")
+        .refresh_token("refresh_p3")
+        .expires_at(now)
+        .refresh_endpoint("https://p3.example.com/refresh")
+        .endpoint("https://p3.example.com/data")
+        .build();
 
     let result_p3 = store
         .update_token(
@@ -466,25 +512,29 @@ async fn test_context_isolation_remove() {
     let store = MemoryTokenStore::new();
     let now = Utc::now();
 
-    let token_p1 = TokenData {
-        participant_context: "participant1".to_string(),
-        identifier: "provider".to_string(),
-        token: "token_p1".to_string(),
-        refresh_token: "refresh_p1".to_string(),
-        expires_at: now,
-        refresh_endpoint: "https://p1.example.com/refresh".to_string(),
-        endpoint: "https://p1.example.com/data".to_string(),
-    };
+    let token_p1 = TokenData::builder()
+        .participant_context("participant1")
+        .participant_id("participant-1")
+        .counter_party_id("counter-party-1")
+        .identifier("provider")
+        .token("token_p1")
+        .refresh_token("refresh_p1")
+        .expires_at(now)
+        .refresh_endpoint("https://p1.example.com/refresh")
+        .endpoint("https://p1.example.com/data")
+        .build();
 
-    let token_p2 = TokenData {
-        participant_context: "participant2".to_string(),
-        identifier: "provider".to_string(),
-        token: "token_p2".to_string(),
-        refresh_token: "refresh_p2".to_string(),
-        expires_at: now,
-        refresh_endpoint: "https://p2.example.com/refresh".to_string(),
-        endpoint: "https://p2.example.com/data".to_string(),
-    };
+    let token_p2 = TokenData::builder()
+        .participant_context("participant2")
+        .participant_id("participant-1")
+        .counter_party_id("counter-party-1")
+        .identifier("provider")
+        .token("token_p2")
+        .refresh_token("refresh_p2")
+        .expires_at(now)
+        .refresh_endpoint("https://p2.example.com/refresh")
+        .endpoint("https://p2.example.com/data")
+        .build();
 
     store.save_token(token_p1).await.unwrap();
     store.save_token(token_p2).await.unwrap();
