@@ -103,6 +103,9 @@ impl LocalJwtGenerator {
             (SigningAlgorithm::RS256, KeyFormat::PEM) => EncodingKey::from_rsa_pem(key_bytes)
                 .map_err(|e| JwtGenerationError::GenerationError(format!("Failed to load RSA PEM key: {}", e))),
             (SigningAlgorithm::RS256, KeyFormat::DER) => Ok(EncodingKey::from_rsa_der(key_bytes)),
+            (_, KeyFormat::Jwk) => Err(JwtGenerationError::GenerationError(
+                "JWK key format is verification-only; signing from JWK is not supported".to_string(),
+            )),
         }
     }
 }

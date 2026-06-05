@@ -158,11 +158,18 @@ impl DidWebVerificationKeyResolver {
                 .build());
         }
 
-        // Try publicKeyJwk
-        if let Some(_jwk) = &vm.public_key_jwk {
-            return Err(JwtVerificationError::VerificationFailed(
-                "publicKeyJwk format not yet supported".to_string(),
-            ));
+        // Try publicKeyJwk: serialize the JWK back to JSON bytes so the verifier
+        // can hand them to jsonwebtoken::DecodingKey::from_jwk, which dispatches
+        // on the JWK's own `kty` (OKP/RSA/EC).
+        if let Some(jwk) = &vm.public_key_jwk {
+            let jwk_bytes = serde_json::to_vec(jwk).map_err(|e| {
+                JwtVerificationError::VerificationFailed(format!("Failed to serialize publicKeyJwk: {}", e))
+            })?;
+            return Ok(KeyMaterial::builder()
+                .key(jwk_bytes)
+                .key_format(KeyFormat::Jwk)
+                .kid(kid)
+                .build());
         }
 
         Err(JwtVerificationError::VerificationFailed(

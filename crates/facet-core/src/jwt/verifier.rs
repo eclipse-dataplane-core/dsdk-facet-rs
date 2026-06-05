@@ -44,6 +44,13 @@ impl LocalJwtVerifier {
             (SigningAlgorithm::RS256, KeyFormat::PEM) => DecodingKey::from_rsa_pem(&key_material.key)
                 .map_err(|e| JwtVerificationError::VerificationFailed(format!("Failed to load RSA PEM key: {}", e))),
             (SigningAlgorithm::RS256, KeyFormat::DER) => Ok(DecodingKey::from_rsa_der(&key_material.key)),
+            (_, KeyFormat::Jwk) => {
+                let jwk: jsonwebtoken::jwk::Jwk = serde_json::from_slice(&key_material.key)
+                    .map_err(|e| JwtVerificationError::VerificationFailed(format!("Failed to parse JWK: {}", e)))?;
+                DecodingKey::from_jwk(&jwk).map_err(|e| {
+                    JwtVerificationError::VerificationFailed(format!("Failed to load JWK decoding key: {}", e))
+                })
+            }
         }
     }
 }

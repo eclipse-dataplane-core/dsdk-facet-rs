@@ -124,6 +124,7 @@ pub enum SigningAlgorithm {
 pub enum KeyFormat {
     PEM,
     DER,
+    Jwk,
 }
 
 impl From<SigningAlgorithm> for Algorithm {

@@ -24,17 +24,26 @@ use std::sync::Arc;
 #[rstest]
 #[case(KeyFormat::PEM)]
 #[case(KeyFormat::DER)]
+#[case(KeyFormat::Jwk)]
 #[tokio::test]
 async fn test_token_generation_validation(#[case] key_format: KeyFormat) {
-    let keypair = match key_format {
-        KeyFormat::PEM => generate_ed25519_keypair_pem().expect("Failed to generate PEM keypair"),
-        KeyFormat::DER => generate_ed25519_keypair_der().expect("Failed to generate DER keypair"),
+    // JWK is a verification-only key format. For the JWK case, sign with raw DER
+    // and verify with a JWK constructed from the same Ed25519 public key.
+    let (keypair, signing_format) = match key_format {
+        KeyFormat::PEM => (
+            generate_ed25519_keypair_pem().expect("Failed to generate PEM keypair"),
+            KeyFormat::PEM,
+        ),
+        KeyFormat::DER | KeyFormat::Jwk => (
+            generate_ed25519_keypair_der().expect("Failed to generate DER keypair"),
+            KeyFormat::DER,
+        ),
     };
 
     let generator = create_test_generator(
         keypair.private_key,
         "did:web:example.com#key-1",
-        key_format,
+        signing_format,
         SigningAlgorithm::EdDSA,
     );
 
@@ -60,7 +69,16 @@ async fn test_token_generation_validation(#[case] key_format: KeyFormat) {
         .await
         .expect("Token generation should succeed");
 
-    let verifier = create_test_verifier(keypair.public_key, key_format, SigningAlgorithm::EdDSA);
+    let verification_key = match key_format {
+        KeyFormat::Jwk => {
+            let x = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&keypair.public_key);
+            serde_json::to_vec(&json!({ "kty": "OKP", "crv": "Ed25519", "x": x }))
+                .expect("JWK serialization should succeed")
+        }
+        _ => keypair.public_key,
+    };
+
+    let verifier = create_test_verifier(verification_key, key_format, SigningAlgorithm::EdDSA);
     let verified_claims = verifier
         .verify_token(&pc.audience, &token)
         .await
@@ -70,7 +88,7 @@ async fn test_token_generation_validation(#[case] key_format: KeyFormat) {
     assert_eq!(verified_claims.iss, "user-id-123");
     assert_eq!(verified_claims.exp, now + 10000);
     assert_eq!(
-        verified_claims.custom.get("access_token").unwrap(),
+        verified_claims.custom.get("access_token").expect("access_token claim"),
         &json!("token-value")
     );
 }

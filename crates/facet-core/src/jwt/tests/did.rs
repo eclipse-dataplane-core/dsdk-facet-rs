@@ -10,7 +10,7 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
-use crate::jwt::{DidWebVerificationKeyResolver, JwtVerificationError, VerificationKeyResolver};
+use crate::jwt::{DidWebVerificationKeyResolver, JwtVerificationError, KeyFormat, VerificationKeyResolver};
 use serde_json::json;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -142,18 +142,20 @@ fn test_verification_method_to_key_material_scenarios() {
     .unwrap();
     assert!(DidWebVerificationKeyResolver::verification_method_to_key_material(&vm_bad, "key-1").is_err());
 
-    // JWK format — not yet supported
+    // JWK format — stored as serialized JSON bytes tagged with KeyFormat::Jwk
+    let jwk_value = json!({ "kty": "OKP", "crv": "Ed25519", "x": "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo" });
     let vm_jwk = serde_json::from_value::<crate::jwt::VerificationMethod>(json!({
         "id": "did:web:example.com#key-1",
         "type": "JsonWebKey2020",
         "controller": "did:web:example.com",
-        "publicKeyJwk": { "kty": "OKP", "crv": "Ed25519", "x": "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo" }
+        "publicKeyJwk": jwk_value,
     }))
     .unwrap();
-    assert!(matches!(
-        DidWebVerificationKeyResolver::verification_method_to_key_material(&vm_jwk, "key-1"),
-        Err(JwtVerificationError::VerificationFailed(msg)) if msg.contains("not yet supported")
-    ));
+    let km_jwk = DidWebVerificationKeyResolver::verification_method_to_key_material(&vm_jwk, "key-1").unwrap();
+    assert_eq!(km_jwk.kid, "key-1");
+    assert_eq!(km_jwk.key_format, KeyFormat::Jwk);
+    let roundtrip: serde_json::Value = serde_json::from_slice(&km_jwk.key).unwrap();
+    assert_eq!(roundtrip, jwk_value);
 
     // No key present
     let vm_none = serde_json::from_value::<crate::jwt::VerificationMethod>(json!({
@@ -362,6 +364,91 @@ async fn test_did_web_sign_verify_roundtrip_via_multibase() {
             .expect("key material extraction");
 
     // Step 5: verify the JWT
+    let static_resolver = Arc::new(
+        crate::jwt::test_fixtures::StaticVerificationKeyResolver::builder()
+            .key(key_material.key)
+            .key_format(key_material.key_format)
+            .build(),
+    );
+    let verifier = LocalJwtVerifier::builder()
+        .verification_key_resolver(static_resolver)
+        .signing_algorithm(SigningAlgorithm::EdDSA)
+        .build();
+
+    let result = verifier.verify_token("did:web:provider", &token).await;
+    assert!(
+        result.is_ok(),
+        "JWT verification should succeed: {:?}",
+        result.unwrap_err()
+    );
+    assert_eq!(result.unwrap().sub, "did:web:consumer");
+}
+
+/// Mirror of `test_did_web_sign_verify_roundtrip_via_multibase` for the JWK path:
+/// confirms that a `publicKeyJwk` (OKP/Ed25519) carried through
+/// `verification_method_to_key_material` can be fed to `LocalJwtVerifier` via
+/// `DecodingKey::from_jwk` and successfully verifies a JWT signed with the
+/// matching private key.
+#[tokio::test]
+async fn test_did_web_sign_verify_roundtrip_via_jwk() {
+    use crate::context::ParticipantContext;
+    use crate::jwt::test_fixtures::{StaticSigningKeyResolver, generate_ed25519_keypair_der};
+    use crate::jwt::{
+        DidWebVerificationKeyResolver, JwtGenerator, JwtVerifier, KeyFormat, LocalJwtGenerator, LocalJwtVerifier,
+        SigningAlgorithm, TokenClaims, VerificationMethod,
+    };
+    use base64::Engine as _;
+    use std::sync::Arc;
+
+    // Step 1: generate a random Ed25519 keypair
+    let keypair = generate_ed25519_keypair_der().expect("keypair generation");
+
+    // Step 2: base64url-encode the raw 32-byte public key as the JWK `x` parameter
+    let x = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&keypair.public_key);
+
+    // Step 3: sign a JWT using the PKCS#8 DER private key
+    let resolver = Arc::new(
+        StaticSigningKeyResolver::builder()
+            .key(keypair.private_key)
+            .key_format(KeyFormat::DER)
+            .kid("did:web:consumer#key-1")
+            .build(),
+    );
+    let generator = Arc::new(
+        LocalJwtGenerator::builder()
+            .signing_key_resolver(resolver)
+            .signing_algorithm(SigningAlgorithm::EdDSA)
+            .build(),
+    );
+    let now = chrono::Utc::now().timestamp();
+    let claims = TokenClaims::builder()
+        .iss("did:web:consumer")
+        .sub("did:web:consumer")
+        .aud("did:web:provider")
+        .exp(now + 300)
+        .build();
+    let pc = ParticipantContext::builder()
+        .id("test-participant")
+        .identifier("did:web:consumer")
+        .audience("did:web:provider")
+        .build();
+    let token = generator.generate_token(&pc, claims).await.expect("token generation");
+
+    // Step 4: build a VerificationMethod containing the JWK and extract KeyMaterial
+    let vm = serde_json::from_value::<VerificationMethod>(json!({
+        "id": "did:web:consumer#key-1",
+        "type": "JsonWebKey2020",
+        "controller": "did:web:consumer",
+        "publicKeyJwk": { "kty": "OKP", "crv": "Ed25519", "x": x },
+    }))
+    .expect("VerificationMethod deserialization");
+
+    let key_material =
+        DidWebVerificationKeyResolver::verification_method_to_key_material(&vm, "did:web:consumer#key-1")
+            .expect("key material extraction");
+    assert_eq!(key_material.key_format, KeyFormat::Jwk);
+
+    // Step 5: verify the JWT — DecodingKey::from_jwk is exercised inside the verifier
     let static_resolver = Arc::new(
         crate::jwt::test_fixtures::StaticVerificationKeyResolver::builder()
             .key(key_material.key)
