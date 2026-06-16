@@ -225,11 +225,17 @@ impl<Tx> SigletDataFlowHandler<Tx> {
     }
 
     /// Builds a DataFlowResponseMessage with an optional data address.
-    fn build_response(&self, state: DataFlowState, data_address: Option<DataAddress>) -> DataFlowStatusMessage {
-        match data_address {
-            Some(addr) => DataFlowStatusMessage::builder().state(state).data_address(addr).build(),
-            None => DataFlowStatusMessage::builder().state(state).build(),
-        }
+    fn build_response(
+        &self,
+        flow_id: &str,
+        state: DataFlowState,
+        data_address: Option<DataAddress>,
+    ) -> DataFlowStatusMessage {
+        DataFlowStatusMessage::builder()
+            .data_flow_id(flow_id)
+            .state(state)
+            .maybe_data_address(data_address)
+            .build()
     }
 
     /// Shared implementation for `on_start` and `on_prepare`.
@@ -261,7 +267,7 @@ impl<Tx> SigletDataFlowHandler<Tx> {
             None
         };
 
-        Ok(self.build_response(state, data_address))
+        Ok(self.build_response(&flow.id, state, data_address))
     }
 }
 
