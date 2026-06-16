@@ -39,7 +39,7 @@ bon = { workspace = true }
 chrono = { workspace = true }
 hex = "0.4"
 jsonwebtoken = { workspace = true, features = ["rust_crypto"] }
-rand = "0.8"
+rand = "0.10"
 reqwest = "0.12"
 sqlx = { workspace = true }
 
