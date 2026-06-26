@@ -13,15 +13,16 @@
 use crate::config::{SigletConfig, StorageBackend, TransferType, VaultConfig};
 use crate::error::SigletError;
 use crate::handler::refresh::TokenRefreshHandler;
-use crate::handler::{SigletDataFlowHandler, TokenApiHandler};
+use crate::handler::{ManagementApiHandler, SigletDataFlowHandler, TokenApiHandler};
 use dataplane_sdk::core::db::data_flow::memory::MemoryDataFlowRepo;
 use dataplane_sdk::core::db::memory::MemoryContext;
 use dataplane_sdk::core::db::tx::{Transaction, TransactionalContext};
 use dataplane_sdk::sdk::DataPlaneSdk;
 use dataplane_sdk_postgres::{PgContext, PgDataFlowRepo};
 use dsdk_facet_core::jwt::{
-    DidWebVerificationKeyResolver, JwkSetProvider, JwtGenerator, JwtVerifier, LocalJwtVerifier, SigningAlgorithm,
-    VaultJwtGenerator, VaultVerificationKeyResolver,
+    DidWebVerificationKeyResolver, JwkSetProvider, JwtGenerator, JwtVerifier, LocalJwtVerifier,
+    MappingTransitKeyResolver, MemorySigningKeyMappingStore, PrefixTransitKeyResolver, SigningAlgorithm,
+    SigningKeyMappingRepository, VaultJwtGenerator, VaultVerificationKeyResolver,
 };
 use dsdk_facet_core::lock::{LockManager, MemoryLockManager};
 use dsdk_facet_core::token::client::oauth::OAuth2TokenClient;
@@ -33,6 +34,7 @@ use dsdk_facet_core::vault::{VaultClient, VaultSigningClient};
 use dsdk_facet_hashicorp_vault::{HashicorpVaultClient, HashicorpVaultConfig, VaultAuthConfig};
 use dsdk_facet_postgres::lock::PostgresLockManager;
 use dsdk_facet_postgres::renewable_token_store::PostgresRenewableTokenStore;
+use dsdk_facet_postgres::signing_key_mapping::PostgresSigningKeyMappingStore;
 use rand::Rng;
 use rand::thread_rng;
 use reqwest::Client;
@@ -63,10 +65,6 @@ pub const VAULT_TOKEN_TEMP_FILE: &str = "siglet_vault_token";
 /// Random server secret size in bytes (256 bits)
 pub const RANDOM_SECRET_SIZE_BYTES: usize = 32;
 
-/// Prefix for per-PC Vault transit keys used to sign proof JWTs.
-/// The full key name is `{CLIENT_TRANSIT_KEY_PREFIX}-{pc.id}`.
-pub const CLIENT_TRANSIT_KEY_PREFIX: &str = "client-signing";
-
 /// Siglet's own participant context ID, used to derive the access-token signing key name.
 /// The transit key is `{ACCESS_TOKEN_SIGNING_KEY_PREFIX}-{SIGLET_PC_ID}` = `"signing-siglet"`.
 pub const SIGLET_PC_ID: &str = "siglet";
@@ -83,6 +81,7 @@ pub struct SigletRuntime<C: TransactionalContext> {
     pub sdk: DataPlaneSdk<C>,
     pub refresh_handler: TokenRefreshHandler,
     pub token_api_handler: TokenApiHandler,
+    pub management_handler: ManagementApiHandler,
 }
 
 // ============================================================================
@@ -104,6 +103,7 @@ pub async fn assemble_memory(
 
     let (renewable_token_store, lock_manager) = assemble_memory_stores();
     let token_store = Arc::new(MemoryTokenStore::default()) as Arc<dyn TokenStore>;
+    let mapping_repo = Arc::new(MemorySigningKeyMappingStore::default()) as Arc<dyn SigningKeyMappingRepository>;
 
     let (vault_resolver, vault_provider_verifier) = create_vault_resolver_components(vault_client.clone()).await?;
     let token_manager = create_token_manager(
@@ -124,6 +124,7 @@ pub async fn assemble_memory(
         lock_manager,
         vault_client,
         token_manager,
+        mapping_repo,
         http_client,
     ))
 }
@@ -148,6 +149,13 @@ pub async fn assemble_postgres(
     let (pool, (renewable_token_store, lock_manager)) = connect_postgres(url).await?;
     let token_store: Arc<dyn TokenStore> = Arc::new(VaultTokenStore::new(vault_client as Arc<dyn VaultClient>));
 
+    let mapping_store = Arc::new(PostgresSigningKeyMappingStore::new(pool.clone()));
+    mapping_store
+        .initialize()
+        .await
+        .map_err(|e| SigletError::Token(Box::new(e)))?;
+    let mapping_repo = mapping_store as Arc<dyn SigningKeyMappingRepository>;
+
     let (vault_resolver, vault_provider_verifier) = create_vault_resolver_components(signing_client.clone()).await?;
     let token_manager = create_token_manager(
         cfg,
@@ -167,6 +175,7 @@ pub async fn assemble_postgres(
         lock_manager,
         signing_client,
         token_manager,
+        mapping_repo,
         http_client,
     ))
 }
@@ -278,21 +287,25 @@ pub fn assemble_refresh_api(token_manager: Arc<dyn TokenManager>) -> TokenRefres
 
 /// Assembles the token management API handler.
 ///
-/// Uses a per-PC Vault transit key to sign proof JWTs in the token renewal flow.
-/// Each PC's transit key is named `{CLIENT_TRANSIT_KEY_PREFIX}-{pc.id}` and must be
-/// provisioned out-of-band. The corresponding public key must be published in the PC's
-/// DID document so the server-side `DidWebVerificationKeyResolver` can verify the JWT.
+/// Uses a per-PC Vault transit key to sign proof JWTs in the token renewal flow. The transit
+/// key name and the header `kid` are resolved from the per-PC signing-key mapping configured
+/// through the management API (see [`MappingTransitKeyResolver`]); a missing mapping is a hard
+/// error at renewal time. The transit key must be provisioned out-of-band and its public key
+/// published so the server-side verifier can validate the JWT.
 pub fn assemble_token_api(
     token_store: Arc<dyn TokenStore>,
     lock_manager: Arc<dyn LockManager>,
     vault_client: Arc<dyn VaultSigningClient>,
     token_manager: Arc<dyn TokenManager>,
+    mapping_repo: Arc<dyn SigningKeyMappingRepository>,
     http_client: Client,
 ) -> TokenApiHandler {
     let client_jwt_generator = Arc::new(
         VaultJwtGenerator::builder()
             .signing_client(vault_client)
-            .key_name_prefix(CLIENT_TRANSIT_KEY_PREFIX)
+            .key_resolver(Arc::new(
+                MappingTransitKeyResolver::builder().repo(mapping_repo).build(),
+            ))
             .build(),
     );
     let token_client = Arc::new(
@@ -346,14 +359,24 @@ fn build_runtime<C: TransactionalContext>(
     lock_manager: Arc<dyn LockManager>,
     vault_client: Arc<dyn VaultSigningClient>,
     token_manager: Arc<dyn TokenManager>,
+    mapping_repo: Arc<dyn SigningKeyMappingRepository>,
     http_client: Client,
 ) -> SigletRuntime<C> {
     let refresh_handler = assemble_refresh_api(token_manager.clone());
-    let token_api_handler = assemble_token_api(token_store, lock_manager, vault_client, token_manager, http_client);
+    let token_api_handler = assemble_token_api(
+        token_store,
+        lock_manager,
+        vault_client,
+        token_manager,
+        mapping_repo.clone(),
+        http_client,
+    );
+    let management_handler = ManagementApiHandler::builder().repo(mapping_repo).build();
     SigletRuntime {
         sdk,
         refresh_handler,
         token_api_handler,
+        management_handler,
     }
 }
 
@@ -375,7 +398,11 @@ fn create_jwt_components(
     let jwt_generator = Arc::new(
         VaultJwtGenerator::builder()
             .signing_client(vault_client)
-            .key_name_prefix(ACCESS_TOKEN_SIGNING_KEY_PREFIX)
+            .key_resolver(Arc::new(
+                PrefixTransitKeyResolver::builder()
+                    .prefix(ACCESS_TOKEN_SIGNING_KEY_PREFIX)
+                    .build(),
+            ))
             .build(),
     );
 

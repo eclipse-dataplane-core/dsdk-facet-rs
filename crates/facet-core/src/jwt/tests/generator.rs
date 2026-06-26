@@ -13,7 +13,11 @@
 use super::common::*;
 use crate::context::ParticipantContext;
 use crate::jwt::test_fixtures::{generate_ed25519_keypair_der, generate_ed25519_keypair_pem, generate_rsa_keypair_pem};
-use crate::jwt::{JwtGenerator, JwtVerifier, KeyFormat, SigningAlgorithm, TokenClaims, VaultJwtGenerator};
+use crate::jwt::transit_key::{MappingTransitKeyResolver, PrefixTransitKeyResolver};
+use crate::jwt::{
+    JwtGenerationError, JwtGenerator, JwtVerifier, KeyFormat, MemorySigningKeyMappingStore, SigningAlgorithm,
+    SigningKeyMapping, SigningKeyMappingRepository, TokenClaims, VaultJwtGenerator,
+};
 use crate::vault::VaultSigningClient;
 use base64::Engine;
 use chrono::Utc;
@@ -232,7 +236,7 @@ async fn test_vault_jwt_generator_generates_valid_jwt_structure() {
 
     let generator = VaultJwtGenerator::builder()
         .signing_client(mock_vault as Arc<dyn VaultSigningClient>)
-        .key_name_prefix("signing")
+        .key_resolver(Arc::new(PrefixTransitKeyResolver::builder().prefix("signing").build()))
         .build();
 
     let pc = ParticipantContext::builder()
@@ -285,7 +289,7 @@ async fn test_vault_jwt_generator_uses_transformed_key_name_in_kid() {
 
     let generator = VaultJwtGenerator::builder()
         .signing_client(mock_vault as Arc<dyn VaultSigningClient>)
-        .key_name_prefix("signing")
+        .key_resolver(Arc::new(PrefixTransitKeyResolver::builder().prefix("signing").build()))
         .build();
 
     let pc = ParticipantContext::builder()
@@ -322,7 +326,7 @@ async fn test_vault_jwt_generator_sets_iat_automatically() {
 
     let generator = VaultJwtGenerator::builder()
         .signing_client(mock_vault as Arc<dyn VaultSigningClient>)
-        .key_name_prefix("signing")
+        .key_resolver(Arc::new(PrefixTransitKeyResolver::builder().prefix("signing").build()))
         .build();
 
     let pc = ParticipantContext::builder()
@@ -372,7 +376,7 @@ async fn test_vault_jwt_generator_with_different_key_versions() {
 
     let generator = VaultJwtGenerator::builder()
         .signing_client(mock_vault as Arc<dyn VaultSigningClient>)
-        .key_name_prefix("signing")
+        .key_resolver(Arc::new(PrefixTransitKeyResolver::builder().prefix("signing").build()))
         .build();
 
     let pc = ParticipantContext::builder()
@@ -406,7 +410,7 @@ async fn test_vault_jwt_generator_preserves_custom_claims() {
 
     let generator = VaultJwtGenerator::builder()
         .signing_client(mock_vault as Arc<dyn VaultSigningClient>)
-        .key_name_prefix("signing")
+        .key_resolver(Arc::new(PrefixTransitKeyResolver::builder().prefix("signing").build()))
         .build();
 
     let pc = ParticipantContext::builder()
@@ -438,4 +442,90 @@ async fn test_vault_jwt_generator_preserves_custom_claims() {
 
     assert_eq!(payload["scope"], "read:data write:data");
     assert_eq!(payload["role"], "admin");
+}
+
+#[tokio::test]
+async fn test_vault_jwt_generator_uses_mapping_key_name_and_kid_verbatim() {
+    let mock_vault = Arc::new(MockVaultSigningClient::new("ignored-key"));
+
+    let repo = Arc::new(MemorySigningKeyMappingStore::new());
+    repo.create(
+        SigningKeyMapping::builder()
+            .participant_context_id("participant-1")
+            .key_name("client-signing-participant-1")
+            .kid("client-signing-participant-1-explicit")
+            .build(),
+    )
+    .await
+    .expect("create should succeed");
+
+    let generator = VaultJwtGenerator::builder()
+        .signing_client(mock_vault as Arc<dyn VaultSigningClient>)
+        .key_resolver(Arc::new(
+            MappingTransitKeyResolver::builder()
+                .repo(repo as Arc<dyn SigningKeyMappingRepository>)
+                .build(),
+        ))
+        .build();
+
+    let pc = ParticipantContext::builder()
+        .id("participant-1")
+        .audience("test-audience")
+        .build();
+
+    let now = Utc::now().timestamp();
+    let claims = TokenClaims::builder()
+        .sub("user-123")
+        .aud("test-audience")
+        .exp(now + 3600)
+        .build();
+
+    let jwt = generator
+        .generate_token(&pc, claims)
+        .await
+        .expect("JWT generation should succeed");
+
+    let parts: Vec<&str> = jwt.split('.').collect();
+    let header_json = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(parts[0])
+        .expect("Failed to decode header");
+    let header: serde_json::Value = serde_json::from_slice(&header_json).expect("Failed to parse header");
+    assert_eq!(
+        header["kid"], "client-signing-participant-1-explicit",
+        "kid should be taken verbatim from the mapping, not derived from the Vault version"
+    );
+}
+
+#[tokio::test]
+async fn test_vault_jwt_generator_errors_when_mapping_missing() {
+    let mock_vault = Arc::new(MockVaultSigningClient::new("ignored-key"));
+    let repo = Arc::new(MemorySigningKeyMappingStore::new());
+
+    let generator = VaultJwtGenerator::builder()
+        .signing_client(mock_vault as Arc<dyn VaultSigningClient>)
+        .key_resolver(Arc::new(
+            MappingTransitKeyResolver::builder()
+                .repo(repo as Arc<dyn SigningKeyMappingRepository>)
+                .build(),
+        ))
+        .build();
+
+    let pc = ParticipantContext::builder().id("unmapped-pc").build();
+
+    let now = Utc::now().timestamp();
+    let claims = TokenClaims::builder()
+        .sub("user-123")
+        .aud("test-audience")
+        .exp(now + 3600)
+        .build();
+
+    let err = generator
+        .generate_token(&pc, claims)
+        .await
+        .expect_err("generation should fail without a mapping");
+
+    assert!(
+        matches!(err, JwtGenerationError::KeyResolution(_)),
+        "expected KeyResolution error, got {err:?}"
+    );
 }

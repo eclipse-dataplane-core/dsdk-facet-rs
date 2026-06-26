@@ -33,6 +33,9 @@ pub const DEFAULT_SIGNALING_PORT: u16 = 8081;
 /// Default port for the token refresh API
 pub const DEFAULT_REFRESH_API_PORT: u16 = 8082;
 
+/// Default port for the management API (signing-key-mapping CRUD)
+pub const DEFAULT_MANAGEMENT_API_PORT: u16 = 8083;
+
 /// Default bind address (0.0.0.0 - listen on all interfaces)
 pub const DEFAULT_BIND_ADDRESS: IpAddr = IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0));
 
@@ -56,6 +59,12 @@ pub const DEFAULT_SIGNALING_AUDIENCE: &str = "siglet";
 /// their `scope` claim. Operators can override it via `signaling_auth.required_scope`;
 /// the default is the data-plane-signaling protocol scope.
 pub const DEFAULT_SIGNALING_SCOPE: &str = "dplane-signaling";
+
+/// Default expected audience for tokens accepted on the management API.
+///
+/// Tokens presented to the management API must carry `aud` equal to this value
+/// (overridable via `management_api_auth.audience`).
+pub const DEFAULT_MANAGEMENT_AUDIENCE: &str = "siglet";
 
 /// Default TCP connect-phase timeout in seconds for the shared HTTP client.
 pub const DEFAULT_HTTP_CONNECT_TIMEOUT_SECS: u64 = 10;
@@ -131,6 +140,47 @@ impl Default for SignalingAuthConfig {
             cache_ttl_seconds: DEFAULT_JWKS_CACHE_TTL_SECONDS,
             audience: DEFAULT_SIGNALING_AUDIENCE.to_string(),
             required_scope: DEFAULT_SIGNALING_SCOPE.to_string(),
+        }
+    }
+}
+
+/// Authentication configuration for the management API (signing-key-mapping CRUD).
+///
+/// Separate from [`SignalingAuthConfig`] so the management endpoints can be secured against a
+/// different IdP/audience than the signaling protocol. There is no `required_scope` field: the
+/// management API binds fixed per-operation scopes (`siglet-mgmt-api:read` for reads,
+/// `siglet-mgmt-api:write` for writes) regardless of this config.
+///
+/// TOML example:
+/// ```text
+/// [management_api_auth]
+/// mode = "enabled"
+/// jwks_url = "https://idp.example.com/.well-known/jwks.json"
+/// audience = "siglet"
+/// ```
+#[derive(Deserialize, Clone, Debug, PartialEq)]
+#[serde(tag = "mode", rename_all = "lowercase", deny_unknown_fields)]
+pub enum ManagementApiAuthConfig {
+    Disabled,
+    Enabled {
+        jwks_url: String,
+        #[serde(default = "default_jwks_cache_ttl_seconds")]
+        cache_ttl_seconds: u64,
+        /// Expected JWT `aud` claim on management-API tokens. Defaults to `"siglet"`.
+        #[serde(default = "default_management_audience")]
+        audience: String,
+    },
+}
+
+impl Default for ManagementApiAuthConfig {
+    /// Default is auth ON with an empty `jwks_url`, which fails validation — forcing every
+    /// deployment to either supply a JWKS URL or explicitly opt out via `mode = "disabled"`.
+    /// Same security-by-default rationale as [`SignalingAuthConfig::default`].
+    fn default() -> Self {
+        Self::Enabled {
+            jwks_url: String::new(),
+            cache_ttl_seconds: DEFAULT_JWKS_CACHE_TTL_SECONDS,
+            audience: DEFAULT_MANAGEMENT_AUDIENCE.to_string(),
         }
     }
 }
@@ -237,6 +287,8 @@ pub struct SigletConfig {
     pub signaling_port: u16,
     #[serde(default = "default_refresh_api_port")]
     pub refresh_api_port: u16,
+    #[serde(default = "default_management_api_port")]
+    pub management_api_port: u16,
     #[serde(default = "default_bind")]
     pub bind: IpAddr,
     #[serde(default)]
@@ -250,6 +302,8 @@ pub struct SigletConfig {
     #[serde(default)]
     pub signaling_auth: SignalingAuthConfig,
     #[serde(default)]
+    pub management_api_auth: ManagementApiAuthConfig,
+    #[serde(default)]
     pub http_client: HttpClientConfig,
 }
 
@@ -259,12 +313,14 @@ impl Default for SigletConfig {
             siglet_api_port: DEFAULT_SIGLET_API_PORT,
             signaling_port: DEFAULT_SIGNALING_PORT,
             refresh_api_port: DEFAULT_REFRESH_API_PORT,
+            management_api_port: DEFAULT_MANAGEMENT_API_PORT,
             bind: DEFAULT_BIND_ADDRESS,
             storage_backend: StorageBackend::Memory,
             transfer_types: Vec::new(),
             vault: VaultConfig::default(),
             token: TokenConfig::default(),
             signaling_auth: SignalingAuthConfig::default(),
+            management_api_auth: ManagementApiAuthConfig::default(),
             http_client: HttpClientConfig::default(),
         }
     }
@@ -336,6 +392,24 @@ impl SigletConfig {
                 self.refresh_api_port
             ));
         }
+        if self.management_api_port == self.siglet_api_port {
+            errors.push(format!(
+                "management_api_port and siglet_api_port cannot be the same (both are {})",
+                self.management_api_port
+            ));
+        }
+        if self.management_api_port == self.signaling_port {
+            errors.push(format!(
+                "management_api_port and signaling_port cannot be the same (both are {})",
+                self.management_api_port
+            ));
+        }
+        if self.management_api_port == self.refresh_api_port {
+            errors.push(format!(
+                "management_api_port and refresh_api_port cannot be the same (both are {})",
+                self.management_api_port
+            ));
+        }
 
         // Validate port numbers are not 0 (system-assigned)
         if self.siglet_api_port == 0 {
@@ -346,6 +420,9 @@ impl SigletConfig {
         }
         if self.refresh_api_port == 0 {
             errors.push("refresh_api_port cannot be 0".to_string());
+        }
+        if self.management_api_port == 0 {
+            errors.push("management_api_port cannot be 0".to_string());
         }
 
         // Validate transfer types
@@ -440,6 +517,34 @@ impl SigletConfig {
             }
         }
 
+        // Validate management API auth config. The management API binds fixed per-operation
+        // scopes, so there is no required_scope to validate here.
+        if let ManagementApiAuthConfig::Enabled {
+            jwks_url,
+            cache_ttl_seconds,
+            audience,
+        } = &self.management_api_auth
+        {
+            if jwks_url.is_empty() {
+                errors.push(
+                    "management_api_auth.jwks_url is required when management_api_auth.mode = \"enabled\" \
+                     (set management_api_auth.mode = \"disabled\" to skip JWT verification in dev)"
+                        .to_string(),
+                );
+            } else if jwks_url.parse::<reqwest::Url>().is_err() {
+                errors.push(format!(
+                    "management_api_auth.jwks_url is not a valid URL: '{}'",
+                    jwks_url
+                ));
+            }
+            if *cache_ttl_seconds == 0 {
+                errors.push("management_api_auth.cache_ttl_seconds must be greater than 0".to_string());
+            }
+            if audience.is_empty() {
+                errors.push("management_api_auth.audience cannot be empty".to_string());
+            }
+        }
+
         if errors.is_empty() {
             Ok(())
         } else {
@@ -460,6 +565,10 @@ const fn default_refresh_api_port() -> u16 {
     DEFAULT_REFRESH_API_PORT
 }
 
+const fn default_management_api_port() -> u16 {
+    DEFAULT_MANAGEMENT_API_PORT
+}
+
 fn default_bind() -> IpAddr {
     DEFAULT_BIND_ADDRESS
 }
@@ -478,6 +587,10 @@ fn default_signaling_audience() -> String {
 
 fn default_signaling_scope() -> String {
     DEFAULT_SIGNALING_SCOPE.to_string()
+}
+
+fn default_management_audience() -> String {
+    DEFAULT_MANAGEMENT_AUDIENCE.to_string()
 }
 
 const fn default_http_connect_timeout_seconds() -> u64 {

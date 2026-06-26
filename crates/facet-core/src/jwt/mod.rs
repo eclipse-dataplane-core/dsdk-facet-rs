@@ -16,9 +16,11 @@ mod tests;
 pub mod did;
 pub mod generator;
 pub mod jwk;
+pub mod mapping;
 pub mod resolver;
 #[cfg(any(test, feature = "test-fixtures"))]
 pub mod test_fixtures;
+pub mod transit_key;
 pub mod verifier;
 
 pub use did::DidWebVerificationKeyResolver;
@@ -26,9 +28,13 @@ pub use did::DidWebVerificationKeyResolver;
 pub(crate) use did::{DidDocument, VerificationMethod};
 pub use generator::VaultJwtGenerator;
 pub use jwk::{Jwk, JwkKeyOperation, JwkKeyType, JwkPublicKeyUse, JwkSet};
+pub use mapping::{
+    MemorySigningKeyMappingStore, SigningKeyMapping, SigningKeyMappingError, SigningKeyMappingRepository,
+};
 pub use resolver::VaultVerificationKeyResolver;
 #[cfg(any(test, feature = "test-fixtures"))]
 pub use test_fixtures::{LocalJwtGenerator, StaticSigningKeyResolver, StaticVerificationKeyResolver};
+pub use transit_key::{MappingTransitKeyResolver, PrefixTransitKeyResolver, TransitKeyRef, TransitKeyResolver};
 pub use verifier::LocalJwtVerifier;
 
 use crate::context::ParticipantContext;
@@ -76,6 +82,9 @@ pub trait JwtGenerator: Send + Sync {
 pub enum JwtGenerationError {
     #[error("Failed to generate token: {0}")]
     GenerationError(String),
+
+    #[error("Failed to resolve signing key: {0}")]
+    KeyResolution(String),
 
     #[error("Vault error during token generation: {0}")]
     VaultError(#[from] VaultError),

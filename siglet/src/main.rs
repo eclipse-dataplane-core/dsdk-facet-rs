@@ -15,7 +15,7 @@ use siglet::{
     config::{SigletConfig, StorageBackend, load_config},
     error::SigletError,
     http::build_http_client,
-    server::{build_signaling_auth_layer, build_token_api_auth_layer, run_server},
+    server::{build_management_api_auth_layers, build_signaling_auth_layer, build_token_api_auth_layer, run_server},
 };
 use tracing::{error, info};
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
@@ -52,6 +52,10 @@ async fn run(cfg: SigletConfig) -> Result<(), SigletError> {
     let auth_layer = build_signaling_auth_layer(&cfg.signaling_auth, http_client.clone());
     // The token API reuses the signaling JWKS/audience but requires the siglet-token-api scope.
     let token_auth_layer = build_token_api_auth_layer(&cfg.signaling_auth, http_client.clone());
+    // The management API has its own auth config (management_api_auth) and binds per-operation
+    // scopes: siglet-mgmt-api:read for reads and siglet-mgmt-api:write for writes.
+    let (mgmt_read_auth, mgmt_write_auth) =
+        build_management_api_auth_layers(&cfg.management_api_auth, http_client.clone());
     match &cfg.storage_backend {
         StorageBackend::Memory => {
             let runtime = assemble_memory(&cfg, http_client).await?;
@@ -60,11 +64,15 @@ async fn run(cfg: SigletConfig) -> Result<(), SigletError> {
                 cfg.signaling_port,
                 cfg.siglet_api_port,
                 cfg.refresh_api_port,
+                cfg.management_api_port,
                 runtime.sdk,
                 runtime.token_api_handler,
                 runtime.refresh_handler,
+                runtime.management_handler,
                 auth_layer,
                 token_auth_layer,
+                mgmt_read_auth,
+                mgmt_write_auth,
             )
             .await
         }
@@ -75,11 +83,15 @@ async fn run(cfg: SigletConfig) -> Result<(), SigletError> {
                 cfg.signaling_port,
                 cfg.siglet_api_port,
                 cfg.refresh_api_port,
+                cfg.management_api_port,
                 runtime.sdk,
                 runtime.token_api_handler,
                 runtime.refresh_handler,
+                runtime.management_handler,
                 auth_layer,
                 token_auth_layer,
+                mgmt_read_auth,
+                mgmt_write_auth,
             )
             .await
         }

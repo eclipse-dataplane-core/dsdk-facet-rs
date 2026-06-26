@@ -27,8 +27,8 @@ use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use dsdk_facet_core::context::ParticipantContext;
 use dsdk_facet_core::jwt::{
-    JwkSet, JwtGenerator, KeyFormat, LocalJwtGenerator, SigningAlgorithm, StaticSigningKeyResolver, TokenClaims,
-    VaultJwtGenerator,
+    JwkSet, JwtGenerator, KeyFormat, LocalJwtGenerator, PrefixTransitKeyResolver, SigningAlgorithm,
+    StaticSigningKeyResolver, TokenClaims, VaultJwtGenerator,
 };
 use dsdk_facet_core::token::client::TokenClient;
 use dsdk_facet_core::token::client::oauth::OAuth2TokenClient;
@@ -785,7 +785,9 @@ async fn do_refresh(ctx: &TestCtx, api_token: &str, refresh_token: &str) -> Resu
     let client_jwt_generator = Arc::new(
         VaultJwtGenerator::builder()
             .signing_client(vault.vault_client.clone() as Arc<dyn VaultSigningClient>)
-            .key_name_prefix("client-signing")
+            .key_resolver(Arc::new(
+                PrefixTransitKeyResolver::builder().prefix("client-signing").build(),
+            ))
             .build(),
     );
 

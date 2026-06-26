@@ -13,7 +13,7 @@
 #![allow(clippy::unwrap_used)]
 use base64::Engine;
 use dsdk_facet_core::context::ParticipantContext;
-use dsdk_facet_core::jwt::{JwtGenerator, TokenClaims, VaultJwtGenerator};
+use dsdk_facet_core::jwt::{JwtGenerator, PrefixTransitKeyResolver, TokenClaims, VaultJwtGenerator};
 use dsdk_facet_core::vault::{PublicKeyFormat, VaultClient, VaultSigningClient};
 use dsdk_facet_hashicorp_vault::{HashicorpVaultClient, HashicorpVaultConfig, JwtKidTransformer, VaultAuthConfig};
 use dsdk_facet_testcontainers::{
@@ -490,7 +490,7 @@ async fn test_content_signing_determinism(client: &Arc<HashicorpVaultClient>) {
 async fn test_jwt_generation(client: &Arc<HashicorpVaultClient>, ctx: &ParticipantContext) {
     let generator = VaultJwtGenerator::builder()
         .signing_client(Arc::clone(client) as Arc<dyn VaultSigningClient>)
-        .key_name_prefix("test")
+        .key_resolver(Arc::new(PrefixTransitKeyResolver::builder().prefix("test").build()))
         .build();
 
     let claims = TokenClaims::builder()

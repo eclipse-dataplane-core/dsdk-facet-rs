@@ -11,6 +11,7 @@
 //
 
 use crate::context::ParticipantContext;
+use crate::jwt::transit_key::{TransitKeyRef, TransitKeyResolver};
 use crate::jwt::{JwtGenerationError, JwtGenerator, TokenClaims};
 use crate::util::clock::{Clock, default_clock};
 use crate::vault::{PublicKeyFormat, VaultSigningClient};
@@ -21,16 +22,17 @@ use std::sync::Arc;
 
 /// JWT generator that delegates signing to a participant-context Vault transit key.
 ///
-/// Each PC's proof JWT is signed with a dedicated transit key named `{key_name_prefix}-{pc.id}`.
-/// The provisioner is responsible for creating the transit key and publishing the corresponding
-/// public key in the PC's DID document.
+/// The transit key name and the header `kid` are supplied by a [`TransitKeyResolver`]: the
+/// prefix resolver derives `{prefix}-{pc.id}` (kid from the Vault key version), while the
+/// mapping resolver reads both from a per-PC database association. The provisioner is
+/// responsible for creating the transit key and publishing the corresponding public key so
+/// verifiers can resolve it.
 #[derive(Builder)]
 pub struct VaultJwtGenerator {
     signing_client: Arc<dyn VaultSigningClient>,
 
-    /// Prefix used to derive the per-PC transit key name: `{key_name_prefix}-{pc.id}`.
-    #[builder(into)]
-    key_name_prefix: String,
+    /// Resolves the transit key name and (optional) `kid` for a participant context.
+    key_resolver: Arc<dyn TransitKeyResolver>,
 
     #[builder(default = default_clock())]
     clock: Arc<dyn Clock>,
@@ -43,13 +45,18 @@ impl JwtGenerator for VaultJwtGenerator {
         participant_context: &ParticipantContext,
         mut claims: TokenClaims,
     ) -> Result<String, JwtGenerationError> {
-        let key_name = format!("{}-{}", self.key_name_prefix, participant_context.id);
+        let TransitKeyRef { key_name, kid } = self.key_resolver.resolve(participant_context).await?;
 
-        let metadata = self
-            .signing_client
-            .get_key_metadata(&key_name, PublicKeyFormat::Multibase)
-            .await?;
-        let kid = format!("{}-{}", metadata.key_name, metadata.current_version);
+        let kid = match kid {
+            Some(kid) => kid,
+            None => {
+                let metadata = self
+                    .signing_client
+                    .get_key_metadata(&key_name, PublicKeyFormat::Multibase)
+                    .await?;
+                format!("{}-{}", metadata.key_name, metadata.current_version)
+            }
+        };
 
         claims.iat = self.clock.now().timestamp();
 
