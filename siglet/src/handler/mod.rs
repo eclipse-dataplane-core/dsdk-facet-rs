@@ -9,10 +9,12 @@
 //  Contributors:
 //       Metaform Systems, Inc. - initial API and implementation
 //
+pub mod management;
 pub mod refresh;
 pub mod signaling;
 pub mod token;
 
+pub use management::ManagementApiHandler;
 pub use signaling::{
     CLAIM_AGREEMENT_ID, CLAIM_COUNTER_PARTY_ID, CLAIM_DATASET_ID, CLAIM_PARTICIPANT_ID, SigletDataFlowHandler,
 };

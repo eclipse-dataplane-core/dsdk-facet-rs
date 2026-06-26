@@ -13,8 +13,8 @@
 #![allow(clippy::unwrap_used)]
 
 use crate::config::{
-    EndpointMapping, SigletConfig, SignalingAuthConfig, StorageBackend, TokenConfig, TokenSource, TransferType,
-    ValidationError, VaultConfig,
+    EndpointMapping, ManagementApiAuthConfig, SigletConfig, SignalingAuthConfig, StorageBackend, TokenConfig,
+    TokenSource, TransferType, ValidationError, VaultConfig,
 };
 use std::net::{IpAddr, Ipv4Addr};
 
@@ -30,6 +30,7 @@ fn create_valid_config() -> SigletConfig {
             ..Default::default()
         },
         signaling_auth: SignalingAuthConfig::Disabled,
+        management_api_auth: ManagementApiAuthConfig::Disabled,
         ..Default::default()
     }
 }
@@ -43,6 +44,7 @@ fn create_valid_config_with_token_file() -> SigletConfig {
             ..Default::default()
         },
         signaling_auth: SignalingAuthConfig::Disabled,
+        management_api_auth: ManagementApiAuthConfig::Disabled,
         ..Default::default()
     }
 }
@@ -63,6 +65,7 @@ fn test_valid_config_with_all_fields() {
         siglet_api_port: 8080,
         signaling_port: 8081,
         refresh_api_port: 8082,
+        management_api_port: 8083,
         bind: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
         storage_backend: StorageBackend::Memory,
         transfer_types: vec![
@@ -89,6 +92,11 @@ fn test_valid_config_with_all_fields() {
             cache_ttl_seconds: 300,
             audience: "https://siglet.example.com".to_string(),
             required_scope: "dplane-signaling".to_string(),
+        },
+        management_api_auth: ManagementApiAuthConfig::Enabled {
+            jwks_url: "https://idp.example.com/.well-known/jwks.json".to_string(),
+            cache_ttl_seconds: 300,
+            audience: "https://siglet.example.com".to_string(),
         },
         http_client: crate::config::HttpClientConfig {
             connect_timeout_seconds: 5,
@@ -636,9 +644,10 @@ fn test_multiple_validation_errors() {
 #[test]
 fn test_all_possible_errors() {
     let config = SigletConfig {
-        siglet_api_port: 0,  // Error 1
-        signaling_port: 0,   // Error 2
-        refresh_api_port: 0, // Error 3
+        siglet_api_port: 0,     // Error 1
+        signaling_port: 0,      // Error 2
+        refresh_api_port: 0,    // Error 3
+        management_api_port: 0, // Error 3b
         bind: IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
         storage_backend: StorageBackend::Memory,
         transfer_types: vec![
@@ -666,6 +675,7 @@ fn test_all_possible_errors() {
             audience: String::new(),       // Error 12: empty audience
             required_scope: String::new(), // Error 13: empty required scope
         },
+        management_api_auth: ManagementApiAuthConfig::Disabled,
         http_client: crate::config::HttpClientConfig {
             connect_timeout_seconds: 0, // Error 12: zero connect timeout
             request_timeout_seconds: 0, // Error 13: zero request timeout
@@ -1079,6 +1089,101 @@ fn test_signaling_auth_rejects_zero_cache_ttl() {
         messages
             .iter()
             .any(|msg| msg.contains("signaling_auth.cache_ttl_seconds"))
+    );
+}
+
+#[test]
+fn test_management_api_auth_default_is_enabled_with_empty_url() {
+    // Strict default: must be explicitly configured or disabled.
+    assert!(matches!(
+        ManagementApiAuthConfig::default(),
+        ManagementApiAuthConfig::Enabled { jwks_url, .. } if jwks_url.is_empty()
+    ));
+}
+
+#[test]
+fn test_management_api_auth_enabled_requires_jwks_url() {
+    let mut config = create_valid_config();
+    config.management_api_auth = ManagementApiAuthConfig::Enabled {
+        jwks_url: String::new(),
+        cache_ttl_seconds: 300,
+        audience: "siglet".to_string(),
+    };
+
+    let messages = config.validate().unwrap_err().messages().join("\n");
+    assert!(messages.contains("management_api_auth.jwks_url is required"));
+}
+
+#[test]
+fn test_management_api_auth_enabled_rejects_invalid_jwks_url() {
+    let mut config = create_valid_config();
+    config.management_api_auth = ManagementApiAuthConfig::Enabled {
+        jwks_url: "not-a-url".to_string(),
+        cache_ttl_seconds: 300,
+        audience: "siglet".to_string(),
+    };
+
+    let messages = config.validate().unwrap_err().messages().join("\n");
+    assert!(messages.contains("management_api_auth.jwks_url is not a valid URL"));
+}
+
+#[test]
+fn test_management_api_auth_rejects_zero_cache_ttl() {
+    let mut config = create_valid_config();
+    config.management_api_auth = ManagementApiAuthConfig::Enabled {
+        jwks_url: "https://idp.example.com/.well-known/jwks.json".to_string(),
+        cache_ttl_seconds: 0,
+        audience: "siglet".to_string(),
+    };
+
+    let messages = config.validate().unwrap_err().messages().join("\n");
+    assert!(messages.contains("management_api_auth.cache_ttl_seconds"));
+}
+
+#[test]
+fn test_management_api_auth_rejects_empty_audience() {
+    let mut config = create_valid_config();
+    config.management_api_auth = ManagementApiAuthConfig::Enabled {
+        jwks_url: "https://idp.example.com/.well-known/jwks.json".to_string(),
+        cache_ttl_seconds: 300,
+        audience: String::new(),
+    };
+
+    let messages = config.validate().unwrap_err().messages().join("\n");
+    assert!(messages.contains("management_api_auth.audience cannot be empty"));
+}
+
+#[test]
+fn test_management_api_auth_enabled_with_valid_jwks_url_passes() {
+    let mut config = create_valid_config();
+    config.management_api_auth = ManagementApiAuthConfig::Enabled {
+        jwks_url: "https://idp.example.com/.well-known/jwks.json".to_string(),
+        cache_ttl_seconds: 300,
+        audience: "siglet".to_string(),
+    };
+
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_management_api_auth_disabled_passes_without_url() {
+    let mut config = create_valid_config();
+    config.management_api_auth = ManagementApiAuthConfig::Disabled;
+
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_management_api_auth_deserialize_enabled_defaults_audience() {
+    let json = r#"{"mode": "enabled", "jwks_url": "https://idp.example.com/jwks.json"}"#;
+    let parsed: ManagementApiAuthConfig = serde_json::from_str(json).expect("enabled variant should parse");
+    assert_eq!(
+        parsed,
+        ManagementApiAuthConfig::Enabled {
+            jwks_url: "https://idp.example.com/jwks.json".to_string(),
+            cache_ttl_seconds: 300,
+            audience: "siglet".to_string(),
+        }
     );
 }
 

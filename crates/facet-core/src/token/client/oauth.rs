@@ -22,6 +22,7 @@ use reqwest::Client;
 use serde::Deserialize;
 use serde_json::{Map, Value};
 use std::sync::Arc;
+use uuid::Uuid;
 
 const DEFAULT_EXPIRATION_SECONDS: i64 = 300; // 5 minutes
 
@@ -56,6 +57,7 @@ impl TokenClient for OAuth2TokenClient {
         let now = self.clock.now().timestamp();
         let mut custom_claims = Map::new();
         custom_claims.insert("token".to_string(), Value::String(access_token.to_string()));
+        custom_claims.insert("jti".to_string(), Value::String(Uuid::new_v4().to_string()));
 
         let claims = TokenClaims::builder()
             .iss(&participant_context.identifier)

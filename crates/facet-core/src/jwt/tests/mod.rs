@@ -15,5 +15,6 @@ mod common;
 mod did;
 mod generator;
 mod jwk;
+mod mapping;
 mod resolver;
 mod verifier;
