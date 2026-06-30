@@ -28,7 +28,7 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 jsonwebtoken = "10"
 jwks-client = "0.2.0"
 ed25519-dalek = { version = "2", features = ["pkcs8"] }
-pkcs8 = { version = "0.10", features = ["encryption", "pem"] }
+pkcs8 = { version = "0.11", features = ["encryption", "pem"] }
 rand = "0.9"
 serde_json = "1"
 rstest = "0.26"
