@@ -67,7 +67,7 @@ use axum::{
     extract::{Path, Request},
     response::{IntoResponse, Response},
 };
-use dataplane_sdk::core::model::participant::ParticipantContext;
+use dataplane_sdk::core::model::{control_plane::ControlPlane, participant::ParticipantContext};
 use jsonwebtoken::{
     Algorithm, DecodingKey, Validation, decode, decode_header,
     jwk::{JwkSet, KeyAlgorithm},
@@ -431,6 +431,8 @@ where
                     if let Some(pc_id) = pc_id {
                         req.extensions_mut()
                             .insert(ParticipantContext::builder().id(&pc_id).build());
+                        req.extensions_mut()
+                            .insert(ControlPlane::builder().id(pc_id).url("http://example.org").build());
                     }
                     inner.call(req).await
                 }
@@ -444,6 +446,8 @@ where
                     let mut req = Request::from_parts(parts, body);
                     req.extensions_mut()
                         .insert(ParticipantContext::builder().id(&pc_id).build());
+                    req.extensions_mut()
+                        .insert(ControlPlane::builder().id(pc_id).url("http://example.org").build());
                     inner.call(req).await
                 }
 

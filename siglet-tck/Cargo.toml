@@ -1,0 +1,32 @@
+[package]
+name = "siglet-tck"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+# This crate carries no runtime code; it exists to run the Eclipse Dataspace
+# Data Plane Signaling (DPS) TCK against a real, in-process siglet. All logic
+# lives in the integration test under `tests/`.
+
+[dev-dependencies]
+# The siglet under test — assembled and served in-process.
+siglet = { path = "../siglet" }
+
+# Container orchestration for the Vault dependency and the TCK runtime.
+testcontainers = { workspace = true }
+testcontainers-modules = { workspace = true, features = ["hashicorp_vault", "postgres"] }
+
+# Async runtime + HTTP client used to provision Vault (transit engine + signing key).
+tokio = { workspace = true }
+reqwest = { workspace = true }
+serde_json = { workspace = true }
+
+# Log scraping / diagnostics.
+regex = { workspace = true }
+futures = "0.3"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow = "1.0"
+
+[lints]
+workspace = true

@@ -109,8 +109,8 @@ impl<Tx> SigletDataFlowHandler<Tx> {
     /// Looks up the transfer type configuration for the given flow.
     fn get_transfer_type(&self, flow: &DataFlow) -> HandlerResult<&TransferType> {
         self.transfer_type_mappings
-            .get(&flow.transfer_type)
-            .ok_or_else(|| HandlerError::Generic(format!("Unsupported transfer type: {}", flow.transfer_type).into()))
+            .get(&flow.profile)
+            .ok_or_else(|| HandlerError::Generic(format!("Unsupported profile: {}", flow.profile).into()))
     }
 
     /// Resolves the endpoint for the given flow and transfer type configuration.
@@ -143,8 +143,8 @@ impl<Tx> SigletDataFlowHandler<Tx> {
             .ok_or_else(|| {
                 HandlerError::Generic(
                     format!(
-                        "No endpoint mapping matched for flow '{}' with transfer type '{}'",
-                        flow.id, flow.transfer_type
+                        "No endpoint mapping matched for flow '{}' with profile '{}'",
+                        flow.id, flow.profile
                     )
                     .into(),
                 )
@@ -276,7 +276,7 @@ impl<Tx: Send> DataFlowHandler for SigletDataFlowHandler<Tx> {
     type Transaction = Tx;
 
     async fn can_handle(&self, flow: &DataFlow) -> HandlerResult<bool> {
-        Ok(self.transfer_type_mappings.contains_key(&flow.transfer_type))
+        Ok(self.transfer_type_mappings.contains_key(&flow.profile))
     }
 
     async fn on_start(&self, _tx: &mut Self::Transaction, flow: &DataFlow) -> HandlerResult<DataFlowStatusMessage> {

@@ -47,6 +47,7 @@ impl LocalJwtVerifier {
             (_, KeyFormat::Jwk) => {
                 let jwk: jsonwebtoken::jwk::Jwk = serde_json::from_slice(&key_material.key)
                     .map_err(|e| JwtVerificationError::VerificationFailed(format!("Failed to parse JWK: {}", e)))?;
+
                 DecodingKey::from_jwk(&jwk).map_err(|e| {
                     JwtVerificationError::VerificationFailed(format!("Failed to load JWK decoding key: {}", e))
                 })
@@ -68,7 +69,8 @@ impl JwtVerifier for LocalJwtVerifier {
 
         // Now load the decoding key with the extracted iss and kid
         let decoding_key = self.load_decoding_key(iss, &kid).await?;
-        let mut validation = Validation::new(self.signing_algorithm.into());
+
+        let mut validation = Validation::new(header.alg);
         validation.leeway = self.leeway_seconds;
         validation.validate_nbf = true;
         validation.aud = Some(HashSet::from([audience.to_string()]));
