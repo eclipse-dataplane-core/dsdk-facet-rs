@@ -17,7 +17,7 @@ async-trait = { workspace = true }
 chrono = { workspace = true }
 base64 = { workspace = true }
 bs58 = { workspace = true }
-notify = "6.1"
+notify = "8.2"
 
 
 [dev-dependencies]
