@@ -235,6 +235,11 @@ pub struct TransferType {
     #[serde(default)]
     #[builder(default)]
     pub endpoint_mappings: Vec<EndpointMapping>,
+    /// When enabled, this transfer type uses the special token-renewal protocol
+    /// instead of the standard bearer/refresh-token data-address properties.
+    #[serde(default)]
+    #[builder(default)]
+    pub tx_renewal_support: bool,
 }
 
 #[derive(Builder, Deserialize, Clone, Debug)]
