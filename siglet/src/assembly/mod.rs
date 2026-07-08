@@ -14,11 +14,12 @@ use crate::config::{SigletConfig, StorageBackend, TransferType, VaultConfig};
 use crate::error::SigletError;
 use crate::handler::refresh::TokenRefreshHandler;
 use crate::handler::{ManagementApiHandler, SigletDataFlowHandler, TokenApiHandler};
+use dataplane_sdk::core::db::control_plane::memory::MemoryControlPlaneRepo;
 use dataplane_sdk::core::db::data_flow::memory::MemoryDataFlowRepo;
 use dataplane_sdk::core::db::memory::MemoryContext;
 use dataplane_sdk::core::db::tx::{Transaction, TransactionalContext};
 use dataplane_sdk::sdk::DataPlaneSdk;
-use dataplane_sdk_postgres::{PgContext, PgDataFlowRepo};
+use dataplane_sdk_postgres::{PgContext, PgControlPlaneRepo, PgDataFlowRepo};
 use dsdk_facet_core::jwt::{
     DidWebVerificationKeyResolver, JwkSetProvider, JwtGenerator, JwtVerifier, LocalJwtVerifier,
     MappingTransitKeyResolver, MemorySigningKeyMappingStore, PrefixTransitKeyResolver, SigningAlgorithm,
@@ -214,6 +215,7 @@ pub async fn assemble_postgres_sdk(
 ) -> Result<DataPlaneSdk<PgContext>, SigletError> {
     let ctx = PgContext::new(pool);
     let repo = PgDataFlowRepo;
+    let control_plane_repo = PgControlPlaneRepo;
 
     let mut tx = ctx
         .begin()
@@ -222,6 +224,12 @@ pub async fn assemble_postgres_sdk(
     repo.migrate(&mut tx)
         .await
         .map_err(|e| SigletError::DataPlane(anyhow::anyhow!(e)))?;
+
+    control_plane_repo
+        .migrate(&mut tx)
+        .await
+        .map_err(|e| SigletError::DataPlane(anyhow::anyhow!(e)))?;
+
     tx.commit()
         .await
         .map_err(|e| SigletError::DataPlane(anyhow::anyhow!(e)))?;
@@ -230,6 +238,7 @@ pub async fn assemble_postgres_sdk(
 
     DataPlaneSdk::builder(ctx)
         .with_repo(repo)
+        .with_control_plane_repo(control_plane_repo)
         .with_handler(siglet_handler)
         .build()
         .map_err(|e| SigletError::DataPlane(anyhow::anyhow!(e)))
@@ -271,10 +280,12 @@ pub async fn assemble_memory_sdk(
 ) -> Result<DataPlaneSdk<MemoryContext>, SigletError> {
     let ctx = MemoryContext;
     let flow_repo = MemoryDataFlowRepo::default();
+    let cp_repo = MemoryControlPlaneRepo::default();
     let siglet_handler = create_siglet_handler(cfg, token_store, token_manager);
 
     DataPlaneSdk::builder(ctx)
         .with_repo(flow_repo)
+        .with_control_plane_repo(cp_repo)
         .with_handler(siglet_handler)
         .build()
         .map_err(|e| SigletError::DataPlane(anyhow::anyhow!(e)))

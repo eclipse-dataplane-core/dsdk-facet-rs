@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/*", "siglet", "e2e", "e2e/test-client"]
+members = ["crates/*", "siglet", "siglet-tck", "e2e", "e2e/test-client"]
 resolver = "2"
 
 [workspace.package]

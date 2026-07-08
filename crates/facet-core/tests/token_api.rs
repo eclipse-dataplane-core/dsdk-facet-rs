@@ -97,7 +97,6 @@ async fn test_api_end_to_end_with_refresh() {
         .build();
 
     let result = token_api.get_token(&pc1, "token1", "participant1").await;
-    dbg!(&result);
     assert!(result.is_ok());
     let token_result = result.unwrap();
     assert_eq!(token_result.token, "new_access_token");
