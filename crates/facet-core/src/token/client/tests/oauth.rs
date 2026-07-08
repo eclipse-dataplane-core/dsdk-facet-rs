@@ -44,7 +44,7 @@ async fn test_refresh_token_success() {
     let client = OAuth2TokenClient::builder().jwt_generator(jwt_generator).build();
 
     Mock::given(method("POST"))
-        .and(path("/token/refresh"))
+        .and(path("/token"))
         .and(header_regex("Authorization", r"^Bearer .+$"))
         .and(body_string_contains("grant_type=refresh_token"))
         .and(body_string_contains("refresh_token=old_refresh_token"))
@@ -61,7 +61,7 @@ async fn test_refresh_token_success() {
         .audience("test-audience")
         .build();
 
-    let refresh_endpoint = format!("{}/token/refresh", mock_server.uri());
+    let refresh_endpoint = format!("{}/token", mock_server.uri());
     let token_data = client
         .refresh_token(
             &pc,
@@ -99,7 +99,7 @@ async fn test_proof_jwt_sub_is_participant_context_identifier() {
     let client = OAuth2TokenClient::builder().jwt_generator(jwt_generator).build();
 
     Mock::given(method("POST"))
-        .and(path("/token/refresh"))
+        .and(path("/token"))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
             "access_token": "new_token",
             "refresh_token": "new_refresh",
@@ -113,7 +113,7 @@ async fn test_proof_jwt_sub_is_participant_context_identifier() {
         .identifier("did:web:consumer.example.com")
         .build();
 
-    let refresh_endpoint = format!("{}/token/refresh", mock_server.uri());
+    let refresh_endpoint = format!("{}/token", mock_server.uri());
     client
         .refresh_token(
             &pc,

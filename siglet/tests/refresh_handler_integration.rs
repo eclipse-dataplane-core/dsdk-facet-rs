@@ -131,7 +131,7 @@ async fn test_token_renewal() {
 
     wait_for_port_ready(addr, Duration::from_secs(5)).await.unwrap();
 
-    let refresh_endpoint = format!("http://127.0.0.1:{}/token/refresh", port);
+    let refresh_endpoint = format!("http://127.0.0.1:{}/token", port);
 
     // endpoint_identifier becomes aud in the client auth JWT — must equal participant_context.audience
     let consumer_ctx = ParticipantContext::builder()

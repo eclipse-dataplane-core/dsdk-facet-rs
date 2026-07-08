@@ -56,7 +56,7 @@ async fn test_api_end_to_end_with_refresh() {
     let bearer_verifier = BearerTokenVerifier::new(public_key, verification_context, DID.to_string());
 
     Mock::given(method("POST"))
-        .and(path("/token/refresh"))
+        .and(path("/token"))
         .and(bearer_verifier)
         .and(body_string_contains("grant_type=refresh_token"))
         .and(body_string_contains("refresh_token=old_refresh_token"))
@@ -68,7 +68,7 @@ async fn test_api_end_to_end_with_refresh() {
         .mount(&mock_server)
         .await;
 
-    let refresh_endpoint = format!("{}/token/refresh", mock_server.uri());
+    let refresh_endpoint = format!("{}/token", mock_server.uri());
 
     let data = TokenData::builder()
         .participant_context("participant1")

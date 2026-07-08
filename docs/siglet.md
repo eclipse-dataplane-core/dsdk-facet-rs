@@ -47,7 +47,7 @@ Siglet exposes three HTTP servers:
                         │   /keys               GET            │
                         │                                      │
  Provider Siglet ◀──────   Refresh API (:8082)                │
-                        │   /token/refresh      POST           │
+                        │   /token      POST           │
                         └─────────────────────────────────────┘
                                       │
                               PostgreSQL + Vault
@@ -450,7 +450,7 @@ The `DataAddress` returned on `on_start` / `on_prepare` contains the following p
 | `authType`        | Always `"bearer"`                                   |
 | `refreshToken`    | The opaque refresh token                            |
 | `expiresIn`       | Seconds until the access token expires              |
-| `refreshEndpoint` | URL of Siglet's refresh API (`:8082/token/refresh`) |
+| `refreshEndpoint` | URL of Siglet's refresh API (`:8082/token`) |
 
 ### Transfer Type Configuration
 
@@ -510,8 +510,8 @@ request_timeout_seconds = 30   # Default: 30. Total per-request timeout (connect
 [token]
 issuer = "siglet"          # JWT `iss` claim. Default: "siglet"
 # Override the refresh endpoint advertised to consumers.
-# Default: http://{bind}:{refresh_api_port}/token/refresh
-refresh_endpoint = "https://siglet.example.com/token/refresh"
+# Default: http://{bind}:{refresh_api_port}/token
+refresh_endpoint = "https://siglet.example.com/token"
 # Hex-encoded secret used to derive symmetric keys (HMAC, etc.).
 # Must be at least 16 bytes (32 hex chars). Generate with: openssl rand -hex 32
 server_secret = "0102030405060708090a0b0c0d0e0f10..."
@@ -796,7 +796,7 @@ data:
 
     [token]
     issuer = "siglet"
-    refresh_endpoint = "https://siglet.example.com/token/refresh"
+    refresh_endpoint = "https://siglet.example.com/token"
 
     [[transfer_types]]
     transfer_type = "HttpData-PULL"

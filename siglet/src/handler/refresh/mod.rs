@@ -47,9 +47,7 @@ pub struct TokenRefreshHandler {
 
 impl TokenRefreshHandler {
     pub fn router(self) -> Router {
-        Router::new()
-            .route("/token/refresh", post(refresh_token))
-            .with_state(self)
+        Router::new().route("/token", post(refresh_token)).with_state(self)
     }
 }
 

@@ -173,10 +173,7 @@ pub fn build_config(vault_url: &str, token_file: &Path, pg_url: &str) -> SigletC
                 .build(),
         ],
         token: TokenConfig {
-            refresh_endpoint: Some(format!(
-                "http://host.docker.internal:{}/token/refresh",
-                REFRESH_API_PORT
-            )),
+            refresh_endpoint: Some(format!("http://host.docker.internal:{}/token", REFRESH_API_PORT)),
             ..Default::default()
         },
         ..Default::default()
