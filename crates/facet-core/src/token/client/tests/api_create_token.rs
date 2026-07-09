@@ -658,7 +658,7 @@ async fn test_create_token_preserves_all_parameters() {
 
     let mut token_store = MockTokenStore::new();
     let expected_expires_at = Utc::now() + TimeDelta::hours(3);
-    let expected_endpoint = "https://custom.auth.example.com/token/refresh";
+    let expected_endpoint = "https://custom.auth.example.com/token";
 
     token_store
         .expect_save_token()

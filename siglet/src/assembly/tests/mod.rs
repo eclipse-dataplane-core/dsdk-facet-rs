@@ -266,7 +266,7 @@ fn test_create_token_manager_with_default_refresh_endpoint() {
     );
 
     assert!(Arc::strong_count(&manager) >= 1);
-    // Default should be: http://127.0.0.1:9000/token/refresh
+    // Default should be: http://127.0.0.1:9000/token
 }
 
 #[test]

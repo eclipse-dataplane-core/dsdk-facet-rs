@@ -73,7 +73,7 @@ spec:
         - name: SIGLET__TOKEN__ISSUER
           value: "siglet-e2e"
         - name: SIGLET__TOKEN__REFRESH_ENDPOINT
-          value: "http://siglet:8082/token/refresh"
+          value: "http://siglet:8082/token"
         - name: SIGLET__VAULT__USE_HTTP_RESOLUTION
           value: "true"
         volumeMounts:

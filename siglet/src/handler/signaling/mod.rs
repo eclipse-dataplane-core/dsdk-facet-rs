@@ -106,6 +106,36 @@ impl<Tx> SigletDataFlowHandler<Tx> {
         ]
     }
 
+    /// Generates data-address properties for the special tx-token-renewal protocol.
+    fn create_tx_renewal_properties(aud: &str, pair: &RenewableTokenPair) -> Vec<EndpointProperty> {
+        vec![
+            EndpointProperty::builder()
+                .name("https://w3id.org/edc/v0.0.1/ns/authorization")
+                .value(&pair.token)
+                .build(),
+            EndpointProperty::builder()
+                .name("https://w3id.org/tractusx/auth/authType")
+                .value("bearer")
+                .build(),
+            EndpointProperty::builder()
+                .name("https://w3id.org/tractusx/auth/refreshToken")
+                .value(&pair.refresh_token)
+                .build(),
+            EndpointProperty::builder()
+                .name("https://w3id.org/tractusx/auth/expiresIn")
+                .value((pair.expires_at.timestamp() - Utc::now().timestamp()).to_string())
+                .build(),
+            EndpointProperty::builder()
+                .name("https://w3id.org/tractusx/auth/refreshEndpoint")
+                .value(&pair.refresh_endpoint)
+                .build(),
+            EndpointProperty::builder()
+                .name("https://w3id.org/tractusx/auth/refreshAudience")
+                .value(aud)
+                .build(),
+        ]
+    }
+
     /// Looks up the transfer type configuration for the given flow.
     fn get_transfer_type(&self, flow: &DataFlow) -> HandlerResult<&TransferType> {
         self.transfer_type_mappings
@@ -256,11 +286,16 @@ impl<Tx> SigletDataFlowHandler<Tx> {
             .await?
         {
             let endpoint = Self::resolve_endpoint(transfer_type, flow)?;
+            let properties = if transfer_type.tx_renewal_support {
+                Self::create_tx_renewal_properties(&flow.participant_id, &pair)
+            } else {
+                Self::create_auth_properties(&pair)
+            };
             Some(
                 DataAddress::builder()
                     .endpoint_type(&transfer_type.endpoint_type)
                     .endpoint(endpoint)
-                    .endpoint_properties(Self::create_auth_properties(&pair))
+                    .endpoint_properties(properties)
                     .build(),
             )
         } else {
@@ -296,40 +331,22 @@ impl<Tx: Send> DataFlowHandler for SigletDataFlowHandler<Tx> {
 
     async fn on_started(&self, _tx: &mut Self::Transaction, flow: &DataFlow) -> HandlerResult<()> {
         if let Some(data_address) = flow.data_address.as_ref() {
-            let token = data_address
-                .get_property("authorization")
-                .ok_or_else(|| HandlerError::Generic("Data address must contain an authorization property".into()))?;
-
-            let refresh_token = data_address
-                .get_property("refreshToken")
-                .ok_or_else(|| HandlerError::Generic("Data address must contain a refreshToken property".into()))?;
-
-            let refresh_endpoint = data_address
-                .get_property("refreshEndpoint")
-                .ok_or_else(|| HandlerError::Generic("Data address must contain a refreshEndpoint property".into()))?;
-
-            let expires_in = data_address
-                .get_property("expiresIn")
-                .ok_or_else(|| HandlerError::Generic("Data address must contain an expiresIn property".into()))
-                .and_then(|s| {
-                    s.parse::<i64>()
-                        .map_err(|_| HandlerError::Generic("Invalid expiresIn format".into()))
-                })?;
-
-            // Calculate absolute expiration timestamp from relative seconds
-            let expires_at_timestamp = Utc::now().timestamp() + expires_in;
-            let expires_at = chrono::DateTime::from_timestamp(expires_at_timestamp, 0)
-                .ok_or_else(|| HandlerError::Generic("Invalid expiration timestamp".into()))?;
+            let transfer_type = self.get_transfer_type(flow)?;
+            let renewal_properties = if transfer_type.tx_renewal_support {
+                read_tx_renewal_properties(data_address)?
+            } else {
+                read_renewal_properties(data_address)?
+            };
 
             let token_data = TokenData::builder()
                 .identifier(flow.id.clone())
                 .participant_context(flow.participant_context_id.clone())
                 .participant_id(flow.participant_id.clone())
                 .counter_party_id(flow.counter_party_id.clone())
-                .token(token.to_string())
-                .refresh_token(refresh_token.to_string())
-                .expires_at(expires_at)
-                .refresh_endpoint(refresh_endpoint.to_string())
+                .token(renewal_properties.token)
+                .refresh_token(renewal_properties.refresh_token)
+                .expires_at(renewal_properties.expires_at)
+                .refresh_endpoint(renewal_properties.refresh_endpoint)
                 .endpoint(data_address.endpoint.to_string())
                 .build();
 
@@ -347,4 +364,79 @@ impl<Tx: Send> DataFlowHandler for SigletDataFlowHandler<Tx> {
         let participant_context = Self::build_participant_context(flow);
         self.cleanup_tokens(flow, &participant_context).await
     }
+}
+
+struct RenewalProperties {
+    token: String,
+    refresh_endpoint: String,
+    refresh_token: String,
+    expires_at: chrono::DateTime<chrono::Utc>,
+}
+
+fn read_renewal_properties(data_address: &DataAddress) -> HandlerResult<RenewalProperties> {
+    let token = data_address
+        .get_property("authorization")
+        .ok_or_else(|| HandlerError::Generic("Data address must contain an authorization property".into()))?;
+
+    let refresh_token = data_address
+        .get_property("refreshToken")
+        .ok_or_else(|| HandlerError::Generic("Data address must contain a refreshToken property".into()))?;
+
+    let refresh_endpoint = data_address
+        .get_property("refreshEndpoint")
+        .ok_or_else(|| HandlerError::Generic("Data address must contain a refreshEndpoint property".into()))?;
+
+    let expires_in = data_address
+        .get_property("expiresIn")
+        .ok_or_else(|| HandlerError::Generic("Data address must contain an expiresIn property".into()))
+        .and_then(|s| {
+            s.parse::<i64>()
+                .map_err(|_| HandlerError::Generic("Invalid expiresIn format".into()))
+        })?;
+
+    // Calculate absolute expiration timestamp from relative seconds
+    let expires_at_timestamp = Utc::now().timestamp() + expires_in;
+    let expires_at = chrono::DateTime::from_timestamp(expires_at_timestamp, 0)
+        .ok_or_else(|| HandlerError::Generic("Invalid expiration timestamp".into()))?;
+
+    Ok(RenewalProperties {
+        token: token.to_string(),
+        refresh_token: refresh_token.to_string(),
+        refresh_endpoint: refresh_endpoint.to_string(),
+        expires_at,
+    })
+}
+
+fn read_tx_renewal_properties(data_address: &DataAddress) -> HandlerResult<RenewalProperties> {
+    let token = data_address
+        .get_property("https://w3id.org/edc/v0.0.1/ns/authorization")
+        .ok_or_else(|| HandlerError::Generic("Data address must contain an authorization property".into()))?;
+
+    let refresh_token = data_address
+        .get_property("https://w3id.org/tractusx/auth/refreshToken")
+        .ok_or_else(|| HandlerError::Generic("Data address must contain a refreshToken property".into()))?;
+
+    let refresh_endpoint = data_address
+        .get_property("https://w3id.org/tractusx/auth/refreshEndpoint")
+        .ok_or_else(|| HandlerError::Generic("Data address must contain a refreshEndpoint property".into()))?;
+
+    let expires_in = data_address
+        .get_property("https://w3id.org/tractusx/auth/expiresIn")
+        .ok_or_else(|| HandlerError::Generic("Data address must contain an expiresIn property".into()))
+        .and_then(|s| {
+            s.parse::<i64>()
+                .map_err(|_| HandlerError::Generic("Invalid expiresIn format".into()))
+        })?;
+
+    // Calculate absolute expiration timestamp from relative seconds
+    let expires_at_timestamp = Utc::now().timestamp() + expires_in;
+    let expires_at = chrono::DateTime::from_timestamp(expires_at_timestamp, 0)
+        .ok_or_else(|| HandlerError::Generic("Invalid expiration timestamp".into()))?;
+
+    Ok(RenewalProperties {
+        token: token.to_string(),
+        refresh_token: refresh_token.to_string(),
+        refresh_endpoint: refresh_endpoint.to_string(),
+        expires_at,
+    })
 }

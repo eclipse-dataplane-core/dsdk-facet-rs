@@ -14,6 +14,7 @@ use super::SigletDataFlowHandler;
 use crate::config::{TokenSource, TransferType};
 use dataplane_sdk::core::db::memory::MemoryTransaction;
 use dataplane_sdk::core::handler::DataFlowHandler;
+use dataplane_sdk::core::model::data_address::EndpointProperty;
 use dataplane_sdk::core::model::data_flow::{DataFlow, DataFlowType};
 use dsdk_facet_core::context::ParticipantContext;
 use dsdk_facet_core::jwt::JwkSet;
@@ -253,6 +254,200 @@ async fn test_on_prepare_skips_token_for_provider_token_source() {
 
     // Verify no data address is present
     assert!(response.data_address.is_none());
+}
+
+#[tokio::test]
+async fn test_on_start_with_tx_renewal_support_emits_properties() {
+    use dataplane_sdk::core::db::memory::MemoryContext;
+    use dataplane_sdk::core::db::tx::TransactionalContext;
+
+    let token_store = Arc::new(MemoryTokenStore::new());
+    let token_manager = Arc::new(MockTokenManager);
+    let mut mappings = HashMap::new();
+    mappings.insert(
+        "http-pull".to_string(),
+        TransferType::builder()
+            .transfer_type("http-pull".to_string())
+            .endpoint_type("HTTP".to_string())
+            .endpoint("https://pull.example.com".to_string())
+            .token_source(TokenSource::Provider)
+            .tx_renewal_support(true)
+            .build(),
+    );
+
+    let handler = Handler::builder()
+        .token_store(token_store)
+        .token_manager(token_manager)
+        .transfer_type_mappings(mappings)
+        .dataplane_id("dataplane-1")
+        .build();
+
+    let flow = create_test_flow("flow-1", "participant-1", "http-pull");
+
+    let context = MemoryContext;
+    let mut tx = context.begin().await.unwrap();
+
+    let result = handler.on_start(&mut tx, &flow).await;
+    assert!(result.is_ok());
+
+    let data_address = result.unwrap().data_address.unwrap();
+
+    // The renewal protocol emits no auth properties for now, but the data address
+    // (endpoint / endpoint_type) is still built and a token pair is still generated.
+    assert_eq!(data_address.endpoint, "https://pull.example.com");
+    assert_eq!(data_address.endpoint_type, "HTTP");
+    // Verify token properties are present
+    assert!(
+        data_address
+            .get_property("https://w3id.org/edc/v0.0.1/ns/authorization")
+            .is_some()
+    );
+    assert!(
+        data_address
+            .get_property("https://w3id.org/tractusx/auth/authType")
+            .is_some()
+    );
+    assert!(
+        data_address
+            .get_property("https://w3id.org/tractusx/auth/refreshToken")
+            .is_some()
+    );
+    assert!(
+        data_address
+            .get_property("https://w3id.org/tractusx/auth/expiresIn")
+            .is_some()
+    );
+    assert!(
+        data_address
+            .get_property("https://w3id.org/tractusx/auth/refreshEndpoint")
+            .is_some()
+    );
+    assert!(
+        data_address
+            .get_property("https://w3id.org/tractusx/auth/refreshAudience")
+            .is_some()
+    );
+}
+
+#[tokio::test]
+async fn test_on_started_with_tx_renewal_support_skips_token_save() {
+    use dataplane_sdk::core::db::memory::MemoryContext;
+    use dataplane_sdk::core::db::tx::TransactionalContext;
+    use dataplane_sdk::core::model::data_address::DataAddress;
+
+    let token_store = Arc::new(MemoryTokenStore::new());
+    let token_manager = Arc::new(MockTokenManager);
+    let mut mappings = HashMap::new();
+    mappings.insert(
+        "http-pull".to_string(),
+        TransferType::builder()
+            .transfer_type("http-pull".to_string())
+            .endpoint_type("HTTP".to_string())
+            .endpoint("https://pull.example.com".to_string())
+            .token_source(TokenSource::Provider)
+            .tx_renewal_support(true)
+            .build(),
+    );
+
+    let handler = Handler::builder()
+        .token_store(token_store.clone())
+        .token_manager(token_manager)
+        .transfer_type_mappings(mappings)
+        .dataplane_id("dataplane-1")
+        .build();
+
+    let mut flow = create_test_flow("flow-1", "participant-1", "http-pull");
+    // The renewal-protocol data address carries no standard auth properties.
+    flow.data_address = Some(
+        DataAddress::builder()
+            .endpoint_type("HTTP")
+            .endpoint("https://pull.example.com")
+            .endpoint_properties(vec![
+                EndpointProperty::builder()
+                    .name("https://w3id.org/edc/v0.0.1/ns/authorization")
+                    .value("token-abc")
+                    .build(),
+                EndpointProperty::builder()
+                    .name("https://w3id.org/tractusx/auth/refreshToken")
+                    .value("refresh-abc")
+                    .build(),
+                EndpointProperty::builder()
+                    .name("https://w3id.org/tractusx/auth/refreshEndpoint")
+                    .value("https://refresh.example.com")
+                    .build(),
+                EndpointProperty::builder()
+                    .name("https://w3id.org/tractusx/auth/expiresIn")
+                    .value("3600")
+                    .build(),
+            ])
+            .build(),
+    );
+
+    let context = MemoryContext;
+    let mut tx = context.begin().await.unwrap();
+
+    // Must not error despite the missing auth properties, and must not persist a token.
+    let result = handler.on_started(&mut tx, &flow).await;
+    assert!(result.is_ok());
+
+    let participant_ctx = ParticipantContext::builder().id("context-1").build();
+    assert!(token_store.get_token(&participant_ctx, "flow-1").await.is_ok());
+}
+
+#[tokio::test]
+async fn test_on_started_without_tx_renewal_support_saves_token() {
+    use dataplane_sdk::core::db::memory::MemoryContext;
+    use dataplane_sdk::core::db::tx::TransactionalContext;
+    use dataplane_sdk::core::model::data_address::{DataAddress, EndpointProperty};
+
+    let token_store = Arc::new(MemoryTokenStore::new());
+    let token_manager = Arc::new(MockTokenManager);
+    let mut mappings = HashMap::new();
+    mappings.insert(
+        "http-pull".to_string(),
+        create_transfer_type("http-pull", "HTTP", "https://pull.example.com", TokenSource::Provider),
+    );
+
+    let handler = Handler::builder()
+        .token_store(token_store.clone())
+        .token_manager(token_manager)
+        .transfer_type_mappings(mappings)
+        .dataplane_id("dataplane-1")
+        .build();
+
+    let mut flow = create_test_flow("flow-1", "participant-1", "http-pull");
+    // Standard path: the data address carries the bearer/refresh-token properties.
+    flow.data_address = Some(
+        DataAddress::builder()
+            .endpoint_type("HTTP")
+            .endpoint("https://pull.example.com")
+            .endpoint_properties(vec![
+                EndpointProperty::builder()
+                    .name("authorization")
+                    .value("token-abc")
+                    .build(),
+                EndpointProperty::builder()
+                    .name("refreshToken")
+                    .value("refresh-abc")
+                    .build(),
+                EndpointProperty::builder()
+                    .name("refreshEndpoint")
+                    .value("https://refresh.example.com")
+                    .build(),
+                EndpointProperty::builder().name("expiresIn").value("3600").build(),
+            ])
+            .build(),
+    );
+
+    let context = MemoryContext;
+    let mut tx = context.begin().await.unwrap();
+
+    let result = handler.on_started(&mut tx, &flow).await;
+    assert!(result.is_ok());
+
+    // The standard (non-renewal) path persists a token.
+    let participant_ctx = ParticipantContext::builder().id("context-1").build();
+    assert!(token_store.get_token(&participant_ctx, "flow-1").await.is_ok());
 }
 
 #[tokio::test]

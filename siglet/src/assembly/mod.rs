@@ -58,7 +58,7 @@ pub const DEFAULT_TOKEN_ISSUER: &str = "siglet";
 pub const DEFAULT_DATAPLANE_ID: &str = "dataplane-1";
 
 /// Token refresh endpoint path
-pub const TOKEN_REFRESH_PATH: &str = "/token/refresh";
+pub const TOKEN_REFRESH_PATH: &str = "/token";
 
 /// Temporary file name for vault token (used in testing)
 pub const VAULT_TOKEN_TEMP_FILE: &str = "siglet_vault_token";

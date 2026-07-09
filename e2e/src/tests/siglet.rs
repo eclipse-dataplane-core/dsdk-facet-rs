@@ -800,7 +800,7 @@ async fn do_refresh(ctx: &TestCtx, api_token: &str, refresh_token: &str) -> Resu
         .identifier("did:web:consumer")
         .build();
 
-    let refresh_url = format!("http://localhost:{}/token/refresh", ctx.refresh_api_port);
+    let refresh_url = format!("http://localhost:{}/token", ctx.refresh_api_port);
     let result = oauth_client
         .refresh_token(
             &consumer_ctx,

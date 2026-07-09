@@ -30,7 +30,7 @@ fn sample_token(participant_context: &str, identifier: &str, token: &str) -> Tok
         .token(token)
         .refresh_token(format!("refresh-{}", token))
         .expires_at(Utc::now() + TimeDelta::seconds(3600))
-        .refresh_endpoint("https://provider.example.com/token/refresh")
+        .refresh_endpoint("https://provider.example.com/token")
         .endpoint("https://provider.example.com/data")
         .build()
 }
