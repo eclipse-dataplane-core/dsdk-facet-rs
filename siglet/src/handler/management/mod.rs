@@ -10,12 +10,18 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
-//! Management API for per-participant-context signing-key mappings.
+//! Management API for per-participant-context runtime configuration.
 //!
-//! These key mappings drive the consumer-side token renewal flow: each associates a participant
-//! context with the Vault transit key name and the `kid` used to sign its proof JWTs (see
-//! [`dsdk_facet_core::jwt::MappingTransitKeyResolver`]). Operators configure them at runtime
-//! through this CRUD API.
+//! Exposes two CRUD resources over the same router/port:
+//!
+//! - **Signing-key mappings** (`/key-mappings`) drive the consumer-side token renewal flow: each
+//!   associates a participant context with the Vault transit key name and the `kid` used to sign
+//!   its proof JWTs (see [`dsdk_facet_core::jwt::MappingTransitKeyResolver`]).
+//! - **Transfer-type mappings** (`/transfer-type-mappings`) associate a participant context with
+//!   its full set of transfer-type → endpoint mappings, overriding the static configuration for
+//!   that context (see [`crate::transfer_type`]).
+//!
+//! Operators configure both at runtime through this API.
 
 use axum::{
     Json, Router,
@@ -26,9 +32,12 @@ use bon::Builder;
 use dsdk_facet_core::jwt::{SigningKeyMapping, SigningKeyMappingRepository};
 use reqwest::StatusCode;
 use serde::Deserialize;
+use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::config::TransferType;
 use crate::server::auth::AuthLayer;
+use crate::transfer_type::{TransferTypeMapping, TransferTypeMappingRepository};
 use error::ManagementApiError;
 
 pub mod error;
@@ -45,10 +54,11 @@ pub struct KeyMappingRequest {
     pub kid: String,
 }
 
-/// Handler exposing CRUD over [`SigningKeyMapping`]s.
+/// Handler exposing CRUD over [`SigningKeyMapping`]s and [`TransferTypeMapping`]s.
 #[derive(Clone, Builder)]
 pub struct ManagementApiHandler {
     repo: Arc<dyn SigningKeyMappingRepository>,
+    transfer_type_repo: Arc<dyn TransferTypeMappingRepository>,
 }
 
 impl ManagementApiHandler {
@@ -66,12 +76,18 @@ impl ManagementApiHandler {
     pub fn router(self, read_auth: AuthLayer, write_auth: AuthLayer) -> Router {
         let read = Router::new()
             .route("/key-mappings/{id}", get(get_key_mapping))
+            .route("/transfer-type-mappings/{id}", get(get_transfer_type_mapping))
             .route_layer(read_auth)
             .with_state(self.clone());
 
         let write = Router::new()
             .route("/key-mappings", post(create_key_mapping))
             .route("/key-mappings/{id}", put(update_key_mapping).delete(delete_key_mapping))
+            .route("/transfer-type-mappings", post(create_transfer_type_mapping))
+            .route(
+                "/transfer-type-mappings/{id}",
+                put(update_transfer_type_mapping).delete(delete_transfer_type_mapping),
+            )
             .route_layer(write_auth)
             .with_state(self);
 
@@ -80,14 +96,14 @@ impl ManagementApiHandler {
 }
 
 async fn get_key_mapping(
-    State(ManagementApiHandler { repo }): State<ManagementApiHandler>,
+    State(ManagementApiHandler { repo, .. }): State<ManagementApiHandler>,
     Path(id): Path<String>,
 ) -> Result<Json<SigningKeyMapping>, ManagementApiError> {
     Ok(Json(repo.find(&id).await?))
 }
 
 async fn create_key_mapping(
-    State(ManagementApiHandler { repo }): State<ManagementApiHandler>,
+    State(ManagementApiHandler { repo, .. }): State<ManagementApiHandler>,
     Json(key_mapping): Json<SigningKeyMapping>,
 ) -> Result<StatusCode, ManagementApiError> {
     repo.create(key_mapping).await?;
@@ -95,7 +111,7 @@ async fn create_key_mapping(
 }
 
 async fn update_key_mapping(
-    State(ManagementApiHandler { repo }): State<ManagementApiHandler>,
+    State(ManagementApiHandler { repo, .. }): State<ManagementApiHandler>,
     Path(id): Path<String>,
     Json(body): Json<KeyMappingRequest>,
 ) -> Result<StatusCode, ManagementApiError> {
@@ -111,9 +127,49 @@ async fn update_key_mapping(
 }
 
 async fn delete_key_mapping(
-    State(ManagementApiHandler { repo }): State<ManagementApiHandler>,
+    State(ManagementApiHandler { repo, .. }): State<ManagementApiHandler>,
     Path(id): Path<String>,
 ) -> Result<StatusCode, ManagementApiError> {
     repo.delete(&id).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn get_transfer_type_mapping(
+    State(ManagementApiHandler { transfer_type_repo, .. }): State<ManagementApiHandler>,
+    Path(id): Path<String>,
+) -> Result<Json<TransferTypeMapping>, ManagementApiError> {
+    Ok(Json(transfer_type_repo.find(&id).await?))
+}
+
+async fn create_transfer_type_mapping(
+    State(ManagementApiHandler { transfer_type_repo, .. }): State<ManagementApiHandler>,
+    Json(mapping): Json<TransferTypeMapping>,
+) -> Result<StatusCode, ManagementApiError> {
+    transfer_type_repo.create(mapping).await?;
+    Ok(StatusCode::CREATED)
+}
+
+/// Replaces the whole transfer-type map for the participant context taken from the path.
+async fn update_transfer_type_mapping(
+    State(ManagementApiHandler { transfer_type_repo, .. }): State<ManagementApiHandler>,
+    Path(id): Path<String>,
+    Json(mappings): Json<HashMap<String, TransferType>>,
+) -> Result<StatusCode, ManagementApiError> {
+    transfer_type_repo
+        .update(
+            TransferTypeMapping::builder()
+                .participant_context_id(&id)
+                .mappings(mappings)
+                .build(),
+        )
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn delete_transfer_type_mapping(
+    State(ManagementApiHandler { transfer_type_repo, .. }): State<ManagementApiHandler>,
+    Path(id): Path<String>,
+) -> Result<StatusCode, ManagementApiError> {
+    transfer_type_repo.delete(&id).await?;
     Ok(StatusCode::NO_CONTENT)
 }

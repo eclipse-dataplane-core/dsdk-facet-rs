@@ -11,6 +11,7 @@
 //
 #![allow(clippy::unwrap_used)]
 use crate::config::{TokenSource, TransferType};
+use crate::transfer_type::{MemoryTransferTypeMappingStore, TransferTypeMappingError, TransferTypeMappingRepository};
 use bon::Builder;
 use chrono::Utc;
 use dataplane_sdk::core::error::HandlerError;
@@ -50,6 +51,13 @@ pub struct SigletDataFlowHandler<Tx = MemoryTransaction> {
     dataplane_id: String,
     token_store: Arc<dyn TokenStore>,
     token_manager: Arc<dyn TokenManager>,
+    /// Per-participant-context transfer-type mappings configured at runtime via the management
+    /// API. Consulted first on every request; when a context has no stored mappings the handler
+    /// falls back to `transfer_type_mappings`. Defaults to an empty in-memory store, so a handler
+    /// built without one behaves exactly like the static, config-only handler.
+    #[builder(default = Arc::new(MemoryTransferTypeMappingStore::new()) as Arc<dyn TransferTypeMappingRepository>)]
+    transfer_type_repo: Arc<dyn TransferTypeMappingRepository>,
+    /// Static, global fallback mappings from configuration (`SigletConfig::transfer_types`).
     transfer_type_mappings: HashMap<String, TransferType>,
     #[builder(skip)]
     _phantom: PhantomData<fn() -> Tx>,
@@ -136,10 +144,32 @@ impl<Tx> SigletDataFlowHandler<Tx> {
         ]
     }
 
-    /// Looks up the transfer type configuration for the given flow.
-    fn get_transfer_type(&self, flow: &DataFlow) -> HandlerResult<&TransferType> {
-        self.transfer_type_mappings
-            .get(&flow.profile)
+    /// Resolves the transfer type for the given flow, applying the per-participant-context
+    /// override with a fallback to the static configuration.
+    ///
+    /// The participant context's stored mappings (configured via the management API) are loaded
+    /// first. If the context has any stored mappings they are authoritative — the static config is
+    /// ignored for that context (all-or-nothing). Only when the context has no stored mappings do
+    /// we fall back to the static `transfer_type_mappings`. In either case the map is keyed by
+    /// `flow.profile`; `None` means the profile is unsupported.
+    async fn resolve_transfer_type(&self, flow: &DataFlow) -> HandlerResult<Option<TransferType>> {
+        match self.transfer_type_repo.find(&flow.participant_context_id).await {
+            // The participant context has a stored map -> it is authoritative.
+            Ok(mapping) if !mapping.mappings.is_empty() => Ok(mapping.mappings.get(&flow.profile).cloned()),
+            // No row, or an empty stored map -> fall back to the static configuration.
+            Ok(_) | Err(TransferTypeMappingError::NotFound { .. }) => {
+                Ok(self.transfer_type_mappings.get(&flow.profile).cloned())
+            }
+            Err(e) => Err(HandlerError::Generic(
+                format!("Failed to load transfer type mappings: {}", e).into(),
+            )),
+        }
+    }
+
+    /// Looks up the transfer type configuration for the given flow, erroring if unsupported.
+    async fn get_transfer_type(&self, flow: &DataFlow) -> HandlerResult<TransferType> {
+        self.resolve_transfer_type(flow)
+            .await?
             .ok_or_else(|| HandlerError::Generic(format!("Unsupported profile: {}", flow.profile).into()))
     }
 
@@ -279,13 +309,13 @@ impl<Tx> SigletDataFlowHandler<Tx> {
         state: DataFlowState,
     ) -> HandlerResult<DataFlowStatusMessage> {
         let participant_context = Self::build_participant_context(flow);
-        let transfer_type = self.get_transfer_type(flow)?;
+        let transfer_type = self.get_transfer_type(flow).await?;
 
         let data_address = if let Some(pair) = self
-            .generate_token_for_source(&participant_context, transfer_type, flow, required_source)
+            .generate_token_for_source(&participant_context, &transfer_type, flow, required_source)
             .await?
         {
-            let endpoint = Self::resolve_endpoint(transfer_type, flow)?;
+            let endpoint = Self::resolve_endpoint(&transfer_type, flow)?;
             let properties = if transfer_type.tx_renewal_support {
                 Self::create_tx_renewal_properties(&flow.participant_id, &pair)
             } else {
@@ -311,7 +341,7 @@ impl<Tx: Send> DataFlowHandler for SigletDataFlowHandler<Tx> {
     type Transaction = Tx;
 
     async fn can_handle(&self, flow: &DataFlow) -> HandlerResult<bool> {
-        Ok(self.transfer_type_mappings.contains_key(&flow.profile))
+        Ok(self.resolve_transfer_type(flow).await?.is_some())
     }
 
     async fn on_start(&self, _tx: &mut Self::Transaction, flow: &DataFlow) -> HandlerResult<DataFlowStatusMessage> {
@@ -331,7 +361,7 @@ impl<Tx: Send> DataFlowHandler for SigletDataFlowHandler<Tx> {
 
     async fn on_started(&self, _tx: &mut Self::Transaction, flow: &DataFlow) -> HandlerResult<()> {
         if let Some(data_address) = flow.data_address.as_ref() {
-            let transfer_type = self.get_transfer_type(flow)?;
+            let transfer_type = self.get_transfer_type(flow).await?;
             let renewal_properties = if transfer_type.tx_renewal_support {
                 read_tx_renewal_properties(data_address)?
             } else {

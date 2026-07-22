@@ -13,6 +13,7 @@
 #![allow(clippy::unwrap_used)]
 use super::ManagementApiHandler;
 use crate::server::auth::{AuthError, AuthLayer, KeyProvider, NoParticipantContext};
+use crate::transfer_type::{MemoryTransferTypeMappingStore, TransferTypeMappingRepository};
 use async_trait::async_trait;
 use axum::Router;
 use axum::body::Body;
@@ -22,9 +23,22 @@ use jsonwebtoken::jwk::JwkSet;
 use std::sync::Arc;
 use tower::ServiceExt;
 
+fn empty_transfer_type_repo() -> Arc<dyn TransferTypeMappingRepository> {
+    Arc::new(MemoryTransferTypeMappingStore::new())
+}
+
 fn router_with(repo: Arc<dyn SigningKeyMappingRepository>) -> Router {
     ManagementApiHandler::builder()
         .repo(repo)
+        .transfer_type_repo(empty_transfer_type_repo())
+        .build()
+        .router(AuthLayer::Disabled, AuthLayer::Disabled)
+}
+
+fn router_with_transfer_type_repo(repo: Arc<dyn TransferTypeMappingRepository>) -> Router {
+    ManagementApiHandler::builder()
+        .repo(Arc::new(MemorySigningKeyMappingStore::new()))
+        .transfer_type_repo(repo)
         .build()
         .router(AuthLayer::Disabled, AuthLayer::Disabled)
 }
@@ -52,7 +66,10 @@ fn enabled_auth(scope: &str) -> AuthLayer {
 }
 
 fn handler(repo: Arc<dyn SigningKeyMappingRepository>) -> ManagementApiHandler {
-    ManagementApiHandler::builder().repo(repo).build()
+    ManagementApiHandler::builder()
+        .repo(repo)
+        .transfer_type_repo(empty_transfer_type_repo())
+        .build()
 }
 
 fn json_request(method: &str, uri: &str, body: serde_json::Value) -> Request<Body> {
@@ -366,4 +383,168 @@ async fn test_unmatched_path_returns_404_not_auth() {
         .await
         .unwrap();
     assert_eq!(nope.status(), StatusCode::NOT_FOUND);
+}
+
+// ---------------------------------------------------------------------------
+// Transfer-type mapping routes
+// ---------------------------------------------------------------------------
+
+fn transfer_type_body() -> serde_json::Value {
+    // Canonical wire format is camelCase for both the wrapper (`TransferTypeMapping`) and the inner
+    // `TransferType`. (snake_case is also accepted on input via serde aliases for config parity.)
+    serde_json::json!({
+        "participantContextId": "pc-1",
+        "mappings": {
+            "http-pull": {
+                "transferType": "http-pull",
+                "endpointType": "HTTP",
+                "endpoint": "http://provider:8080/data",
+                "tokenSource": "provider"
+            }
+        }
+    })
+}
+
+#[tokio::test]
+async fn test_transfer_type_create_then_get() {
+    let repo = Arc::new(MemoryTransferTypeMappingStore::new());
+    let app = router_with_transfer_type_repo(repo);
+
+    let create = app
+        .clone()
+        .oneshot(json_request("POST", "/transfer-type-mappings", transfer_type_body()))
+        .await
+        .unwrap();
+    assert_eq!(create.status(), StatusCode::CREATED);
+
+    let get = app
+        .oneshot(
+            Request::builder()
+                .uri("/transfer-type-mappings/pc-1")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(get.status(), StatusCode::OK);
+    let json = body_json(get).await;
+    assert_eq!(json["participantContextId"], "pc-1");
+    assert_eq!(json["mappings"]["http-pull"]["endpoint"], "http://provider:8080/data");
+    assert_eq!(json["mappings"]["http-pull"]["tokenSource"], "provider");
+}
+
+#[tokio::test]
+async fn test_transfer_type_post_duplicate_returns_409() {
+    let repo = Arc::new(MemoryTransferTypeMappingStore::new());
+    let app = router_with_transfer_type_repo(repo);
+
+    let first = app
+        .clone()
+        .oneshot(json_request("POST", "/transfer-type-mappings", transfer_type_body()))
+        .await
+        .unwrap();
+    assert_eq!(first.status(), StatusCode::CREATED);
+
+    let second = app
+        .oneshot(json_request("POST", "/transfer-type-mappings", transfer_type_body()))
+        .await
+        .unwrap();
+    assert_eq!(second.status(), StatusCode::CONFLICT);
+}
+
+#[tokio::test]
+async fn test_transfer_type_put_replaces_map() {
+    let repo = Arc::new(MemoryTransferTypeMappingStore::new());
+    let app = router_with_transfer_type_repo(repo.clone());
+
+    app.clone()
+        .oneshot(json_request("POST", "/transfer-type-mappings", transfer_type_body()))
+        .await
+        .unwrap();
+
+    let put_body = serde_json::json!({
+        "http-push": {
+            "transferType": "http-push",
+            "endpointType": "HTTP",
+            "endpoint": "http://provider:8080/push",
+            "tokenSource": "client"
+        }
+    });
+    let put = app
+        .oneshot(json_request("PUT", "/transfer-type-mappings/pc-1", put_body))
+        .await
+        .unwrap();
+    assert_eq!(put.status(), StatusCode::NO_CONTENT);
+
+    let stored = repo.find("pc-1").await.unwrap();
+    assert_eq!(stored.mappings.len(), 1);
+    assert!(stored.mappings.contains_key("http-push"));
+}
+
+#[tokio::test]
+async fn test_transfer_type_put_missing_returns_404() {
+    let repo = Arc::new(MemoryTransferTypeMappingStore::new());
+    let app = router_with_transfer_type_repo(repo);
+
+    let put = app
+        .oneshot(json_request(
+            "PUT",
+            "/transfer-type-mappings/missing",
+            serde_json::json!({}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(put.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_transfer_type_get_missing_returns_404() {
+    let repo = Arc::new(MemoryTransferTypeMappingStore::new());
+    let app = router_with_transfer_type_repo(repo);
+
+    let get = app
+        .oneshot(
+            Request::builder()
+                .uri("/transfer-type-mappings/missing")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(get.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_transfer_type_delete_then_404() {
+    let repo = Arc::new(MemoryTransferTypeMappingStore::new());
+    let app = router_with_transfer_type_repo(repo);
+
+    app.clone()
+        .oneshot(json_request("POST", "/transfer-type-mappings", transfer_type_body()))
+        .await
+        .unwrap();
+
+    let delete = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri("/transfer-type-mappings/pc-1")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(delete.status(), StatusCode::NO_CONTENT);
+
+    let get = app
+        .oneshot(
+            Request::builder()
+                .uri("/transfer-type-mappings/pc-1")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(get.status(), StatusCode::NOT_FOUND);
 }

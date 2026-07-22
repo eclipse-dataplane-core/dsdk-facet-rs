@@ -16,3 +16,4 @@ pub mod error;
 pub mod handler;
 pub mod http;
 pub mod server;
+pub mod transfer_type;
