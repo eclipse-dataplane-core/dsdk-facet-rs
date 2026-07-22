@@ -15,13 +15,14 @@ Siglet integrates with the control plane via
 the [Data Plane Signaling (DPS) protocol](https://github.com/eclipse-dataplane-signaling/dataplane-signaling), which
 drives the token lifecycle through flow events (`on_start`, `on_prepare`, `on_started`, `on_terminate`).
 
-Siglet exposes three HTTP servers:
+Siglet exposes four HTTP servers:
 
-| Server        | Default Port | Purpose                                           |
-|---------------|--------------|---------------------------------------------------|
-| Siglet API    | 8080         | Token retrieval, verification, JWKS endpoint      |
-| Signaling API | 8081         | DPS protocol endpoint (control plane integration) |
-| Refresh API   | 8082         | OAuth2-compatible token refresh endpoint          |
+| Server         | Default Port | Purpose                                                          |
+|----------------|--------------|------------------------------------------------------------------|
+| Siglet API     | 8080         | Token retrieval, verification, JWKS endpoint                     |
+| Signaling API  | 8081         | DPS protocol endpoint (control plane integration)                |
+| Refresh API    | 8082         | OAuth2-compatible token refresh endpoint                         |
+| Management API | 8083         | Runtime configuration: transfer-type & signing-key mappings CRUD |
 
 ---
 
@@ -48,6 +49,10 @@ Siglet exposes three HTTP servers:
                         │                                      │
  Provider Siglet ◀──────   Refresh API (:8082)                │
                         │   /token      POST           │
+                        │                                      │
+ Operator      ────────▶   Management API (:8083)              │
+                        │   /transfer-type-mappings  CRUD      │
+                        │   /key-mappings            CRUD      │
                         └─────────────────────────────────────┘
                                       │
                               PostgreSQL + Vault
@@ -359,6 +364,39 @@ signaling API.
 
 ---
 
+## Management API Authentication
+
+The Management API (port 8083) — which hosts the transfer-type and signing-key mapping CRUD — has its own
+auth configuration block, `[management_api_auth]`, separate from `[signaling_auth]`. This lets the admin
+endpoints be secured against a different IdP or audience than the DPS signaling protocol.
+
+Like the signaling API, auth is **on by default**: operators must either supply a `jwks_url` or explicitly
+opt out with `mode = "disabled"`. It is an admin API that spans many participant contexts, so — unlike the
+token API — the JWT `sub` is **not** bound to the path; any valid token with the right scope may manage any
+participant context.
+
+Scopes are fixed per HTTP method (not configurable): reads (`GET`) require `siglet-mgmt-api:read` and writes
+(`POST`/`PUT`/`DELETE`) require `siglet-mgmt-api:write`. A missing or non-matching scope returns `403`; a
+missing/invalid/expired token or wrong `aud` returns `401`.
+
+```toml
+# Production
+[management_api_auth]
+mode = "enabled"
+jwks_url = "https://idp.example.com/.well-known/jwks.json"
+audience = "siglet"          # optional, defaults to "siglet"
+cache_ttl_seconds = 300       # optional, defaults to 300
+
+# Development — skip JWT verification on the management API.
+# [management_api_auth]
+# mode = "disabled"
+```
+
+Environment-variable overrides follow the standard `SIGLET__` convention, e.g.
+`SIGLET__MANAGEMENT_API_AUTH__MODE=enabled`.
+
+---
+
 ## Consumer-Side Token Caching
 
 On the consumer side, applications should retrieve tokens through Siglet's token cache API rather than calling the
@@ -452,10 +490,68 @@ The `DataAddress` returned on `on_start` / `on_prepare` contains the following p
 | `expiresIn`       | Seconds until the access token expires              |
 | `refreshEndpoint` | URL of Siglet's refresh API (`:8082/token`) |
 
-### Transfer Type Configuration
+### Transfer Type Resolution
 
-Siglet is configured with one or more transfer types that map DPS `transferType` values to data endpoints. Each transfer
-type specifies whether the **provider** or the **client** generates the token (`token_source`).
+Each DPS flow carries a `transferType` (the flow `profile`) that Siglet maps to a data endpoint and a token source
+(whether the **provider** or the **client** generates the token). Siglet resolves this mapping from two sources, in
+priority order:
+
+1. **Dynamic, per-participant-context mappings** stored in the database and configured at runtime through the
+   [Management API](#transfer-type-management-api). These are keyed by `participantContextId`, so each participant
+   context can point the same transfer type at a different backend and auth configuration.
+2. **Static, global mappings** from the `[[transfer_types]]` blocks in the configuration file (see
+   [Transfer Types](#complete-configuration-reference) below). These apply to every participant context.
+
+On each flow event Siglet looks up the flow's `participantContextId` in the store:
+
+- If that participant context has **any** stored mappings, they are **authoritative** — Siglet resolves the flow's
+  transfer type from that set only. If the set does not contain the flow's transfer type, the flow is rejected as
+  unsupported; the static configuration is **not** consulted (all-or-nothing per participant context).
+- If that participant context has **no** stored mappings, Siglet falls back to the static `[[transfer_types]]`
+  configuration.
+
+This lets a single-participant or dev deployment rely entirely on the config file, while a multi-participant deployment
+overrides individual participant contexts at runtime without a restart.
+
+#### Transfer Type Management API
+
+The Management API (port 8083) exposes CRUD over per-participant-context transfer-type mappings. A mapping associates a
+`participantContextId` with the **complete** map of transfer types for that context — configuring a context replaces its
+whole map (there is no per-entry patch).
+
+| Method   | Route                                        | Purpose                                                  |
+|----------|----------------------------------------------|----------------------------------------------------------|
+| `POST`   | `/transfer-type-mappings`                    | Create the mapping for a participant context → `201`     |
+| `GET`    | `/transfer-type-mappings/{participant_context_id}` | Fetch the mapping for a participant context        |
+| `PUT`    | `/transfer-type-mappings/{participant_context_id}` | Replace the whole map for a participant context → `204` |
+| `DELETE` | `/transfer-type-mappings/{participant_context_id}` | Delete the mapping (reverts to static config) → `204` |
+
+Reads require the `siglet-mgmt-api:read` scope and writes the `siglet-mgmt-api:write` scope; see
+[Management API Authentication](#management-api-authentication). `POST` on an existing participant context returns
+`409 Conflict`; `GET`/`PUT`/`DELETE` on an unknown one return `404 Not Found`.
+
+The request body wrapper is camelCase (`participantContextId`, `mappings`), while each `TransferType` value uses the same
+snake_case field names as the config file (`transfer_type`, `endpoint_type`, `token_source`, `endpoint_mappings`):
+
+```json
+POST http://siglet:8083/transfer-type-mappings
+Authorization: Bearer <siglet-mgmt-api:write JWT>
+Content-Type: application/json
+
+{
+  "participantContextId": "participant-uuid",
+  "mappings": {
+    "HttpData-PULL": {
+      "transferType": "HttpData-PULL",
+      "endpointType": "HTTP",
+      "endpoint": "https://data.provider.example.com/assets"
+    }
+  }
+}
+```
+
+Each entry accepts the same fields as a static `[[transfer_types]]` block, including `endpoint_mappings` for
+metadata-driven endpoint resolution.
 
 ---
 
@@ -469,10 +565,11 @@ underscore as separator for nesting).
 
 ```toml
 # Network binding
-bind = "0.0.0.0"           # Default: 0.0.0.0
-siglet_api_port = 8080    # Default: 8080 — token API + JWKS + verify
-signaling_port = 8081    # Default: 8081 — DPS signaling
-refresh_api_port = 8082    # Default: 8082 — OAuth2 token refresh
+bind = "0.0.0.0"              # Default: 0.0.0.0
+siglet_api_port = 8080       # Default: 8080 — token API + JWKS + verify
+signaling_port = 8081        # Default: 8081 — DPS signaling
+refresh_api_port = 8082      # Default: 8082 — OAuth2 token refresh
+management_api_port = 8083   # Default: 8083 — transfer-type & signing-key mapping CRUD
 
 # Storage backend: "memory" (default, single-node dev) or "postgres-vault" (production)
 [storage_backend]
@@ -500,6 +597,15 @@ jwks_url = "https://idp.example.com/.well-known/jwks.json"
 audience = "https://siglet.example.com"  # Default: "siglet". Must agree with the IdP's stamped aud claim.
 cache_ttl_seconds = 300
 
+# Management API JWT authentication (transfer-type & signing-key mapping CRUD, port 8083).
+# Separate from [signaling_auth]. Same on-by-default rule: set mode = "enabled" with a jwks_url,
+# or mode = "disabled". Scopes are fixed (siglet-mgmt-api:read / :write) — not configurable here.
+[management_api_auth]
+mode = "enabled"
+jwks_url = "https://idp.example.com/.well-known/jwks.json"
+audience = "siglet"          # Default: "siglet"
+cache_ttl_seconds = 300
+
 # Shared outbound HTTP client (JWKS fetch, OAuth2 token refresh, etc.). Optional —
 # omit to use the built-in defaults shown below. Both values must be > 0.
 [http_client]
@@ -516,7 +622,11 @@ refresh_endpoint = "https://siglet.example.com/token"
 # Must be at least 16 bytes (32 hex chars). Generate with: openssl rand -hex 32
 server_secret = "0102030405060708090a0b0c0d0e0f10..."
 
-# Transfer types — one block per supported transfer type
+# Transfer types — one block per supported transfer type.
+# These are the STATIC, GLOBAL mappings applied to every participant context. They act as the
+# fallback for any participant context that has no dynamic mappings configured via the Management
+# API (see the "Transfer Type Resolution" section). A participant context with dynamic mappings
+# ignores these blocks entirely.
 [[transfer_types]]
 transfer_type = "HttpData-PULL"
 endpoint_type = "HTTP"
@@ -718,6 +828,7 @@ spec:
             - containerPort: 8080   # Siglet API
             - containerPort: 8081   # Signaling API
             - containerPort: 8082   # Refresh API
+            - containerPort: 8083   # Management API
           volumeMounts:
             - name: config
               mountPath: /etc/siglet
@@ -753,6 +864,9 @@ spec:
     - name: refresh
       port: 8082
       targetPort: 8082
+    - name: management
+      port: 8083
+      targetPort: 8083
 ```
 
 ### How Kubernetes JWT SA Auth Works
