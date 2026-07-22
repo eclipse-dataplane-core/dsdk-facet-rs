@@ -227,24 +227,28 @@ pub enum TokenSource {
     Provider,
 }
 
+/// Serializes/deserializes in camelCase (the canonical form used by the management API and its
+/// JSON payloads). snake_case field names are also accepted on deserialization via `serde(alias)`
+/// so existing TOML/YAML configuration files (which use snake_case) keep working unchanged.
 #[derive(Builder, Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
 pub struct TransferType {
-    #[serde(alias = "transferType")]
+    #[serde(alias = "transfer_type")]
     pub transfer_type: String,
-    #[serde(alias = "endpointType")]
+    #[serde(alias = "endpoint_type")]
     pub endpoint_type: String,
     pub endpoint: Option<String>,
     #[serde(default)]
-    #[serde(alias = "tokenSource")]
+    #[serde(alias = "token_source")]
     pub token_source: TokenSource,
     #[serde(default)]
     #[builder(default)]
-    #[serde(alias = "endpointMappings")]
+    #[serde(alias = "endpoint_mappings")]
     pub endpoint_mappings: Vec<EndpointMapping>,
     /// When enabled, this transfer type uses the special token-renewal protocol
     /// instead of the standard bearer/refresh-token data-address properties.
     #[serde(default)]
-    #[serde(alias = "txRenewalSupport")]
+    #[serde(alias = "tx_renewal_support")]
     #[builder(default)]
     pub tx_renewal_support: bool,
 }

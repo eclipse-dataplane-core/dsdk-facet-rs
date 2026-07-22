@@ -390,16 +390,16 @@ async fn test_unmatched_path_returns_404_not_auth() {
 // ---------------------------------------------------------------------------
 
 fn transfer_type_body() -> serde_json::Value {
-    // The wrapper (`TransferTypeMapping`) is camelCase, but the inner `TransferType` shares its
-    // serde shape with the TOML config, which is snake_case.
+    // Canonical wire format is camelCase for both the wrapper (`TransferTypeMapping`) and the inner
+    // `TransferType`. (snake_case is also accepted on input via serde aliases for config parity.)
     serde_json::json!({
         "participantContextId": "pc-1",
         "mappings": {
             "http-pull": {
-                "transfer_type": "http-pull",
-                "endpoint_type": "HTTP",
+                "transferType": "http-pull",
+                "endpointType": "HTTP",
                 "endpoint": "http://provider:8080/data",
-                "token_source": "provider"
+                "tokenSource": "provider"
             }
         }
     })
@@ -430,7 +430,7 @@ async fn test_transfer_type_create_then_get() {
     let json = body_json(get).await;
     assert_eq!(json["participantContextId"], "pc-1");
     assert_eq!(json["mappings"]["http-pull"]["endpoint"], "http://provider:8080/data");
-    assert_eq!(json["mappings"]["http-pull"]["token_source"], "provider");
+    assert_eq!(json["mappings"]["http-pull"]["tokenSource"], "provider");
 }
 
 #[tokio::test]
@@ -464,10 +464,10 @@ async fn test_transfer_type_put_replaces_map() {
 
     let put_body = serde_json::json!({
         "http-push": {
-            "transfer_type": "http-push",
-            "endpoint_type": "HTTP",
+            "transferType": "http-push",
+            "endpointType": "HTTP",
             "endpoint": "http://provider:8080/push",
-            "token_source": "client"
+            "tokenSource": "client"
         }
     });
     let put = app

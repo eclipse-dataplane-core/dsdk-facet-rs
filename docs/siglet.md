@@ -530,8 +530,10 @@ Reads require the `siglet-mgmt-api:read` scope and writes the `siglet-mgmt-api:w
 [Management API Authentication](#management-api-authentication). `POST` on an existing participant context returns
 `409 Conflict`; `GET`/`PUT`/`DELETE` on an unknown one return `404 Not Found`.
 
-The request body wrapper is camelCase (`participantContextId`, `mappings`), while each `TransferType` value uses the same
-snake_case field names as the config file (`transfer_type`, `endpoint_type`, `token_source`, `endpoint_mappings`):
+The JSON payload is camelCase throughout — both the wrapper (`participantContextId`, `mappings`) and each `TransferType`
+value (`transferType`, `endpointType`, `tokenSource`, `endpointMappings`, `txRenewalSupport`). For convenience the
+snake_case field names used in the config file are also accepted on input (via serde aliases), but responses are always
+serialized in camelCase:
 
 ```json
 POST http://siglet:8083/transfer-type-mappings
@@ -544,13 +546,20 @@ Content-Type: application/json
     "HttpData-PULL": {
       "transferType": "HttpData-PULL",
       "endpointType": "HTTP",
+      "tokenSource": "provider",
       "endpoint": "https://data.provider.example.com/assets"
+    },
+    "HttpData-PUSH": {
+      "transferType": "HttpData-PUSH",
+      "endpointType": "HTTP",
+      "tokenSource": "client",
+      "endpoint": "https://data.consumer.example.com/inbox"
     }
   }
 }
 ```
 
-Each entry accepts the same fields as a static `[[transfer_types]]` block, including `endpoint_mappings` for
+Each entry accepts the same fields as a static `[[transfer_types]]` block, including `endpointMappings` for
 metadata-driven endpoint resolution.
 
 ---

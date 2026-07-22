@@ -1382,3 +1382,83 @@ fn test_http_client_deserialize_partial_fills_defaults() {
     assert_eq!(parsed.connect_timeout_seconds, DEFAULT_HTTP_CONNECT_TIMEOUT_SECS);
     assert_eq!(parsed.request_timeout_seconds, 120);
 }
+
+// ============================================================================
+// TransferType serde: camelCase canonical, snake_case config compatibility
+// ============================================================================
+
+#[test]
+fn test_transfer_type_serializes_camel_case() {
+    let tt = TransferType::builder()
+        .transfer_type("HttpData-PULL".to_string())
+        .endpoint_type("HTTP".to_string())
+        .endpoint("https://data.example.com".to_string())
+        .token_source(TokenSource::Provider)
+        .tx_renewal_support(true)
+        .build();
+
+    let v = serde_json::to_value(&tt).unwrap();
+    // Canonical wire form is camelCase.
+    assert_eq!(v["transferType"], "HttpData-PULL");
+    assert_eq!(v["endpointType"], "HTTP");
+    assert_eq!(v["tokenSource"], "provider");
+    assert_eq!(v["txRenewalSupport"], true);
+    // The snake_case keys must NOT appear in the output.
+    assert!(v.get("transfer_type").is_none());
+    assert!(v.get("token_source").is_none());
+}
+
+#[test]
+fn test_transfer_type_deserializes_camel_case() {
+    let json = r#"{
+        "transferType": "HttpData-PULL",
+        "endpointType": "HTTP",
+        "endpoint": "https://data.example.com/assets",
+        "tokenSource": "provider",
+        "txRenewalSupport": true
+    }"#;
+    let tt: TransferType = serde_json::from_str(json).unwrap();
+    assert_eq!(tt.transfer_type, "HttpData-PULL");
+    assert_eq!(tt.endpoint_type, "HTTP");
+    assert_eq!(tt.token_source, TokenSource::Provider);
+    assert!(tt.tx_renewal_support);
+}
+
+#[test]
+fn test_transfer_type_deserializes_snake_case_from_toml_config() {
+    use config::{Config, File, FileFormat};
+
+    // Regression guard: existing snake_case TOML config files must keep loading through the
+    // `config` crate even though the canonical serde form is now camelCase (via serde aliases).
+    let toml = r#"
+        [[transfer_types]]
+        transfer_type = "HttpData-PULL"
+        endpoint_type = "HTTP"
+        token_source = "provider"
+        endpoint = "https://data.provider.example.com/assets"
+        tx_renewal_support = true
+
+        [[transfer_types.endpoint_mappings]]
+        key = "region"
+        value = "eu-west-1"
+        endpoint = "https://eu-west-1.data.example.com"
+    "#;
+
+    let cfg: SigletConfig = Config::builder()
+        .add_source(File::from_str(toml, FileFormat::Toml))
+        .build()
+        .unwrap()
+        .try_deserialize()
+        .unwrap();
+
+    assert_eq!(cfg.transfer_types.len(), 1);
+    let tt = &cfg.transfer_types[0];
+    assert_eq!(tt.transfer_type, "HttpData-PULL");
+    assert_eq!(tt.endpoint_type, "HTTP");
+    assert_eq!(tt.token_source, TokenSource::Provider);
+    assert!(tt.tx_renewal_support);
+    assert_eq!(tt.endpoint_mappings.len(), 1);
+    assert_eq!(tt.endpoint_mappings[0].key, "region");
+    assert_eq!(tt.endpoint_mappings[0].value, "eu-west-1");
+    assert_eq!(tt.endpoint_mappings[0].endpoint, "https://eu-west-1.data.example.com");
+}
