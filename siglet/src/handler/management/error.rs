@@ -10,6 +10,7 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
+use crate::transfer_type::TransferTypeMappingError;
 use axum::{Json, http::StatusCode, response::IntoResponse};
 use dsdk_facet_core::jwt::SigningKeyMappingError;
 use serde_json::json;
@@ -19,6 +20,8 @@ use thiserror::Error;
 pub enum ManagementApiError {
     #[error(transparent)]
     Mapping(#[from] SigningKeyMappingError),
+    #[error(transparent)]
+    TransferType(#[from] TransferTypeMappingError),
 }
 
 impl IntoResponse for ManagementApiError {
@@ -31,6 +34,16 @@ impl IntoResponse for ManagementApiError {
                 (StatusCode::CONFLICT, "Signing key mapping already exists".to_string())
             }
             e @ ManagementApiError::Mapping(SigningKeyMappingError::Storage(_)) => {
+                tracing::error!("Unexpected error: {}", e);
+                (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
+            }
+            ManagementApiError::TransferType(TransferTypeMappingError::NotFound { .. }) => {
+                (StatusCode::NOT_FOUND, "Transfer type mapping not found".to_string())
+            }
+            ManagementApiError::TransferType(TransferTypeMappingError::AlreadyExists { .. }) => {
+                (StatusCode::CONFLICT, "Transfer type mapping already exists".to_string())
+            }
+            e @ ManagementApiError::TransferType(TransferTypeMappingError::Storage(_)) => {
                 tracing::error!("Unexpected error: {}", e);
                 (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
             }

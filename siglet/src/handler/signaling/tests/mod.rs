@@ -12,6 +12,7 @@
 
 use super::SigletDataFlowHandler;
 use crate::config::{TokenSource, TransferType};
+use crate::transfer_type::{MemoryTransferTypeMappingStore, TransferTypeMapping, TransferTypeMappingRepository};
 use dataplane_sdk::core::db::memory::MemoryTransaction;
 use dataplane_sdk::core::handler::DataFlowHandler;
 use dataplane_sdk::core::model::data_address::EndpointProperty;
@@ -794,6 +795,123 @@ fn create_transfer_type(
         .endpoint(endpoint.to_string())
         .token_source(token_source)
         .build()
+}
+
+// ---------------------------------------------------------------------------
+// Dynamic, per-participant-context transfer-type resolution (issue #75)
+// ---------------------------------------------------------------------------
+
+/// Builds a repo holding a single participant context's `mappings`.
+async fn repo_with(pc_id: &str, entries: Vec<TransferType>) -> Arc<dyn TransferTypeMappingRepository> {
+    let mappings: HashMap<String, TransferType> =
+        entries.into_iter().map(|tt| (tt.transfer_type.clone(), tt)).collect();
+    let repo = Arc::new(MemoryTransferTypeMappingStore::new());
+    repo.create(
+        TransferTypeMapping::builder()
+            .participant_context_id(pc_id)
+            .mappings(mappings)
+            .build(),
+    )
+    .await
+    .unwrap();
+    repo
+}
+
+fn static_map(entries: Vec<TransferType>) -> HashMap<String, TransferType> {
+    entries.into_iter().map(|tt| (tt.transfer_type.clone(), tt)).collect()
+}
+
+#[tokio::test]
+async fn test_stored_mapping_overrides_static_config() {
+    // Static config maps http-pull to endpoint A; the participant context's stored map points it
+    // at endpoint B. The stored map must win.
+    let static_mappings = static_map(vec![create_transfer_type(
+        "http-pull",
+        "HTTP",
+        "https://static.example.com",
+        TokenSource::Provider,
+    )]);
+    let repo = repo_with(
+        "context-1",
+        vec![create_transfer_type(
+            "http-pull",
+            "HTTP",
+            "https://dynamic.example.com",
+            TokenSource::Provider,
+        )],
+    )
+    .await;
+
+    let handler = Handler::builder()
+        .token_store(Arc::new(MemoryTokenStore::new()))
+        .token_manager(Arc::new(MockTokenManager))
+        .dataplane_id("dataplane-1")
+        .transfer_type_repo(repo)
+        .transfer_type_mappings(static_mappings)
+        .build();
+
+    let flow = create_test_flow("flow-1", "participant-1", "http-pull");
+    let resolved = handler.get_transfer_type(&flow).await.unwrap();
+    assert_eq!(resolved.endpoint.as_deref(), Some("https://dynamic.example.com"));
+}
+
+#[tokio::test]
+async fn test_falls_back_to_static_config_when_no_stored_mapping() {
+    // The participant context has no stored map, so the static config is used.
+    let static_mappings = static_map(vec![create_transfer_type(
+        "http-pull",
+        "HTTP",
+        "https://static.example.com",
+        TokenSource::Provider,
+    )]);
+
+    let handler = Handler::builder()
+        .token_store(Arc::new(MemoryTokenStore::new()))
+        .token_manager(Arc::new(MockTokenManager))
+        .dataplane_id("dataplane-1")
+        // No transfer_type_repo set -> defaults to an empty store.
+        .transfer_type_mappings(static_mappings)
+        .build();
+
+    let flow = create_test_flow("flow-1", "participant-1", "http-pull");
+    assert!(handler.can_handle(&flow).await.unwrap());
+    let resolved = handler.get_transfer_type(&flow).await.unwrap();
+    assert_eq!(resolved.endpoint.as_deref(), Some("https://static.example.com"));
+}
+
+#[tokio::test]
+async fn test_stored_mapping_is_authoritative_no_static_fallback_for_missing_profile() {
+    // The participant context has a stored map, but not for the requested profile. Because a
+    // stored map is all-or-nothing, the static config is NOT consulted and the profile is
+    // unsupported.
+    let static_mappings = static_map(vec![create_transfer_type(
+        "http-pull",
+        "HTTP",
+        "https://static.example.com",
+        TokenSource::Provider,
+    )]);
+    let repo = repo_with(
+        "context-1",
+        vec![create_transfer_type(
+            "http-push",
+            "HTTP",
+            "https://dynamic.example.com",
+            TokenSource::Client,
+        )],
+    )
+    .await;
+
+    let handler = Handler::builder()
+        .token_store(Arc::new(MemoryTokenStore::new()))
+        .token_manager(Arc::new(MockTokenManager))
+        .dataplane_id("dataplane-1")
+        .transfer_type_repo(repo)
+        .transfer_type_mappings(static_mappings)
+        .build();
+
+    let flow = create_test_flow("flow-1", "participant-1", "http-pull");
+    assert!(!handler.can_handle(&flow).await.unwrap());
+    assert!(handler.get_transfer_type(&flow).await.is_err());
 }
 
 #[test]

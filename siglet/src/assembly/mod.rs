@@ -14,6 +14,9 @@ use crate::config::{SigletConfig, StorageBackend, TransferType, VaultConfig};
 use crate::error::SigletError;
 use crate::handler::refresh::TokenRefreshHandler;
 use crate::handler::{ManagementApiHandler, SigletDataFlowHandler, TokenApiHandler};
+use crate::transfer_type::{
+    MemoryTransferTypeMappingStore, TransferTypeMappingRepository, postgres::PostgresTransferTypeMappingStore,
+};
 use dataplane_sdk::core::db::control_plane::memory::MemoryControlPlaneRepo;
 use dataplane_sdk::core::db::data_flow::memory::MemoryDataFlowRepo;
 use dataplane_sdk::core::db::memory::MemoryContext;
@@ -105,6 +108,8 @@ pub async fn assemble_memory(
     let (renewable_token_store, lock_manager) = assemble_memory_stores();
     let token_store = Arc::new(MemoryTokenStore::default()) as Arc<dyn TokenStore>;
     let mapping_repo = Arc::new(MemorySigningKeyMappingStore::default()) as Arc<dyn SigningKeyMappingRepository>;
+    let transfer_type_repo =
+        Arc::new(MemoryTransferTypeMappingStore::default()) as Arc<dyn TransferTypeMappingRepository>;
 
     let (vault_resolver, vault_provider_verifier) = create_vault_resolver_components(vault_client.clone()).await?;
     let token_manager = create_token_manager(
@@ -118,7 +123,13 @@ pub async fn assemble_memory(
         SIGLET_PC_ID,
     );
 
-    let sdk = assemble_memory_sdk(cfg, token_store.clone(), token_manager.clone()).await?;
+    let sdk = assemble_memory_sdk(
+        cfg,
+        token_store.clone(),
+        token_manager.clone(),
+        transfer_type_repo.clone(),
+    )
+    .await?;
     Ok(build_runtime(
         sdk,
         token_store,
@@ -126,6 +137,7 @@ pub async fn assemble_memory(
         vault_client,
         token_manager,
         mapping_repo,
+        transfer_type_repo,
         http_client,
     ))
 }
@@ -157,6 +169,13 @@ pub async fn assemble_postgres(
         .map_err(|e| SigletError::Token(Box::new(e)))?;
     let mapping_repo = mapping_store as Arc<dyn SigningKeyMappingRepository>;
 
+    let transfer_type_store = Arc::new(PostgresTransferTypeMappingStore::new(pool.clone()));
+    transfer_type_store
+        .initialize()
+        .await
+        .map_err(|e| SigletError::Token(Box::new(e)))?;
+    let transfer_type_repo = transfer_type_store as Arc<dyn TransferTypeMappingRepository>;
+
     let (vault_resolver, vault_provider_verifier) = create_vault_resolver_components(signing_client.clone()).await?;
     let token_manager = create_token_manager(
         cfg,
@@ -169,7 +188,14 @@ pub async fn assemble_postgres(
         SIGLET_PC_ID,
     );
 
-    let sdk = assemble_postgres_sdk(pool, cfg, token_store.clone(), token_manager.clone()).await?;
+    let sdk = assemble_postgres_sdk(
+        pool,
+        cfg,
+        token_store.clone(),
+        token_manager.clone(),
+        transfer_type_repo.clone(),
+    )
+    .await?;
     Ok(build_runtime(
         sdk,
         token_store,
@@ -177,6 +203,7 @@ pub async fn assemble_postgres(
         signing_client,
         token_manager,
         mapping_repo,
+        transfer_type_repo,
         http_client,
     ))
 }
@@ -212,6 +239,7 @@ pub async fn assemble_postgres_sdk(
     cfg: &SigletConfig,
     token_store: Arc<dyn TokenStore>,
     token_manager: Arc<dyn TokenManager>,
+    transfer_type_repo: Arc<dyn TransferTypeMappingRepository>,
 ) -> Result<DataPlaneSdk<PgContext>, SigletError> {
     let ctx = PgContext::new(pool);
     let repo = PgDataFlowRepo;
@@ -234,7 +262,7 @@ pub async fn assemble_postgres_sdk(
         .await
         .map_err(|e| SigletError::DataPlane(anyhow::anyhow!(e)))?;
 
-    let siglet_handler = create_siglet_handler(cfg, token_store, token_manager);
+    let siglet_handler = create_siglet_handler(cfg, token_store, token_manager, transfer_type_repo);
 
     DataPlaneSdk::builder(ctx)
         .with_repo(repo)
@@ -277,11 +305,12 @@ pub async fn assemble_memory_sdk(
     cfg: &SigletConfig,
     token_store: Arc<dyn TokenStore>,
     token_manager: Arc<dyn TokenManager>,
+    transfer_type_repo: Arc<dyn TransferTypeMappingRepository>,
 ) -> Result<DataPlaneSdk<MemoryContext>, SigletError> {
     let ctx = MemoryContext;
     let flow_repo = MemoryDataFlowRepo::default();
     let cp_repo = MemoryControlPlaneRepo::default();
-    let siglet_handler = create_siglet_handler(cfg, token_store, token_manager);
+    let siglet_handler = create_siglet_handler(cfg, token_store, token_manager, transfer_type_repo);
 
     DataPlaneSdk::builder(ctx)
         .with_repo(flow_repo)
@@ -364,6 +393,7 @@ async fn create_vault_resolver_components(
 ///
 /// `http_client` is reused for outbound OAuth2 token refresh; it should be the
 /// same instance the rest of the process uses (see `siglet::http::build_http_client`).
+#[allow(clippy::too_many_arguments)]
 fn build_runtime<C: TransactionalContext>(
     sdk: DataPlaneSdk<C>,
     token_store: Arc<dyn TokenStore>,
@@ -371,6 +401,7 @@ fn build_runtime<C: TransactionalContext>(
     vault_client: Arc<dyn VaultSigningClient>,
     token_manager: Arc<dyn TokenManager>,
     mapping_repo: Arc<dyn SigningKeyMappingRepository>,
+    transfer_type_repo: Arc<dyn TransferTypeMappingRepository>,
     http_client: Client,
 ) -> SigletRuntime<C> {
     let refresh_handler = assemble_refresh_api(token_manager.clone());
@@ -382,7 +413,10 @@ fn build_runtime<C: TransactionalContext>(
         mapping_repo.clone(),
         http_client,
     );
-    let management_handler = ManagementApiHandler::builder().repo(mapping_repo).build();
+    let management_handler = ManagementApiHandler::builder()
+        .repo(mapping_repo)
+        .transfer_type_repo(transfer_type_repo)
+        .build();
     SigletRuntime {
         sdk,
         refresh_handler,
@@ -502,6 +536,7 @@ fn create_siglet_handler<Tx: Send + 'static>(
     cfg: &SigletConfig,
     token_store: Arc<dyn TokenStore>,
     token_manager: Arc<dyn TokenManager>,
+    transfer_type_repo: Arc<dyn TransferTypeMappingRepository>,
 ) -> SigletDataFlowHandler<Tx> {
     let transfer_type_mappings: HashMap<String, TransferType> = cfg
         .transfer_types
@@ -513,6 +548,7 @@ fn create_siglet_handler<Tx: Send + 'static>(
         .token_store(token_store)
         .token_manager(token_manager)
         .dataplane_id(DEFAULT_DATAPLANE_ID)
+        .transfer_type_repo(transfer_type_repo)
         .transfer_type_mappings(transfer_type_mappings)
         .build()
 }

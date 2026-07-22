@@ -11,7 +11,7 @@
 //
 use bon::Builder;
 use config::{Config, Environment, File};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::{
     net::{IpAddr, Ipv4Addr},
     path::PathBuf,
@@ -219,30 +219,37 @@ pub enum StorageBackend {
     PostgresVault { url: String },
 }
 
-#[derive(Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum TokenSource {
     Client,
+    #[default]
     Provider,
 }
 
-#[derive(Builder, Deserialize, Clone, Debug)]
+#[derive(Builder, Serialize, Deserialize, Clone, Debug)]
 pub struct TransferType {
+    #[serde(alias = "transferType")]
     pub transfer_type: String,
+    #[serde(alias = "endpointType")]
     pub endpoint_type: String,
     pub endpoint: Option<String>,
+    #[serde(default)]
+    #[serde(alias = "tokenSource")]
     pub token_source: TokenSource,
     #[serde(default)]
     #[builder(default)]
+    #[serde(alias = "endpointMappings")]
     pub endpoint_mappings: Vec<EndpointMapping>,
     /// When enabled, this transfer type uses the special token-renewal protocol
     /// instead of the standard bearer/refresh-token data-address properties.
     #[serde(default)]
+    #[serde(alias = "txRenewalSupport")]
     #[builder(default)]
     pub tx_renewal_support: bool,
 }
 
-#[derive(Builder, Deserialize, Clone, Debug)]
+#[derive(Builder, Serialize, Deserialize, Clone, Debug)]
 pub struct EndpointMapping {
     /// A key in `DataFlow.metadata` to match on.
     pub key: String,
