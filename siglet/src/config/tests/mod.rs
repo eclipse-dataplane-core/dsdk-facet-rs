@@ -14,7 +14,7 @@
 
 use crate::config::{
     EndpointMapping, ManagementApiAuthConfig, SigletConfig, SignalingAuthConfig, StorageBackend, TokenConfig,
-    TokenSource, TransferType, ValidationError, VaultConfig,
+    TokenSource, TransferType, ValidationError, VaultAuth, VaultConfig,
 };
 use std::net::{IpAddr, Ipv4Addr};
 
@@ -267,6 +267,72 @@ fn test_vault_token_provided() {
 fn test_vault_token_file_provided() {
     let config = create_valid_config_with_token_file();
     assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_resolved_auth_falls_back_to_legacy_fields() {
+    let mut config = create_valid_config();
+    config.vault.auth = None;
+    config.vault.token = Some("legacy-token".to_string());
+    config.vault.token_file = None;
+
+    match config.vault.resolved_auth() {
+        VaultAuth::KubernetesServiceAccount { token, token_file } => {
+            assert_eq!(token, Some("legacy-token".to_string()));
+            assert_eq!(token_file, None);
+        }
+        other => panic!("expected KubernetesServiceAccount from legacy fields, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_resolved_auth_prefers_explicit_enum_over_legacy() {
+    let mut config = create_valid_config();
+    // Legacy fields set, but the explicit enum should win.
+    config.vault.token = Some("legacy-token".to_string());
+    config.vault.auth = Some(VaultAuth::TokenExchange {
+        exchange_url: "https://sts.example.com/token".to_string(),
+        subject_token_file: "/var/run/secrets/token".to_string(),
+        audience: "vault".to_string(),
+        scope: "vault-access".to_string(),
+        role: None,
+    });
+
+    assert!(matches!(config.vault.resolved_auth(), VaultAuth::TokenExchange { .. }));
+}
+
+#[test]
+fn test_token_exchange_auth_passes_validation_without_legacy_token() {
+    let mut config = create_valid_config();
+    // No legacy token/token_file, but token-exchange auth is fully specified.
+    config.vault.token = None;
+    config.vault.token_file = None;
+    config.vault.auth = Some(VaultAuth::TokenExchange {
+        exchange_url: "https://sts.example.com/token".to_string(),
+        subject_token_file: "/var/run/secrets/token".to_string(),
+        audience: "vault".to_string(),
+        scope: "vault-access".to_string(),
+        role: None,
+    });
+
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_kubernetes_auth_enum_without_token_fails_validation() {
+    let mut config = create_valid_config();
+    config.vault.token = None;
+    config.vault.token_file = None;
+    config.vault.auth = Some(VaultAuth::KubernetesServiceAccount {
+        token: None,
+        token_file: None,
+    });
+
+    let err = config.validate().unwrap_err();
+    assert!(
+        err.messages()
+            .contains(&"Either vault_token or vault_token_file is required")
+    );
 }
 
 // ============================================================================
@@ -728,6 +794,7 @@ fn test_all_possible_errors() {
             mount_path: None,
             token_subpath: None,
             use_http_resolution: false,
+            auth: None,
         },
         token: TokenConfig {
             server_secret: Some("invalid-hex".to_string()), // Error 9

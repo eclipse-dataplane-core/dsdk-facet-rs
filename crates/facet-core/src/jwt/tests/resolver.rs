@@ -10,6 +10,7 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
+use crate::context::ParticipantContext;
 use crate::jwt::{
     JwkKeyType, JwkSetProvider, JwtVerificationError, KeyFormat, VaultVerificationKeyResolver, VerificationKeyResolver,
 };
@@ -133,6 +134,7 @@ async fn periodic_refresh_repeatedly_calls_load_keys() {
     let resolver = Arc::new(
         VaultVerificationKeyResolver::builder()
             .vault_client(client)
+            .signing_context(ParticipantContext::builder().id("siglet").build())
             .refresh_interval(Duration::from_millis(100))
             .build(),
     );
@@ -154,6 +156,7 @@ async fn background_task_stops_when_resolver_is_dropped() {
     let resolver = Arc::new(
         VaultVerificationKeyResolver::builder()
             .vault_client(client)
+            .signing_context(ParticipantContext::builder().id("siglet").build())
             .refresh_interval(Duration::from_millis(50))
             .build(),
     );
@@ -223,7 +226,12 @@ impl VaultSigningClient for RotatingMockVaultSigningClient {
         Some(&self.key_name)
     }
 
-    async fn get_key_metadata(&self, _key_name: &str, _format: PublicKeyFormat) -> Result<KeyMetadata, VaultError> {
+    async fn get_key_metadata(
+        &self,
+        _participant_context: &ParticipantContext,
+        _key_name: &str,
+        _format: PublicKeyFormat,
+    ) -> Result<KeyMetadata, VaultError> {
         let count = self.call_count.fetch_add(1, Ordering::SeqCst);
         let keys = if count == 0 {
             &self.initial_keys
@@ -241,7 +249,12 @@ impl VaultSigningClient for RotatingMockVaultSigningClient {
         })
     }
 
-    async fn sign_content(&self, _key_name: &str, _content: &[u8]) -> Result<Vec<u8>, VaultError> {
+    async fn sign_content(
+        &self,
+        _participant_context: &ParticipantContext,
+        _key_name: &str,
+        _content: &[u8],
+    ) -> Result<Vec<u8>, VaultError> {
         Ok(vec![])
     }
 }
@@ -257,7 +270,12 @@ async fn resolve_key_refreshes_on_cache_miss_after_rotation() {
     ));
 
     // Initialize with only v1 in cache.
-    let resolver = Arc::new(VaultVerificationKeyResolver::builder().vault_client(client).build());
+    let resolver = Arc::new(
+        VaultVerificationKeyResolver::builder()
+            .vault_client(client)
+            .signing_context(ParticipantContext::builder().id("siglet").build())
+            .build(),
+    );
     resolver.initialize().await.unwrap();
 
     // Requesting v2 (not yet cached) should trigger an immediate refresh and succeed.
@@ -319,7 +337,12 @@ impl VaultSigningClient for MockVaultSigningClient {
         Some(&self.key_name)
     }
 
-    async fn get_key_metadata(&self, _key_name: &str, _format: PublicKeyFormat) -> Result<KeyMetadata, VaultError> {
+    async fn get_key_metadata(
+        &self,
+        _participant_context: &ParticipantContext,
+        _key_name: &str,
+        _format: PublicKeyFormat,
+    ) -> Result<KeyMetadata, VaultError> {
         self.call_count.fetch_add(1, Ordering::SeqCst);
         if self.fail {
             return Err(VaultError::NetworkError("simulated vault error".to_string()));
@@ -331,7 +354,12 @@ impl VaultSigningClient for MockVaultSigningClient {
         })
     }
 
-    async fn sign_content(&self, _key_name: &str, _content: &[u8]) -> Result<Vec<u8>, VaultError> {
+    async fn sign_content(
+        &self,
+        _participant_context: &ParticipantContext,
+        _key_name: &str,
+        _content: &[u8],
+    ) -> Result<Vec<u8>, VaultError> {
         Ok(vec![])
     }
 }
@@ -341,7 +369,12 @@ fn test_key(byte: u8) -> Vec<u8> {
 }
 
 fn make_resolver(client: Arc<MockVaultSigningClient>) -> Arc<VaultVerificationKeyResolver> {
-    Arc::new(VaultVerificationKeyResolver::builder().vault_client(client).build())
+    Arc::new(
+        VaultVerificationKeyResolver::builder()
+            .vault_client(client)
+            .signing_context(ParticipantContext::builder().id("siglet").build())
+            .build(),
+    )
 }
 
 #[tokio::test]

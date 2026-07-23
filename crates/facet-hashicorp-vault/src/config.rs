@@ -53,6 +53,27 @@ pub enum VaultAuthConfig {
         /// Path to the file containing the Vault token
         token_file_path: PathBuf,
     },
+    /// OAuth2 Token Exchange (RFC 8693) authentication.
+    ///
+    /// A Kubernetes service-account token (the *subject token*) is exchanged at an STS/OAuth2
+    /// endpoint for a participant-context-bound JWT, which is then used with Vault's
+    /// `auth/jwt/login` to obtain the Vault client token. Unlike the other mechanisms, the
+    /// resulting token is bound to a specific `ParticipantContext`, so tokens are minted on demand
+    /// and cached per participant context rather than renewed as a single global token.
+    TokenExchange {
+        /// Path to the Kubernetes service-account token used as the RFC 8693 subject token.
+        subject_token_file_path: PathBuf,
+        /// STS / OAuth2 token-exchange endpoint URL.
+        exchange_url: String,
+        /// `audience` parameter sent on the token-exchange request. Required: although optional in
+        /// RFC 8693, the exchange does not work without it in this deployment.
+        audience: String,
+        /// `scope` parameter sent on the token-exchange request. Required: although optional in
+        /// RFC 8693, the exchange does not work without it in this deployment.
+        scope: String,
+        /// The role to use for Vault JWT authentication (defaults to "provisioner" if None).
+        role: Option<String>,
+    },
 }
 
 /// Configuration for the Hashicorp Vault client.
@@ -130,6 +151,18 @@ impl std::fmt::Debug for HashicorpVaultConfig {
             }
             VaultAuthConfig::KubernetesServiceAccount { token_file_path } => {
                 format!("KubernetesServiceAccount {{ token_file_path: {:?} }}", token_file_path)
+            }
+            VaultAuthConfig::TokenExchange {
+                subject_token_file_path,
+                exchange_url,
+                audience,
+                scope,
+                role,
+            } => {
+                format!(
+                    "TokenExchange {{ subject_token_file_path: {:?}, exchange_url: {}, audience: {}, scope: {}, role: {:?} }}",
+                    subject_token_file_path, exchange_url, audience, scope, role
+                )
             }
         };
 

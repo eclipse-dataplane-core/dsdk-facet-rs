@@ -40,6 +40,55 @@ impl JwtGenerator for MockJwtGenerator {
     }
 }
 
+// JWT generator that records the id of each participant context it signs for and returns a fixed
+// token. Used to assert which participant context each signing path uses.
+struct RecordingJwtGenerator {
+    signed_ids: std::sync::Mutex<Vec<String>>,
+    token: String,
+}
+
+impl RecordingJwtGenerator {
+    fn new(token: &str) -> Self {
+        Self {
+            signed_ids: std::sync::Mutex::new(Vec::new()),
+            token: token.to_string(),
+        }
+    }
+}
+
+#[async_trait]
+impl JwtGenerator for RecordingJwtGenerator {
+    async fn generate_token(
+        &self,
+        participant_context: &crate::context::ParticipantContext,
+        _claims: crate::jwt::TokenClaims,
+    ) -> Result<String, JwtGenerationError> {
+        self.signed_ids.lock().unwrap().push(participant_context.id.clone());
+        Ok(self.token.clone())
+    }
+}
+
+// Verifier that returns the subject and embedded token expected by `renew`.
+struct RenewMockVerifier {
+    subject: String,
+    embedded_token: String,
+}
+
+#[async_trait]
+impl JwtVerifier for RenewMockVerifier {
+    async fn verify_token(&self, _aud: &str, _token: &str) -> Result<crate::jwt::TokenClaims, JwtVerificationError> {
+        let mut custom = serde_json::Map::new();
+        custom.insert("token".to_string(), Value::String(self.embedded_token.clone()));
+        Ok(crate::jwt::TokenClaims::builder()
+            .iss("test")
+            .sub(&self.subject)
+            .aud("test_audience")
+            .exp(9999999999)
+            .custom(custom)
+            .build())
+    }
+}
+
 // Mock JWK set provider for testing
 pub(super) struct MockJwkSetProvider;
 
@@ -81,6 +130,57 @@ fn create_test_manager() -> JwtTokenManager {
         .provider_verifier(Arc::new(MockJwtVerifier))
         .jwk_set_provider(Arc::new(MockJwkSetProvider))
         .build()
+}
+
+#[tokio::test]
+async fn test_generate_pair_and_renew_both_sign_with_issuer_context() {
+    use crate::context::ParticipantContext;
+    use std::collections::HashMap;
+
+    let fixed_time = DateTime::from_timestamp(1000000000, 0).unwrap();
+    let generator = Arc::new(RecordingJwtGenerator::new("signed-token"));
+    let manager = JwtTokenManager::builder()
+        .issuer("test_issuer")
+        .refresh_endpoint("http://localhost/refresh")
+        .server_secret(ValidatedServerSecret::try_from(b"test_secret_key_32bytes_long!!!!".to_vec()).unwrap())
+        .token_duration(3600)
+        .renewal_token_duration(86400)
+        .clock(Arc::new(MockClock::new(fixed_time)) as Arc<dyn Clock>)
+        .token_store(Arc::new(MemoryRenewableTokenStore::new()))
+        .token_generator(generator.clone())
+        .client_verifier(Arc::new(RenewMockVerifier {
+            subject: "did:web:consumer.com".to_string(),
+            embedded_token: "signed-token".to_string(),
+        }))
+        .provider_verifier(Arc::new(MockJwtVerifier))
+        .jwk_set_provider(Arc::new(MockJwkSetProvider))
+        .build();
+
+    // Signaling mint: a dynamic participant context is passed in, but server-side signing uses the
+    // issuer context.
+    let pc = ParticipantContext::builder()
+        .id("participant-A")
+        .identifier("did:web:provider.com")
+        .audience("did:web:provider.com")
+        .build();
+    let pair = manager
+        .generate_pair(&pc, "did:web:consumer.com", HashMap::new(), "flow-1".to_string())
+        .await
+        .expect("generate_pair should succeed");
+
+    // Renewal (server side): also signs with the issuer context, not the participant context. The
+    // participant-context binding is used only on the client side (`OAuth2TokenClient`).
+    manager
+        .renew("bound-token", &pair.refresh_token)
+        .await
+        .expect("renew should succeed");
+
+    let ids = generator.signed_ids.lock().unwrap().clone();
+    assert_eq!(
+        ids,
+        vec!["test_issuer".to_string(), "test_issuer".to_string()],
+        "both generate_pair and renew sign with the issuer context on the server side"
+    );
 }
 
 #[test]

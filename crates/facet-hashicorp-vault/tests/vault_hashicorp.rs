@@ -417,7 +417,11 @@ async fn test_vault_client_integration() {
 
 async fn test_key_metadata_multibase(client: &Arc<HashicorpVaultClient>) {
     let metadata = client
-        .get_key_metadata(TEST_SIGNING_KEY_NAME, PublicKeyFormat::Multibase)
+        .get_key_metadata(
+            &create_test_context(),
+            TEST_SIGNING_KEY_NAME,
+            PublicKeyFormat::Multibase,
+        )
         .await
         .expect("Failed to get key metadata");
 
@@ -437,7 +441,11 @@ async fn test_key_metadata_multibase(client: &Arc<HashicorpVaultClient>) {
 
 async fn test_key_metadata_base64url(client: &Arc<HashicorpVaultClient>) {
     let metadata = client
-        .get_key_metadata(TEST_SIGNING_KEY_NAME, PublicKeyFormat::Base64Url)
+        .get_key_metadata(
+            &create_test_context(),
+            TEST_SIGNING_KEY_NAME,
+            PublicKeyFormat::Base64Url,
+        )
         .await
         .expect("Failed to get key metadata in Base64Url format");
 
@@ -464,13 +472,13 @@ async fn test_content_signing_determinism(client: &Arc<HashicorpVaultClient>) {
     .expect("Failed to serialize payload");
 
     let sig1 = client
-        .sign_content(TEST_SIGNING_KEY_NAME, &payload)
+        .sign_content(&create_test_context(), TEST_SIGNING_KEY_NAME, &payload)
         .await
         .expect("Failed to sign");
     assert_eq!(sig1.len(), ED25519_SIGNATURE_BYTES);
 
     let sig2 = client
-        .sign_content(TEST_SIGNING_KEY_NAME, &payload)
+        .sign_content(&create_test_context(), TEST_SIGNING_KEY_NAME, &payload)
         .await
         .expect("Failed to sign second time");
     assert_eq!(sig1, sig2, "Same content should produce the same signature");
@@ -481,7 +489,7 @@ async fn test_content_signing_determinism(client: &Arc<HashicorpVaultClient>) {
     }))
     .expect("Failed to serialize");
     let sig3 = client
-        .sign_content(TEST_SIGNING_KEY_NAME, &different)
+        .sign_content(&create_test_context(), TEST_SIGNING_KEY_NAME, &different)
         .await
         .expect("Failed to sign different content");
     assert_ne!(sig1, sig3, "Different content should produce different signatures");

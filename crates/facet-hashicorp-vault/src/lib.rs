@@ -15,6 +15,7 @@ pub mod auth;
 mod client;
 #[doc(hidden)]
 pub mod config;
+mod provider;
 #[doc(hidden)]
 pub mod renewal;
 #[doc(hidden)]

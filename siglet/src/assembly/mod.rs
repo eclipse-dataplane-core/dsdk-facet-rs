@@ -10,7 +10,7 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
-use crate::config::{SigletConfig, StorageBackend, TransferType, VaultConfig};
+use crate::config::{SigletConfig, StorageBackend, TransferType, VaultAuth, VaultConfig};
 use crate::error::SigletError;
 use crate::handler::refresh::TokenRefreshHandler;
 use crate::handler::{ManagementApiHandler, SigletDataFlowHandler, TokenApiHandler};
@@ -23,6 +23,7 @@ use dataplane_sdk::core::db::memory::MemoryContext;
 use dataplane_sdk::core::db::tx::{Transaction, TransactionalContext};
 use dataplane_sdk::sdk::DataPlaneSdk;
 use dataplane_sdk_postgres::{PgContext, PgControlPlaneRepo, PgDataFlowRepo};
+use dsdk_facet_core::context::ParticipantContext;
 use dsdk_facet_core::jwt::{
     DidWebVerificationKeyResolver, JwkSetProvider, JwtGenerator, JwtVerifier, LocalJwtVerifier,
     MappingTransitKeyResolver, MemorySigningKeyMappingStore, PrefixTransitKeyResolver, SigningAlgorithm,
@@ -382,6 +383,9 @@ async fn create_vault_resolver_components(
     let vault_resolver = Arc::new(
         VaultVerificationKeyResolver::builder()
             .vault_client(vault_client)
+            // This resolver loads Siglet's own signing key, so scope the Vault access token to
+            // Siglet's participant context.
+            .signing_context(ParticipantContext::builder().id(SIGLET_PC_ID).build())
             .build(),
     );
     vault_resolver
@@ -556,6 +560,47 @@ fn create_siglet_handler<Tx: Send + 'static>(
         .build()
 }
 
+/// Builds the crate-level Vault auth configuration from Siglet's [`VaultAuth`].
+///
+/// For token-exchange, the fields map directly. For Kubernetes service-account auth, a token file is
+/// resolved from `token_file`, or by writing an inline `token` to a temp file.
+fn build_vault_auth_config(auth: &VaultAuth) -> Result<VaultAuthConfig, SigletError> {
+    match auth {
+        VaultAuth::TokenExchange {
+            exchange_url,
+            subject_token_file,
+            audience,
+            scope,
+            role,
+        } => Ok(VaultAuthConfig::TokenExchange {
+            subject_token_file_path: std::path::PathBuf::from(subject_token_file),
+            exchange_url: exchange_url.clone(),
+            audience: audience.clone(),
+            scope: scope.clone(),
+            role: role.clone(),
+        }),
+        VaultAuth::KubernetesServiceAccount { token, token_file } => {
+            let token_file = match (token_file, token) {
+                (Some(token_file_path), _) => std::path::PathBuf::from(token_file_path),
+                (None, Some(vault_token)) => {
+                    let token_file = std::env::temp_dir().join(VAULT_TOKEN_TEMP_FILE);
+                    std::fs::write(&token_file, vault_token)?;
+                    token_file
+                }
+                (None, None) => {
+                    return Err(SigletError::InvalidConfiguration(
+                        "Either vault_token or vault_token_file is required".to_string(),
+                    ));
+                }
+            };
+
+            Ok(VaultAuthConfig::KubernetesServiceAccount {
+                token_file_path: token_file,
+            })
+        }
+    }
+}
+
 /// Creates and initializes a Vault client for JWT signing.
 async fn create_vault_client(vault: &VaultConfig) -> Result<Arc<HashicorpVaultClient>, SigletError> {
     let vault_url = vault
@@ -563,25 +608,11 @@ async fn create_vault_client(vault: &VaultConfig) -> Result<Arc<HashicorpVaultCl
         .as_ref()
         .ok_or_else(|| SigletError::InvalidConfiguration("vault_url is required".to_string()))?;
 
-    let token_file = match (&vault.token_file, &vault.token) {
-        (Some(token_file_path), _) => std::path::PathBuf::from(token_file_path),
-        (None, Some(vault_token)) => {
-            let token_file = std::env::temp_dir().join(VAULT_TOKEN_TEMP_FILE);
-            std::fs::write(&token_file, vault_token)?;
-            token_file
-        }
-        (None, None) => {
-            return Err(SigletError::InvalidConfiguration(
-                "Either vault_token or vault_token_file is required".to_string(),
-            ));
-        }
-    };
+    let auth_config = build_vault_auth_config(&vault.resolved_auth())?;
 
     let vault_config = HashicorpVaultConfig::builder()
         .vault_url(vault_url)
-        .auth_config(VaultAuthConfig::KubernetesServiceAccount {
-            token_file_path: token_file,
-        })
+        .auth_config(auth_config)
         .signing_key_name(vault.signing_key_name.clone())
         .maybe_mount_path(vault.mount_path.clone())
         .build();

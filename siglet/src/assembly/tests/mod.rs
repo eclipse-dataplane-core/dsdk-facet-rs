@@ -13,7 +13,7 @@
 #![allow(clippy::unwrap_used)]
 
 use crate::assembly::{SIGLET_PC_ID, create_siglet_handler, create_token_manager, generate_server_secret};
-use crate::config::{SigletConfig, VaultConfig};
+use crate::config::{SigletConfig, VaultAuth, VaultConfig};
 use crate::handler::SigletDataFlowHandler;
 use crate::transfer_type::TransferTypeMappingRepository;
 use async_trait::async_trait;
@@ -23,6 +23,7 @@ use dsdk_facet_core::jwt::{
 };
 use dsdk_facet_core::token::client::MemoryTokenStore;
 use dsdk_facet_core::token::manager::{MemoryRenewableTokenStore, ValidatedServerSecret};
+use dsdk_facet_hashicorp_vault::VaultAuthConfig;
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
 
@@ -474,4 +475,69 @@ fn create_test_config() -> SigletConfig {
         signaling_auth: crate::config::SignalingAuthConfig::Disabled,
         ..Default::default()
     }
+}
+
+// ============================================================================
+// build_vault_auth_config() Tests
+// ============================================================================
+
+#[test]
+fn test_build_vault_auth_config_token_exchange() {
+    let auth = VaultAuth::TokenExchange {
+        exchange_url: "https://sts.example.com/token".to_string(),
+        subject_token_file: "/var/run/secrets/token".to_string(),
+        audience: "vault".to_string(),
+        scope: "vault-access".to_string(),
+        role: Some("provisioner".to_string()),
+    };
+
+    let result = crate::assembly::build_vault_auth_config(&auth).unwrap();
+    match result {
+        VaultAuthConfig::TokenExchange {
+            subject_token_file_path,
+            exchange_url,
+            audience,
+            scope,
+            role,
+        } => {
+            assert_eq!(
+                subject_token_file_path,
+                std::path::PathBuf::from("/var/run/secrets/token")
+            );
+            assert_eq!(exchange_url, "https://sts.example.com/token");
+            assert_eq!(audience, "vault");
+            assert_eq!(scope, "vault-access");
+            assert_eq!(role, Some("provisioner".to_string()));
+        }
+        other => panic!("expected TokenExchange, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_build_vault_auth_config_kubernetes_with_token_file() {
+    let auth = VaultAuth::KubernetesServiceAccount {
+        token: None,
+        token_file: Some("/var/run/secrets/vault-token".to_string()),
+    };
+
+    let result = crate::assembly::build_vault_auth_config(&auth).unwrap();
+    match result {
+        VaultAuthConfig::KubernetesServiceAccount { token_file_path } => {
+            assert_eq!(
+                token_file_path,
+                std::path::PathBuf::from("/var/run/secrets/vault-token")
+            );
+        }
+        other => panic!("expected KubernetesServiceAccount, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_build_vault_auth_config_kubernetes_without_token_errors() {
+    let auth = VaultAuth::KubernetesServiceAccount {
+        token: None,
+        token_file: None,
+    };
+
+    assert!(crate::assembly::build_vault_auth_config(&auth).is_err());
 }

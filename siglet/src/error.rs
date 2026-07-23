@@ -23,7 +23,7 @@ pub enum SigletError {
     #[error("Configuration error")]
     Configuration(#[from] anyhow::Error),
 
-    #[error("Vault initialization error")]
+    #[error("Vault initialization error {0}")]
     Vault(#[source] Box<dyn std::error::Error + Send + Sync>),
 
     #[error("Token operation error")]

@@ -366,10 +366,8 @@ impl TokenManager for JwtTokenManager {
         let aud = entry.audience.as_str();
         let new_claims = self.create_claims(aud, &new_jti, verified_claims.sub.as_str(), &entry.claims);
 
-        let token = self
-            .token_generator
-            .generate_token(&self.issuer_context(), new_claims)
-            .await?;
+        let issuer_context = &self.issuer_context();
+        let token = self.token_generator.generate_token(issuer_context, new_claims).await?;
 
         let new_entry = RenewableTokenEntry::builder()
             .id(new_jti)
