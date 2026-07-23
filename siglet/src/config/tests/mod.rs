@@ -616,6 +616,68 @@ fn test_valid_vault_signing_key_name() {
     assert!(config.validate().is_ok());
 }
 
+#[test]
+fn test_empty_vault_mount_path() {
+    let mut config = create_valid_config();
+    config.vault.mount_path = Some("   ".to_string());
+
+    let result = config.validate();
+    assert!(result.is_err());
+    assert!(
+        result
+            .unwrap_err()
+            .messages()
+            .contains(&"vault.mount_path cannot be empty when set")
+    );
+}
+
+#[test]
+fn test_valid_vault_mount_path() {
+    let mut config = create_valid_config();
+    config.vault.mount_path = Some("kv".to_string());
+
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_none_vault_mount_path_is_valid() {
+    let mut config = create_valid_config();
+    config.vault.mount_path = None;
+
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_empty_vault_token_subpath() {
+    let mut config = create_valid_config();
+    config.vault.token_subpath = Some("".to_string());
+
+    let result = config.validate();
+    assert!(result.is_err());
+    assert!(
+        result
+            .unwrap_err()
+            .messages()
+            .contains(&"vault.token_subpath cannot be empty when set")
+    );
+}
+
+#[test]
+fn test_valid_vault_token_subpath() {
+    let mut config = create_valid_config();
+    config.vault.token_subpath = Some("destination".to_string());
+
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_none_vault_token_subpath_is_valid() {
+    let mut config = create_valid_config();
+    config.vault.token_subpath = None;
+
+    assert!(config.validate().is_ok());
+}
+
 // ============================================================================
 // Multiple Errors Tests
 // ============================================================================
@@ -663,6 +725,8 @@ fn test_all_possible_errors() {
             token: None, // Error 7 (combined)
             token_file: None,
             signing_key_name: "".to_string(), // Error 8
+            mount_path: None,
+            token_subpath: None,
             use_http_resolution: false,
         },
         token: TokenConfig {
