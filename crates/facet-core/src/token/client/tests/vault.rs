@@ -13,7 +13,7 @@
 use crate::context::ParticipantContext;
 use crate::token::TokenError;
 use crate::token::client::{RefreshedTokenData, TokenData, TokenStore, VaultTokenStore};
-use crate::vault::MemoryVaultClient;
+use crate::vault::{MemoryVaultClient, VaultClient};
 use chrono::{TimeDelta, Utc};
 use std::sync::Arc;
 
@@ -268,6 +268,70 @@ async fn test_context_isolation_update_does_not_affect_other_participant() {
         "token-p1-updated"
     );
     assert_eq!(store.get_token(&pc2, "provider").await.unwrap().token, "token-p2");
+}
+
+#[tokio::test]
+async fn test_subpath_stores_under_prefixed_key() {
+    // Share the underlying client so we can inspect the raw storage key.
+    let client = Arc::new(MemoryVaultClient::new());
+    let store = VaultTokenStore::with_subpath(client.clone(), Some("destination".to_string()));
+
+    store.save_token(sample_token("pc1", "id1", "tok")).await.unwrap();
+
+    let pc = ParticipantContext::builder().id("pc1").build();
+
+    // The token is physically stored under `{subpath}/{identifier}` ...
+    assert!(client.resolve_secret(&pc, "destination/id1").await.is_ok());
+    // ... and NOT under the bare identifier.
+    assert!(client.resolve_secret(&pc, "id1").await.is_err());
+
+    // The store round-trips transparently, and the returned identifier stays bare.
+    let got = store.get_token(&pc, "id1").await.unwrap();
+    assert_eq!(got.identifier, "id1");
+    assert_eq!(got.token, "tok");
+}
+
+#[tokio::test]
+async fn test_subpath_full_lifecycle_round_trip() {
+    let store = VaultTokenStore::with_subpath(Arc::new(MemoryVaultClient::new()), Some("dest".to_string()));
+    let expiration = Utc::now() + TimeDelta::seconds(3600);
+
+    store.save_token(sample_token("pc1", "flow-1", "old")).await.unwrap();
+
+    store
+        .update_token(
+            "pc1",
+            "flow-1",
+            RefreshedTokenData {
+                token: "new".to_string(),
+                refresh_token: "new-refresh".to_string(),
+                expires_at: expiration,
+                refresh_endpoint: "https://provider.example.com/refresh".to_string(),
+            },
+        )
+        .await
+        .unwrap();
+
+    let pc = ParticipantContext::builder().id("pc1").build();
+    assert_eq!(store.get_token(&pc, "flow-1").await.unwrap().token, "new");
+
+    store.remove_token("pc1", "flow-1").await.unwrap();
+    assert!(matches!(
+        store.get_token(&pc, "flow-1").await.unwrap_err(),
+        TokenError::TokenNotFound { .. }
+    ));
+}
+
+#[tokio::test]
+async fn test_no_subpath_uses_bare_identifier_key() {
+    // Backward compatibility: `new` (and blank/slash-only subpaths) store under the bare key.
+    let client = Arc::new(MemoryVaultClient::new());
+    let store = VaultTokenStore::with_subpath(client.clone(), Some("  /  ".to_string()));
+
+    store.save_token(sample_token("pc1", "id1", "tok")).await.unwrap();
+
+    let pc = ParticipantContext::builder().id("pc1").build();
+    assert!(client.resolve_secret(&pc, "id1").await.is_ok());
 }
 
 #[tokio::test]

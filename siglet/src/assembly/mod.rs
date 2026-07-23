@@ -160,7 +160,10 @@ pub async fn assemble_postgres(
     };
 
     let (pool, (renewable_token_store, lock_manager)) = connect_postgres(url).await?;
-    let token_store: Arc<dyn TokenStore> = Arc::new(VaultTokenStore::new(vault_client as Arc<dyn VaultClient>));
+    let token_store: Arc<dyn TokenStore> = Arc::new(VaultTokenStore::with_subpath(
+        vault_client as Arc<dyn VaultClient>,
+        cfg.vault.token_subpath.clone(),
+    ));
 
     let mapping_store = Arc::new(PostgresSigningKeyMappingStore::new(pool.clone()));
     mapping_store
@@ -580,6 +583,7 @@ async fn create_vault_client(vault: &VaultConfig) -> Result<Arc<HashicorpVaultCl
             token_file_path: token_file,
         })
         .signing_key_name(vault.signing_key_name.clone())
+        .maybe_mount_path(vault.mount_path.clone())
         .build();
 
     let mut vault_client = HashicorpVaultClient::new(vault_config).map_err(|e| SigletError::Vault(Box::new(e)))?;

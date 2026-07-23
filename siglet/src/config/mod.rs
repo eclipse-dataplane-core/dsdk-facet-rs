@@ -270,6 +270,15 @@ pub struct VaultConfig {
     pub token_file: Option<String>,
     #[serde(default = "default_vault_signing_key_name")]
     pub signing_key_name: String,
+    /// Optional mount path for the KV v2 secrets engine. When unset, the Vault client
+    /// defaults to `"secret"`.
+    #[serde(default)]
+    pub mount_path: Option<String>,
+    /// Optional path segment inserted between the participant context id and the token
+    /// identifier in the `VaultTokenStore` key. When unset, tokens are stored at
+    /// `{participant_context.id}/{identifier}` (current behavior).
+    #[serde(default)]
+    pub token_subpath: Option<String>,
     #[serde(default)]
     pub use_http_resolution: bool,
 }
@@ -281,6 +290,8 @@ impl Default for VaultConfig {
             token: None,
             token_file: None,
             signing_key_name: DEFAULT_VAULT_SIGNING_KEY_NAME.to_string(),
+            mount_path: None,
+            token_subpath: None,
             use_http_resolution: false,
         }
     }
@@ -490,6 +501,20 @@ impl SigletConfig {
         // Validate vault signing key name
         if self.vault.signing_key_name.is_empty() {
             errors.push("vault_signing_key_name cannot be empty".to_string());
+        }
+
+        // Validate optional vault mount path / token subpath: when supplied they must be
+        // meaningful. A blank value would produce a malformed Vault path, so reject it rather
+        // than silently collapsing to the default. Omitting the key entirely (None) is valid.
+        if let Some(mount_path) = &self.vault.mount_path
+            && mount_path.trim().is_empty()
+        {
+            errors.push("vault.mount_path cannot be empty when set".to_string());
+        }
+        if let Some(token_subpath) = &self.vault.token_subpath
+            && token_subpath.trim().is_empty()
+        {
+            errors.push("vault.token_subpath cannot be empty when set".to_string());
         }
 
         // Validate HTTP client timeouts. Zero would disable the timeout entirely
