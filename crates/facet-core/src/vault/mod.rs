@@ -86,12 +86,26 @@ pub trait VaultSigningClient: Send + Sync {
     /// Returns Ed25519 signing keys and associated metadata for a named transit key.
     ///
     /// # Arguments
+    /// * `participant_context` - The participant context the operation is bound to (used to scope the
+    ///   Vault access token, e.g. the token-exchange `resource`)
     /// * `key_name` - Name of the transit key
     /// * `format` - The desired format for the public keys (Multibase or Base64Url)
-    async fn get_key_metadata(&self, key_name: &str, format: PublicKeyFormat) -> Result<KeyMetadata, VaultError>;
+    async fn get_key_metadata(
+        &self,
+        participant_context: &ParticipantContext,
+        key_name: &str,
+        format: PublicKeyFormat,
+    ) -> Result<KeyMetadata, VaultError>;
 
     /// Signs content using a named transit key.
-    async fn sign_content(&self, key_name: &str, content: &[u8]) -> Result<Vec<u8>, VaultError>;
+    ///
+    /// `participant_context` scopes the Vault access token used for the operation.
+    async fn sign_content(
+        &self,
+        participant_context: &ParticipantContext,
+        key_name: &str,
+        content: &[u8],
+    ) -> Result<Vec<u8>, VaultError>;
 }
 
 #[derive(Debug, Error)]

@@ -14,4 +14,5 @@
 
 mod auth;
 mod client;
+mod provider;
 mod renewal;

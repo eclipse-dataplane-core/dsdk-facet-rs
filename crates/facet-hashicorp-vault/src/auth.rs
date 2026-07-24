@@ -94,6 +94,55 @@ pub(crate) async fn get_vault_access_token(
     Ok(token_response.access_token)
 }
 
+/// Exchanges a subject token for a participant-context-bound access token using the OAuth2 Token
+/// Exchange flow (RFC 8693).
+///
+/// The `subject_token` is typically a Kubernetes service-account JWT. The `resource` parameter binds
+/// the returned token to a specific participant context (the participant context id). `audience` and
+/// `scope` are required (optional in RFC 8693, but the exchange does not work without them here). The
+/// returned token is intended to be passed to [`jwt_login`] to obtain a Vault client token.
+pub(crate) async fn exchange_subject_token(
+    client: &Client,
+    exchange_url: &str,
+    subject_token: &str,
+    resource: &str,
+    audience: &str,
+    scope: &str,
+) -> Result<String, VaultError> {
+    let params = [
+        ("grant_type", "urn:ietf:params:oauth:grant-type:token-exchange"),
+        ("subject_token", subject_token),
+        ("subject_token_type", "urn:ietf:params:oauth:token-type:jwt"),
+        ("resource", resource),
+        ("audience", audience),
+        ("scope", scope),
+    ];
+
+    let response = client
+        .post(exchange_url)
+        .form(&params)
+        .send()
+        .await
+        .map_err(|e| VaultError::NetworkError(format!("Failed to exchange subject token: {}", e)))?;
+
+    if !response.status().is_success() {
+        return Err(handle_error_response(response, "Token exchange failed").await);
+    }
+
+    let token_response: TokenResponse = response
+        .json()
+        .await
+        .map_err(|e| VaultError::InvalidData(format!("Failed to parse token exchange response: {}", e)))?;
+
+    if token_response.access_token.is_empty() {
+        return Err(VaultError::AuthenticationError(
+            "Access token not found in token exchange response".to_string(),
+        ));
+    }
+
+    Ok(token_response.access_token)
+}
+
 /// Authenticates with Vault using JWT and returns the client token and lease duration.
 pub(crate) async fn jwt_login(
     client: &Client,

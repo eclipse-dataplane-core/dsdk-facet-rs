@@ -10,6 +10,7 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
+use crate::context::ParticipantContext;
 use crate::jwt::{
     Jwk, JwkKeyType, JwkPublicKeyUse, JwkSet, JwkSetProvider, JwtVerificationError, KeyFormat, KeyMaterial,
     VerificationKeyResolver,
@@ -31,13 +32,17 @@ use tokio::sync::watch;
 /// Inner state shared between the resolver and the background refresh task.
 struct VaultKeyResolverState {
     pub(super) vault_client: Arc<dyn VaultSigningClient>,
+    /// Participant context used to scope the Vault access token when loading the signing key.
+    /// This resolver loads the issuer's own key, so it is the issuer's participant context.
+    signing_context: ParticipantContext,
     public_keys: sync::RwLock<HashMap<String, CachedPublicKey>>,
 }
 
 impl VaultKeyResolverState {
-    fn new(vault_client: Arc<dyn VaultSigningClient>) -> Self {
+    fn new(vault_client: Arc<dyn VaultSigningClient>, signing_context: ParticipantContext) -> Self {
         Self {
             vault_client,
+            signing_context,
             public_keys: sync::RwLock::new(HashMap::new()),
         }
     }
@@ -69,7 +74,7 @@ impl VaultKeyResolverState {
             .ok_or_else(|| JwtVerificationError::GeneralError("signing_key_name not configured".to_string()))?;
         let metadata = self
             .vault_client
-            .get_key_metadata(key_name, PublicKeyFormat::Base64Url)
+            .get_key_metadata(&self.signing_context, key_name, PublicKeyFormat::Base64Url)
             .await
             .map_err(|e| JwtVerificationError::GeneralError(format!("Failed to get key metadata: {}", e)))?;
 
@@ -109,10 +114,13 @@ impl VaultVerificationKeyResolver {
     #[builder(finish_fn = build)]
     pub fn new(
         vault_client: Arc<dyn VaultSigningClient>,
+        /// Participant context used to scope the Vault access token when loading the signing key
+        /// (the issuer's own participant context).
+        signing_context: ParticipantContext,
         #[builder(default = Duration::from_secs(300))] refresh_interval: Duration,
     ) -> Self {
         Self {
-            state: Arc::new(VaultKeyResolverState::new(vault_client)),
+            state: Arc::new(VaultKeyResolverState::new(vault_client, signing_context)),
             refresh_interval,
             refresh_handle: Mutex::new(None),
         }

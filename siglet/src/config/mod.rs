@@ -262,11 +262,63 @@ pub struct EndpointMapping {
     pub endpoint: String,
 }
 
+/// Vault authentication configuration.
+///
+/// Selects one of the mutually-exclusive auth mechanisms. Deserialized as an internally-tagged enum
+/// with a `type` discriminator, e.g.:
+///
+/// ```toml
+/// [vault.auth]
+/// type = "kubernetes_service_account"
+/// token_file = "/var/run/secrets/vault-token"
+/// ```
+///
+/// ```toml
+/// [vault.auth]
+/// type = "token_exchange"
+/// exchange_url = "https://sts.example.com/token"
+/// subject_token_file = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+/// audience = "vault"
+/// scope = "vault-access"
+/// ```
+#[derive(Deserialize, Clone, Debug)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum VaultAuth {
+    /// Kubernetes service-account auth. Provide either an inline `token` or a `token_file`.
+    KubernetesServiceAccount {
+        #[serde(default)]
+        token: Option<String>,
+        #[serde(default)]
+        token_file: Option<String>,
+    },
+    /// OAuth2 Token Exchange (RFC 8693). The participant context id is bound to the request's
+    /// `resource` parameter; `audience` and `scope` are optional static request parameters.
+    TokenExchange {
+        /// STS / OAuth2 token-exchange endpoint URL.
+        exchange_url: String,
+        /// Path to the Kubernetes service-account token used as the subject token.
+        subject_token_file: String,
+        /// `audience` parameter sent on the token-exchange request. Required: although optional in
+        /// RFC 8693, the exchange does not work without it.
+        audience: String,
+        /// `scope` parameter sent on the token-exchange request. Required: although optional in
+        /// RFC 8693, the exchange does not work without it.
+        scope: String,
+        /// Vault JWT auth role used for token-exchange logins. When unset, the client default is used.
+        #[serde(default)]
+        role: Option<String>,
+    },
+}
+
 #[derive(Deserialize, Clone, Debug)]
 #[serde(default)]
 pub struct VaultConfig {
     pub url: Option<String>,
+    /// Deprecated: prefer `auth` (`VaultAuth::KubernetesServiceAccount`). Retained for backward
+    /// compatibility — used as Kubernetes service-account auth when `auth` is unset.
     pub token: Option<String>,
+    /// Deprecated: prefer `auth` (`VaultAuth::KubernetesServiceAccount`). Retained for backward
+    /// compatibility — used as Kubernetes service-account auth when `auth` is unset.
     pub token_file: Option<String>,
     #[serde(default = "default_vault_signing_key_name")]
     pub signing_key_name: String,
@@ -281,6 +333,10 @@ pub struct VaultConfig {
     pub token_subpath: Option<String>,
     #[serde(default)]
     pub use_http_resolution: bool,
+    /// Vault authentication configuration. When set, takes precedence over the deprecated top-level
+    /// `token`/`token_file` fields.
+    #[serde(default)]
+    pub auth: Option<VaultAuth>,
 }
 
 impl Default for VaultConfig {
@@ -293,7 +349,21 @@ impl Default for VaultConfig {
             mount_path: None,
             token_subpath: None,
             use_http_resolution: false,
+            auth: None,
         }
+    }
+}
+
+impl VaultConfig {
+    /// The effective Vault auth: the explicit `auth` enum if set, otherwise the legacy
+    /// `token`/`token_file` fields interpreted as Kubernetes service-account auth.
+    pub fn resolved_auth(&self) -> VaultAuth {
+        self.auth
+            .clone()
+            .unwrap_or_else(|| VaultAuth::KubernetesServiceAccount {
+                token: self.token.clone(),
+                token_file: self.token_file.clone(),
+            })
     }
 }
 
@@ -373,8 +443,12 @@ impl SigletConfig {
             errors.push(format!("vault_url is not a valid URL: '{}'", url));
         }
 
-        // Validate Vault authentication is provided
-        if self.vault.token.is_none() && self.vault.token_file.is_none() {
+        // Validate Vault authentication is provided. Token-exchange auth has serde-required fields,
+        // so only the Kubernetes service-account case needs a runtime check.
+        if let VaultAuth::KubernetesServiceAccount { token, token_file } = self.vault.resolved_auth()
+            && token.is_none()
+            && token_file.is_none()
+        {
             errors.push("Either vault_token or vault_token_file is required".to_string());
         }
 

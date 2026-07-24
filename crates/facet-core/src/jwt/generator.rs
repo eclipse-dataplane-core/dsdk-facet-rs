@@ -52,7 +52,7 @@ impl JwtGenerator for VaultJwtGenerator {
             None => {
                 let metadata = self
                     .signing_client
-                    .get_key_metadata(&key_name, PublicKeyFormat::Multibase)
+                    .get_key_metadata(participant_context, &key_name, PublicKeyFormat::Multibase)
                     .await?;
                 format!("{}-{}", metadata.key_name, metadata.current_version)
             }
@@ -73,7 +73,7 @@ impl JwtGenerator for VaultJwtGenerator {
 
         let signature_bytes = self
             .signing_client
-            .sign_content(&key_name, signing_input.as_bytes())
+            .sign_content(participant_context, &key_name, signing_input.as_bytes())
             .await?;
         let signature_b64url = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&signature_bytes);
 

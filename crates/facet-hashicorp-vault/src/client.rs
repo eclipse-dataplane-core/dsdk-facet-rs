@@ -10,23 +10,19 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
-use super::auth::{FileBasedVaultAuthClient, JwtVaultAuthClient, VaultAuthClient, handle_error_response};
-use super::config::{CONTENT_KEY, DEFAULT_ROLE, HashicorpVaultConfig, VaultAuthConfig};
-use super::renewal::TokenRenewer;
-use super::state::VaultClientState;
-use crate::renewal::RenewalTriggerConfig;
+use super::auth::handle_error_response;
+use super::config::{CONTENT_KEY, HashicorpVaultConfig, VaultAuthConfig};
+use super::provider::{ExchangingTokenProvider, RenewingTokenProvider, VaultTokenProvider};
 use async_trait::async_trait;
 use base64::Engine;
 use dsdk_facet_core::context::ParticipantContext;
 use dsdk_facet_core::util::clock::Clock;
 use dsdk_facet_core::util::crypto;
-use dsdk_facet_core::util::task::TaskHandle;
 use dsdk_facet_core::vault::{KeyMetadata, PublicKeyFormat, VaultClient, VaultError, VaultSigningClient};
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::RwLock;
 
 /// Default mount path for the Vault Transit secrets engine
 const DEFAULT_TRANSIT_MOUNT_PATH: &str = "transit";
@@ -36,8 +32,7 @@ pub struct HashicorpVaultClient {
     config: HashicorpVaultConfig,
     http_client: Client,
     clock: Arc<dyn Clock>,
-    state: Option<Arc<RwLock<VaultClientState>>>,
-    renewal_handle: Option<TaskHandle>,
+    token_provider: Option<Arc<dyn VaultTokenProvider>>,
 }
 
 impl HashicorpVaultClient {
@@ -56,8 +51,7 @@ impl HashicorpVaultClient {
             config,
             http_client,
             clock,
-            state: None,
-            renewal_handle: None,
+            token_provider: None,
         })
     }
 
@@ -65,107 +59,51 @@ impl HashicorpVaultClient {
     ///
     /// This method must be called before using any vault operations.
     pub async fn initialize(&mut self) -> Result<(), VaultError> {
-        if self.state.is_some() {
+        if self.token_provider.is_some() {
             return Err(VaultError::NotInitializedError("Already initialized".to_string()));
         }
 
-        // Create auth client and renewal trigger based on config
-        let (auth_client, renewal_trigger_config): (Arc<dyn VaultAuthClient>, RenewalTriggerConfig) =
-            match &self.config.auth_config {
-                VaultAuthConfig::OAuth2 {
-                    client_id,
-                    client_secret,
-                    token_url,
-                    role,
-                } => {
-                    let auth = Arc::new(
-                        JwtVaultAuthClient::builder()
-                            .http_client(self.http_client.clone())
-                            .vault_url(&self.config.vault_url)
-                            .client_id(client_id)
-                            .client_secret(client_secret)
-                            .token_url(token_url)
-                            .role(role.as_deref().unwrap_or(DEFAULT_ROLE))
-                            .build(),
-                    );
-                    let trigger_config = RenewalTriggerConfig::TimeBased {
-                        renewal_percentage: self.config.token_renewal_percentage,
-                        renewal_jitter: self.config.renewal_jitter,
-                    };
-                    (auth, trigger_config)
-                }
-                VaultAuthConfig::KubernetesServiceAccount { token_file_path } => {
-                    let auth = Arc::new(
-                        FileBasedVaultAuthClient::builder()
-                            .token_file_path(token_file_path.clone())
-                            .build(),
-                    );
-                    let trigger_config = RenewalTriggerConfig::FileBased {
-                        token_file_path: token_file_path.clone(),
-                    };
-                    (auth, trigger_config)
-                }
-            };
+        // Select the token provider strategy based on the configured auth mechanism.
+        let provider: Arc<dyn VaultTokenProvider> = match &self.config.auth_config {
+            VaultAuthConfig::OAuth2 { .. } | VaultAuthConfig::KubernetesServiceAccount { .. } => {
+                // Single global token, renewed in the background.
+                let (provider, initial_token) =
+                    RenewingTokenProvider::new(&self.config, self.http_client.clone(), self.clock.clone()).await?;
+                // Ensure the transit signing key exists if configured (uses the global token).
+                self.init_signing_key(&initial_token).await?;
+                provider
+            }
+            VaultAuthConfig::TokenExchange { .. } => {
+                // Per-participant-context tokens minted on demand via RFC 8693 token exchange.
+                // Signing/transit is out of scope for this mode, so `init_signing_key` is skipped.
+                ExchangingTokenProvider::new(&self.config, self.http_client.clone(), self.clock.clone())?
+            }
+        };
 
-        // Obtain initial token
-        let (token, lease_duration) = auth_client.authenticate().await?;
-
-        // Ensure signing key exists if configured
-        self.init_signing_key(&token).await?;
-
-        // Create internal state
-        let state = Arc::new(RwLock::new(
-            VaultClientState::builder()
-                .token(token)
-                .last_created(self.clock.now())
-                .lease_duration(lease_duration)
-                .health_threshold(self.config.health_threshold)
-                .build(),
-        ));
-
-        // Create and start the renewer
-        let renewer = Arc::new(
-            TokenRenewer::builder()
-                .auth_client(auth_client)
-                .http_client(self.http_client.clone())
-                .vault_url(&self.config.vault_url)
-                .state(Arc::clone(&state))
-                .renewal_trigger_config(renewal_trigger_config)
-                .maybe_on_renewal_error(self.config.on_renewal_error.clone())
-                .clock(self.clock.clone())
-                .max_consecutive_failures(self.config.max_consecutive_failures)
-                .build(),
-        );
-
-        let handle = renewer.start()?;
-
-        self.state = Some(state);
-        self.renewal_handle = Some(handle);
+        self.token_provider = Some(provider);
 
         Ok(())
     }
 
-    /// Returns the last error encountered during token renewal, if any.
+    /// Returns the last error encountered while obtaining a token, if any.
     pub async fn last_error(&self) -> Result<Option<String>, VaultError> {
-        let state = self.ensure_initialized()?;
-        Ok(state.read().await.last_error())
+        Ok(self.token_provider()?.last_error().await)
     }
 
     /// Returns true if the client is healthy (no recent failures).
     ///
     /// A client is considered healthy if there are no consecutive failures or fewer than 3 consecutive failures.
     pub async fn is_healthy(&self) -> bool {
-        if let Ok(state) = self.ensure_initialized() {
-            state.read().await.is_healthy()
+        if let Ok(provider) = self.token_provider() {
+            provider.is_healthy().await
         } else {
             false
         }
     }
 
-    /// Returns the number of consecutive renewal failures.
+    /// Returns the number of consecutive failures obtaining a token.
     pub async fn consecutive_failures(&self) -> Result<u32, VaultError> {
-        let state = self.ensure_initialized()?;
-        Ok(state.read().await.consecutive_failures())
+        Ok(self.token_provider()?.consecutive_failures().await)
     }
 
     /// Constructs the URL for KV v2 operations.
@@ -268,9 +206,9 @@ impl HashicorpVaultClient {
         Ok(())
     }
 
-    /// Ensures the client is initialized, returning an error if not.
-    fn ensure_initialized(&self) -> Result<&Arc<RwLock<VaultClientState>>, VaultError> {
-        self.state
+    /// Returns the token provider, or an error if the client is not initialized.
+    fn token_provider(&self) -> Result<&Arc<dyn VaultTokenProvider>, VaultError> {
+        self.token_provider
             .as_ref()
             .ok_or_else(|| VaultError::NotInitializedError("Call initialize() first.".to_string()))
     }
@@ -279,12 +217,8 @@ impl HashicorpVaultClient {
 #[async_trait]
 impl VaultClient for HashicorpVaultClient {
     async fn resolve_secret(&self, participant_context: &ParticipantContext, path: &str) -> Result<String, VaultError> {
-        let state = self.ensure_initialized()?;
+        let token = self.token_provider()?.token(participant_context).await?;
         let url = self.kv_url(participant_context, path);
-        let token = {
-            let state = state.read().await;
-            state.token()
-        };
 
         let response = self
             .http_client
@@ -322,12 +256,8 @@ impl VaultClient for HashicorpVaultClient {
         path: &str,
         secret: &str,
     ) -> Result<(), VaultError> {
-        let state = self.ensure_initialized()?;
+        let token = self.token_provider()?.token(participant_context).await?;
         let url = self.kv_url(participant_context, path);
-        let token = {
-            let state = state.read().await;
-            state.token()
-        };
 
         let mut data = serde_json::Map::new();
         data.insert(CONTENT_KEY.to_string(), serde_json::Value::String(secret.to_string()));
@@ -353,11 +283,7 @@ impl VaultClient for HashicorpVaultClient {
     }
 
     async fn remove_secret(&self, participant_context: &ParticipantContext, path: &str) -> Result<(), VaultError> {
-        let state = self.ensure_initialized()?;
-        let token = {
-            let state = state.read().await;
-            state.token()
-        };
+        let token = self.token_provider()?.token(participant_context).await?;
 
         let url = if self.config.soft_delete {
             // Soft delete - delete the latest version
@@ -385,9 +311,9 @@ impl VaultClient for HashicorpVaultClient {
 
 impl Drop for HashicorpVaultClient {
     fn drop(&mut self) {
-        // Signal the renewal task to stop and abort it
-        if let Some(handle) = self.renewal_handle.take() {
-            handle.shutdown();
+        // Signal any background renewal task owned by the provider to stop.
+        if let Some(provider) = &self.token_provider {
+            provider.shutdown();
         }
     }
 }
@@ -398,13 +324,14 @@ impl VaultSigningClient for HashicorpVaultClient {
         self.config.signing_key_name.as_deref()
     }
 
-    async fn get_key_metadata(&self, key_name: &str, format: PublicKeyFormat) -> Result<KeyMetadata, VaultError> {
-        let state = self.ensure_initialized()?;
+    async fn get_key_metadata(
+        &self,
+        participant_context: &ParticipantContext,
+        key_name: &str,
+        format: PublicKeyFormat,
+    ) -> Result<KeyMetadata, VaultError> {
+        let token = self.token_provider()?.token(participant_context).await?;
         let url = self.transit_key_url(key_name);
-        let token = {
-            let state = state.read().await;
-            state.token()
-        };
 
         let response = self
             .http_client
@@ -456,13 +383,14 @@ impl VaultSigningClient for HashicorpVaultClient {
         })
     }
 
-    async fn sign_content(&self, key_name: &str, content: &[u8]) -> Result<Vec<u8>, VaultError> {
+    async fn sign_content(
+        &self,
+        participant_context: &ParticipantContext,
+        key_name: &str,
+        content: &[u8],
+    ) -> Result<Vec<u8>, VaultError> {
         let url = self.transit_sign_url_for_key(key_name);
-        let state = self.ensure_initialized()?;
-        let token = {
-            let state = state.read().await;
-            state.token()
-        };
+        let token = self.token_provider()?.token(participant_context).await?;
 
         let encoded_content = base64::engine::general_purpose::STANDARD.encode(content);
         let request = TransitSignRequest { input: encoded_content };
