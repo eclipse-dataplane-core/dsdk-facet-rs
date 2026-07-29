@@ -3,6 +3,7 @@ name = "siglet-tck"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+publish = false
 
 # This crate carries no runtime code; it exists to run the Eclipse Dataspace
 # Data Plane Signaling (DPS) TCK against a real, in-process siglet. All logic

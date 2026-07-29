@@ -2,6 +2,10 @@
 name = "dsdk-facet-core"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Core building blocks (distributed locking, token management, proxy primitives) for the Eclipse Rust Data Plane SDK"
 
 [features]
 test-fixtures = []

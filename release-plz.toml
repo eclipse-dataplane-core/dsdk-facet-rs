@@ -1,0 +1,7 @@
+# Non-publishable crates (test-utils, testcontainers, siglet, siglet-tck, e2e*)
+# are excluded automatically via `publish = false` in their Cargo.toml — release-plz skips
+# them (no bump, changelog, tag, or publish). Do not add [[package]] release/publish
+# overrides for them: an explicit entry defaults to `publish = true` and conflicts with the
+# `publish = false` in Cargo.toml.
+[workspace]
+pr_labels = ["release"]

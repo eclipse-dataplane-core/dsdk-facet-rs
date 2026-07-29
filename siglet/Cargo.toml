@@ -3,6 +3,7 @@ name = "siglet"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+publish = false
 
 [[bin]]
 name = "siglet"
@@ -10,9 +11,9 @@ path = "src/main.rs"
 
 [dependencies]
 # Facet library crates
-dsdk-facet-core = { path = "../crates/facet-core" }
-dsdk-facet-postgres = { path = "../crates/facet-postgres" }
-dsdk-facet-hashicorp-vault = { path = "../crates/facet-hashicorp-vault" }
+dsdk-facet-core = { path = "../crates/facet-core" , version = "0.1.0" }
+dsdk-facet-postgres = { path = "../crates/facet-postgres", version = "0.1.0" }
+dsdk-facet-hashicorp-vault = { path = "../crates/facet-hashicorp-vault", version = "0.1.0" }
 
 # Eclipse Data Plane SDK
 dataplane-sdk = "0.1.0"

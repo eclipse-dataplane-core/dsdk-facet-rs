@@ -1,0 +1,65 @@
+name: Prepare Release
+
+# Runs `release-plz update` in CI (version bumps + changelogs) and pushes a `release-plz`
+# branch. A human then opens the PR from that branch — pushing a branch is allowed for
+# GITHUB_TOKEN even when the org forbids Actions from *creating* PRs, and a human-opened PR
+# also gets normal CI. Merging that PR triggers release-plz.yml to publish (publish-on-merge).
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-plz-prepare
+  cancel-in-progress: false
+
+env:
+  RELEASE_BRANCH: release-plz
+
+jobs:
+  prepare:
+    name: Prepare release branch
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # release-plz needs full history to compute bumps/changelog
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install release-plz
+        uses: taiki-e/install-action@v2
+        with:
+          tool: release-plz
+
+      - name: Compute version bumps and changelogs
+        run: release-plz update
+
+      - name: Push release branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$RELEASE_BRANCH"
+
+          if git diff --quiet; then
+            echo "No unreleased changes — nothing to prepare." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          git add -A
+          git commit -m "chore: release"
+          git push --force origin "$RELEASE_BRANCH"
+
+          {
+            echo "### Release branch pushed :rocket:"
+            echo ""
+            echo "Open the release PR (human-authored, so it gets full CI):"
+            echo ""
+            echo "https://github.com/${GITHUB_REPOSITORY}/compare/main...${RELEASE_BRANCH}?expand=1"
+            echo ""
+            echo "Review + merge it — the merge to \`main\` publishes to crates.io automatically."
+          } >> "$GITHUB_STEP_SUMMARY"

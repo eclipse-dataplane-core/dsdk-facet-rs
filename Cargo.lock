@@ -1700,7 +1700,7 @@ checksum = "1435fa1053d8b2fbbe9be7e97eca7f33d37b28409959813daefc1446a14247f1"
 
 [[package]]
 name = "dsdk-facet-core"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1736,7 +1736,7 @@ dependencies = [
 
 [[package]]
 name = "dsdk-facet-e2e-tests"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -1752,7 +1752,7 @@ dependencies = [
 
 [[package]]
 name = "dsdk-facet-hashicorp-vault"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1775,7 +1775,7 @@ dependencies = [
 
 [[package]]
 name = "dsdk-facet-postgres"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "async-trait",
  "bon",
@@ -1792,7 +1792,7 @@ dependencies = [
 
 [[package]]
 name = "dsdk-facet-proxy"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "async-trait",
  "aws-config",
@@ -1818,14 +1818,14 @@ dependencies = [
 
 [[package]]
 name = "dsdk-facet-test-utils"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "tokio",
 ]
 
 [[package]]
 name = "dsdk-facet-testcontainers"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "aws-config",
  "aws-sdk-s3",
@@ -5159,7 +5159,7 @@ checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 
 [[package]]
 name = "siglet"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5195,7 +5195,7 @@ dependencies = [
 
 [[package]]
 name = "siglet-tck"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "futures",
