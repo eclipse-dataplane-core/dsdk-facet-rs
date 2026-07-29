@@ -1509,7 +1509,8 @@ dependencies = [
 [[package]]
 name = "dataplane-sdk"
 version = "0.1.0"
-source = "git+https://github.com/eclipse-dataplane-core/dataplane-sdk-rust?branch=main#e678f5a460db448fd2949c72800d027bbaf8dd27"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4a04996c84decb9dc065c27759eedb0c181471e6d1d8eba1ca7c8b5cd003d746"
 dependencies = [
  "async-trait",
  "bon",
@@ -1524,7 +1525,8 @@ dependencies = [
 [[package]]
 name = "dataplane-sdk-axum"
 version = "0.1.0"
-source = "git+https://github.com/eclipse-dataplane-core/dataplane-sdk-rust?branch=main#e678f5a460db448fd2949c72800d027bbaf8dd27"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b4781405c7995ba5cd5863b96199bb310f84a5d255787008e337bd65289558f3"
 dependencies = [
  "anyhow",
  "axum",
@@ -1537,7 +1539,8 @@ dependencies = [
 [[package]]
 name = "dataplane-sdk-postgres"
 version = "0.1.0"
-source = "git+https://github.com/eclipse-dataplane-core/dataplane-sdk-rust?branch=main#e678f5a460db448fd2949c72800d027bbaf8dd27"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ca64603a3adbaaef2cd195603471e78ea14518f7d06a537fe032977d6b6ba67b"
 dependencies = [
  "async-trait",
  "bon",
