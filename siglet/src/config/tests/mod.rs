@@ -13,8 +13,8 @@
 #![allow(clippy::unwrap_used)]
 
 use crate::config::{
-    EndpointMapping, ManagementApiAuthConfig, SigletConfig, SignalingAuthConfig, StorageBackend, TokenConfig,
-    TokenSource, TransferType, ValidationError, VaultAuth, VaultConfig,
+    ClaimMapping, EndpointMapping, ManagementApiAuthConfig, SigletConfig, SignalingAuthConfig, StorageBackend,
+    TokenConfig, TokenSource, TransferType, ValidationError, VaultAuth, VaultConfig,
 };
 use std::net::{IpAddr, Ipv4Addr};
 
@@ -1592,4 +1592,294 @@ fn test_transfer_type_deserializes_snake_case_from_toml_config() {
     assert_eq!(tt.endpoint_mappings[0].key, "region");
     assert_eq!(tt.endpoint_mappings[0].value, "eu-west-1");
     assert_eq!(tt.endpoint_mappings[0].endpoint, "https://eu-west-1.data.example.com");
+}
+
+// ============================================================================
+// Claim Mappings Validation Tests
+// ============================================================================
+
+fn make_claim_mapping(from: &str, to: &str) -> ClaimMapping {
+    ClaimMapping::builder().from(from).to(to).build()
+}
+
+/// Builds a config whose single transfer type carries the given root claim mappings.
+fn config_with_claim_mappings(claim_mappings: Vec<ClaimMapping>) -> SigletConfig {
+    let mut config = create_valid_config();
+    config.transfer_types = vec![
+        TransferType::builder()
+            .transfer_type("http-pull".to_string())
+            .endpoint_type("HTTP".to_string())
+            .endpoint("https://data.example.com".to_string())
+            .token_source(TokenSource::Provider)
+            .claim_mappings(claim_mappings)
+            .build(),
+    ];
+    config
+}
+
+fn validation_messages(config: &SigletConfig) -> Vec<String> {
+    match config.validate() {
+        Ok(()) => vec![],
+        Err(ValidationError::Multiple(errors)) => errors,
+        Err(e) => vec![e.to_string()],
+    }
+}
+
+#[test]
+fn test_valid_claim_mappings_pass_validation() {
+    let config = config_with_claim_mappings(vec![
+        make_claim_mapping("flow.agreementId", "agreement"),
+        make_claim_mapping("'urn:asset:' + flow.datasetId", "assetUrn"),
+        make_claim_mapping(
+            r#"flow.claims.vc.filter(c, "MembershipCredential" in c.type).map(c, c.issuer)"#,
+            "issuers",
+        ),
+    ]);
+    assert!(config.validate().is_ok(), "{:?}", validation_messages(&config));
+}
+
+#[test]
+fn test_claim_mapping_with_empty_to_is_rejected() {
+    let config = config_with_claim_mappings(vec![make_claim_mapping("flow.agreementId", "  ")]);
+    let errors = validation_messages(&config);
+    assert!(
+        errors.iter().any(|e| e.contains("to cannot be empty")),
+        "expected an empty-`to` error, got {errors:?}"
+    );
+}
+
+#[test]
+fn test_claim_mapping_with_empty_from_is_rejected() {
+    let config = config_with_claim_mappings(vec![make_claim_mapping("", "claim")]);
+    let errors = validation_messages(&config);
+    assert!(
+        errors.iter().any(|e| e.contains("from cannot be empty")),
+        "expected an empty-`from` error, got {errors:?}"
+    );
+}
+
+#[test]
+fn test_claim_mapping_with_reserved_claim_name_is_rejected() {
+    for reserved in ["sub", "exp", "iss", "aud", "iat", "nbf", "jti"] {
+        let config = config_with_claim_mappings(vec![make_claim_mapping("'x'", reserved)]);
+        let errors = validation_messages(&config);
+        assert!(
+            errors.iter().any(|e| e.contains("reserved JWT claim")),
+            "expected '{reserved}' to be rejected, got {errors:?}"
+        );
+    }
+}
+
+#[test]
+fn test_claim_mapping_with_invalid_expression_is_rejected() {
+    let config = config_with_claim_mappings(vec![make_claim_mapping("flow.", "broken")]);
+    let errors = validation_messages(&config);
+    assert!(
+        errors.iter().any(|e| e.contains("invalid expression")),
+        "expected an invalid-expression error, got {errors:?}"
+    );
+}
+
+#[test]
+fn test_duplicate_claim_key_is_rejected() {
+    let config = config_with_claim_mappings(vec![
+        make_claim_mapping("flow.agreementId", "same"),
+        make_claim_mapping("flow.datasetId", "same"),
+    ]);
+    let errors = validation_messages(&config);
+    assert!(
+        errors.iter().any(|e| e.contains("duplicate claim key 'same'")),
+        "expected a duplicate-key error, got {errors:?}"
+    );
+}
+
+#[test]
+fn test_claim_mapping_errors_accumulate_rather_than_short_circuiting() {
+    let config = config_with_claim_mappings(vec![
+        make_claim_mapping("flow.", "broken"),
+        make_claim_mapping("'x'", "sub"),
+        make_claim_mapping("", ""),
+    ]);
+    let errors = validation_messages(&config);
+    assert!(errors.len() >= 4, "every problem should be reported, got {errors:?}");
+    assert!(errors.iter().any(|e| e.contains("invalid expression")));
+    assert!(errors.iter().any(|e| e.contains("reserved JWT claim")));
+    assert!(errors.iter().any(|e| e.contains("to cannot be empty")));
+    assert!(errors.iter().any(|e| e.contains("from cannot be empty")));
+}
+
+#[test]
+fn test_endpoint_mapping_claim_mappings_are_validated() {
+    let mut config = create_valid_config();
+    let mut mapping = make_mapping("app", "app1", "https://s3.example.com/climate");
+    mapping.claim_mappings = vec![make_claim_mapping("flow.", "broken")];
+    config.transfer_types = vec![
+        TransferType::builder()
+            .transfer_type("s3-pull".to_string())
+            .endpoint_type("AmazonS3".to_string())
+            .token_source(TokenSource::Provider)
+            .endpoint_mappings(vec![mapping])
+            .build(),
+    ];
+
+    let errors = validation_messages(&config);
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.contains("endpoint_mappings[0].claim_mappings[0]") && e.contains("invalid expression")),
+        "expected the error to point at the endpoint mapping's claim mapping, got {errors:?}"
+    );
+}
+
+// ============================================================================
+// Claim Mappings serde
+// ============================================================================
+
+#[test]
+fn test_transfer_type_serializes_claim_mappings_camel_case() {
+    let tt = TransferType::builder()
+        .transfer_type("HttpData-PULL".to_string())
+        .endpoint_type("HTTP".to_string())
+        .endpoint("https://data.example.com".to_string())
+        .token_source(TokenSource::Provider)
+        .claim_mappings(vec![make_claim_mapping("flow.datasetId", "assetId")])
+        .build();
+
+    let v = serde_json::to_value(&tt).unwrap();
+    assert_eq!(v["claimMappings"][0]["from"], "flow.datasetId");
+    assert_eq!(v["claimMappings"][0]["to"], "assetId");
+    assert_eq!(v["claimMappings"][0]["optional"], false);
+    assert!(v.get("claim_mappings").is_none());
+}
+
+#[test]
+fn test_endpoint_mapping_serializes_claim_mappings_camel_case() {
+    let mut mapping = make_mapping("app", "app1", "https://s3.example.com/climate");
+    mapping.claim_mappings = vec![make_claim_mapping("'us-east-1'", "zone")];
+
+    let v = serde_json::to_value(&mapping).unwrap();
+    // The three pre-existing fields are single words, so camelCase leaves them unchanged.
+    assert_eq!(v["key"], "app");
+    assert_eq!(v["value"], "app1");
+    assert_eq!(v["endpoint"], "https://s3.example.com/climate");
+    assert_eq!(v["claimMappings"][0]["to"], "zone");
+    assert!(v.get("claim_mappings").is_none());
+}
+
+#[test]
+fn test_transfer_type_without_claim_mappings_deserializes() {
+    // Back-compat guard for rows already stored in the transfer_type_mappings JSONB column,
+    // which predate the claimMappings field.
+    let json = r#"{
+        "transferType": "HttpData-PULL",
+        "endpointType": "HTTP",
+        "endpoint": "https://data.example.com",
+        "tokenSource": "provider",
+        "endpointMappings": [{"key": "app", "value": "app1", "endpoint": "https://a.example.com"}]
+    }"#;
+    let tt: TransferType = serde_json::from_str(json).unwrap();
+    assert!(tt.claim_mappings.is_empty());
+    assert!(tt.endpoint_mappings[0].claim_mappings.is_empty());
+}
+
+#[test]
+fn test_claim_mappings_deserialize_snake_case_from_toml_config() {
+    use config::{Config, File, FileFormat};
+
+    let toml = r#"
+        [[transfer_types]]
+        transfer_type = "HttpData-PULL"
+        endpoint_type = "HTTP"
+        token_source = "provider"
+
+        [[transfer_types.claim_mappings]]
+        from = "flow.metadata.region"
+        to = "region"
+
+        [[transfer_types.endpoint_mappings]]
+        key = "region"
+        value = "eu-west-1"
+        endpoint = "https://eu-west-1.data.example.com"
+
+        [[transfer_types.endpoint_mappings.claim_mappings]]
+        from = "'eu-west-1'"
+        to = "zone"
+        optional = true
+    "#;
+
+    let cfg: SigletConfig = Config::builder()
+        .add_source(File::from_str(toml, FileFormat::Toml))
+        .build()
+        .unwrap()
+        .try_deserialize()
+        .unwrap();
+
+    let tt = &cfg.transfer_types[0];
+    assert_eq!(tt.claim_mappings.len(), 1);
+    assert_eq!(tt.claim_mappings[0].from, "flow.metadata.region");
+    assert_eq!(tt.claim_mappings[0].to, "region");
+    assert!(!tt.claim_mappings[0].optional, "optional defaults to false");
+
+    let endpoint_mappings = &tt.endpoint_mappings[0].claim_mappings;
+    assert_eq!(endpoint_mappings.len(), 1);
+    assert_eq!(endpoint_mappings[0].to, "zone");
+    assert!(endpoint_mappings[0].optional);
+}
+
+#[test]
+fn test_documented_claim_mapping_toml_parses_and_validates() {
+    use config::{Config, File, FileFormat};
+
+    // Mirrors the claim-mapping block in docs/siglet.md's configuration reference. Keeping it
+    // here means a documented example that stops parsing — or stops validating — fails the build.
+    let toml = r#"
+        [vault]
+        url = "https://vault.example.com"
+        token = "test-token"
+
+        [[transfer_types]]
+        transfer_type = "HttpData-PULL"
+        endpoint_type = "HTTP"
+        token_source = "provider"
+
+        [[transfer_types.claim_mappings]]
+        from = "flow.metadata.region"
+        to = "region"
+
+        [[transfer_types.claim_mappings]]
+        from = '"urn:asset:" + flow.datasetId'
+        to = "assetUrn"
+
+        [[transfer_types.claim_mappings]]
+        from = 'flow.claims.vc.filter(c, "MembershipCredential" in c.type)[0].credentialSubject.holderIdentifier'
+        to = "holderIdentifier"
+        optional = true
+
+        [[transfer_types.endpoint_mappings]]
+        key = "region"
+        value = "us-east-1"
+        endpoint = "https://us-east-1.data.example.com"
+
+        [[transfer_types.endpoint_mappings.claim_mappings]]
+        from = '"us-east-1"'
+        to = "region"
+    "#;
+
+    let mut cfg: SigletConfig = Config::builder()
+        .add_source(File::from_str(toml, FileFormat::Toml))
+        .build()
+        .unwrap()
+        .try_deserialize()
+        .unwrap();
+    cfg.signaling_auth = SignalingAuthConfig::Disabled;
+    cfg.management_api_auth = ManagementApiAuthConfig::Disabled;
+
+    let tt = &cfg.transfer_types[0];
+    assert_eq!(tt.claim_mappings.len(), 3);
+    assert_eq!(tt.claim_mappings[1].from, r#""urn:asset:" + flow.datasetId"#);
+    assert!(tt.claim_mappings[2].optional);
+    assert_eq!(tt.endpoint_mappings[0].claim_mappings[0].from, r#""us-east-1""#);
+
+    // Every documented expression must compile.
+    assert!(cfg.validate().is_ok(), "{:?}", validation_messages(&cfg));
 }

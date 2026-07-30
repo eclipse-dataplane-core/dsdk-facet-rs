@@ -90,6 +90,21 @@ When a token is issued for a provider-initiated flow, additional claims are flat
 
 Custom claims **cannot** override reserved claims (`iss`, `sub`, `aud`, `exp`, `iat`, `nbf`, `jti`).
 
+### Mapped Claims
+
+On top of the above, a transfer type may declare **claim mappings** that compute claims from the data flow — see
+[Claim Mapping](#claim-mapping). Claims are assembled in three layers, each able to override the last:
+
+1. `DataFlow.metadata`, copied verbatim
+2. the four flow-level claims in the table above (provider-initiated flows only)
+3. the configured claim mappings
+
+Because mappings are applied last, an operator can deliberately reshape or replace a metadata entry or a built-in
+claim. Reserved claim names remain off limits and are rejected when the configuration is written, not at flow time.
+
+Claim values keep their JSON type end to end: a mapping that yields a list or an object lands in the JWT as a real
+JSON array or object, not as a string.
+
 ### Example Decoded Payload
 
 ```json
@@ -103,9 +118,12 @@ Custom claims **cannot** override reserved claims (`iss`, `sub`, `aud`, `exp`, `
   "agreementId": "contract-abc-123",
   "participantId": "participant-uuid",
   "counterPartyId": "did:web:consumer.example.com",
-  "datasetId": "dataset-xyz"
+  "datasetId": "dataset-xyz",
+  "holderIdentifier": "BPNL0001"
 }
 ```
+
+(`holderIdentifier` here is a mapped claim, extracted from a verifiable credential on the flow.)
 
 The token is signed and the `kid` header identifies the Vault key version used, enabling key rotation without
 invalidating in-flight tokens.
@@ -528,10 +546,12 @@ whole map (there is no per-entry patch).
 
 Reads require the `siglet-mgmt-api:read` scope and writes the `siglet-mgmt-api:write` scope; see
 [Management API Authentication](#management-api-authentication). `POST` on an existing participant context returns
-`409 Conflict`; `GET`/`PUT`/`DELETE` on an unknown one return `404 Not Found`.
+`409 Conflict`; `GET`/`PUT`/`DELETE` on an unknown one return `404 Not Found`. `POST` and `PUT` bodies whose
+`claimMappings` are invalid — an unparseable expression, an empty or duplicate `to`, or a reserved claim name — return
+`400 Bad Request` with the offending entries named in the response body.
 
 The JSON payload is camelCase throughout — both the wrapper (`participantContextId`, `mappings`) and each `TransferType`
-value (`transferType`, `endpointType`, `tokenSource`, `endpointMappings`, `txRenewalSupport`). For convenience the
+value (`transferType`, `endpointType`, `tokenSource`, `endpointMappings`, `claimMappings`, `txRenewalSupport`). For convenience the
 snake_case field names used in the config file are also accepted on input (via serde aliases), but responses are always
 serialized in camelCase:
 
@@ -553,14 +573,183 @@ Content-Type: application/json
       "transferType": "HttpData-PUSH",
       "endpointType": "HTTP",
       "tokenSource": "client",
-      "endpoint": "https://data.consumer.example.com/inbox"
+      "endpoint": "https://data.consumer.example.com/inbox",
+      "claimMappings": [
+        { "from": "flow.metadata.region", "to": "region" },
+        { "from": "flow.metadata.tier", "to": "tier", "optional": true }
+      ]
     }
   }
 }
 ```
 
 Each entry accepts the same fields as a static `[[transfer_types]]` block, including `endpointMappings` for
-metadata-driven endpoint resolution.
+metadata-driven endpoint resolution and `claimMappings` for computed JWT claims.
+
+---
+
+## Claim Mapping
+
+A transfer type can compute JWT claims from the data flow. Each mapping binds the result of an expression to a claim
+key:
+
+| Field      | Description                                                                                      |
+|------------|--------------------------------------------------------------------------------------------------|
+| `from`     | A [CEL](https://github.com/google/cel-spec) expression, evaluated against the `flow` root variable. |
+| `to`       | The JWT claim key to bind the result to. Cannot be a reserved claim.                              |
+| `optional` | When `true`, the mapping is skipped if the expression fails or yields null. Defaults to `false`.   |
+
+Mappings apply after the metadata and built-in claims, so they can override either — see [Mapped Claims](#mapped-claims).
+
+### Where mappings live
+
+Mappings may be declared at the root of a transfer type and on an individual endpoint mapping. Root mappings are the
+base and apply to every flow using the transfer type. When an endpoint mapping matches, its own mappings are layered on
+top and **win on a shared `to` key**; a key it does not mention keeps the root's value. A transfer type with a static
+endpoint (no `endpointMappings`) only ever uses its root mappings.
+
+### Failure handling
+
+A mapping whose expression fails to compile or evaluate **fails the whole flow**, so a typo surfaces immediately rather
+than silently issuing a token with claims missing. Mark a mapping `optional = true` when absence is legitimate — an
+optional credential, say — and it will be skipped instead.
+
+A mapping that evaluates cleanly to `null` is *not* a failure: a required mapping binds JSON `null`, while an optional
+one is skipped.
+
+### The `flow` variable
+
+Expressions see a single root variable, `flow`, whose field names match the camelCase wire form of the signaling model:
+
+| Path                                                     | Type   | Notes                                            |
+|----------------------------------------------------------|--------|--------------------------------------------------|
+| `flow.id`, `flow.profile`                                 | string | Flow ID and transfer type                        |
+| `flow.agreementId`, `flow.datasetId`                      | string |                                                  |
+| `flow.participantId`, `flow.counterPartyId`               | string |                                                  |
+| `flow.participantContextId`, `flow.controlPlaneId`        | string |                                                  |
+| `flow.dataspaceContext`                                   | string |                                                  |
+| `flow.state`                                              | string | `INITIATING`, `STARTED`, … (SCREAMING_SNAKE_CASE) |
+| `flow.kind`                                               | string | `PROVIDER` or `CONSUMER`                          |
+| `flow.suspensionReason`, `flow.terminationReason`         | string \| null | Explicit `null` when unset               |
+| `flow.labels`                                             | list   | Empty list, never null                            |
+| `flow.metadata`, `flow.claims`                            | map    | Always present, possibly empty                    |
+| `flow.dataAddress`                                        | map \| null | Normally `null` during `on_start`/`on_prepare` |
+| `flow.createdAt`, `flow.updatedAt`                        | string | RFC3339; wrap in `timestamp(...)` for arithmetic  |
+
+Two behaviours worth knowing:
+
+- **JSON-encoded strings are unwrapped.** Control planes differ in whether they send structured metadata as real JSON
+  or as a string containing JSON. Values in `flow.metadata` and `flow.claims` that parse as JSON are exposed to
+  expressions as the parsed structure, so one expression works against both. Only the top level is unwrapped.
+  Note this normalization applies to what *expressions* see; metadata copied straight into claims is untouched.
+- **`flow.dataAddress["@type"]`** needs index syntax, since `@type` is not an identifier.
+
+### Cookbook
+
+```python
+# rename or namespace a metadata entry
+flow.metadata.region
+
+# metadata keys that are not identifiers need index syntax
+flow.metadata["https://w3id.org/edc/v0.0.1/ns/region"]
+
+# derive a value
+"urn:asset:" + flow.datasetId
+
+# default when a key may be absent
+has(flow.metadata.tier) ? flow.metadata.tier : "basic"
+
+# has() only accepts field selection; for a namespaced key use membership instead
+"https://w3id.org/edc/v0.0.1/ns/tier" in flow.metadata
+
+# sizes, membership, regex
+size(flow.labels)
+"gold" in flow.labels
+flow.participantId.matches("^did:web:.*")
+```
+
+### Credential helpers
+
+Verifiable credentials are awkward to navigate in raw CEL because the W3C VC data model makes several fields
+**array-or-scalar**: `type` and `@context` may be a string or a list, and `credentialSubject` may be a single object or
+an array of subjects. To hide that, siglet registers a set of credential-aware functions whose names and semantics match
+the [Eclipse EDC `decentralized-claims-cel`
+extension](https://eclipse-edc.github.io/documentation/for-adopters/control-plane/policy-engine/cel/), so expressions are
+portable between the EDC control plane and siglet.
+
+| Function | Target | Returns | Description |
+|---|---|---|---|
+| `withType(t)` | credential list | list | the credentials whose `type` set contains `t` |
+| `hasType(t)` | single credential | bool | whether the credential has type `t` (for use inside `exists(c, c.hasType(...))`) |
+| `hasCredential(t)` | credential list | bool | whether any credential in the list has type `t` |
+| `hasClaim(name)` / `hasClaim(name, value)` | credential list | bool | whether any subject has claim `name` (equal to `value`, when given) |
+| `claim(name)` | credential list | dynamic | the first non-null value of subject claim `name`, else `null`; `name` may be a dotted path (`degree.type`) |
+| `claims(name)` | credential list | list | all non-null values of subject claim `name` across every credential and subject |
+
+They normalize `type` (scalar or list), `@type` (JSON-LD), and `credentialSubject` (object or array) internally, and are
+**lenient**: a target that is not credential-shaped yields an empty list / `null` / `false` rather than an error. Given a
+list of verifiable credentials on the flow — whether sent as real JSON or as a JSON-encoded string, and whether
+`credentialSubject` is an object or an array:
+
+```json
+[ { "type": ["VerifiableCredential", "MembershipCredential"],
+    "credentialSubject": [ { "holderIdentifier": "BPNL0001", "status": "active" } ] },
+  { "type": ["VerifiableCredential", "DismantlerCredential"],
+    "credentialSubject": [ { "allowedBrands": ["BMW", "Audi"] } ] } ]
+```
+
+```python
+# pluck one property out of the matching credential
+flow.claims.vc.withType("MembershipCredential").claim("holderIdentifier")
+# -> "BPNL0001"
+
+# a list of every matching value
+flow.claims.vc.withType("MembershipCredential").claims("holderIdentifier")
+# -> ["BPNL0001"]
+
+# a boolean gate
+flow.claims.vc.hasClaim("status", "active")
+# -> true
+
+# compose with the standard macros for the single-credential form
+flow.claims.vc.exists(c, c.hasType("DismantlerCredential"))
+# -> true
+```
+
+Because the helpers never index by position, they do not hit the empty-filter and array-shape pitfalls described below;
+`claim(...)` simply returns `null` when nothing matches (mark the mapping `optional` if a null claim should be dropped).
+
+#### Without the helpers (equivalent raw CEL)
+
+The same results in plain CEL are more verbose and must account for the array shapes by hand — both `type` and
+`credentialSubject` are arrays, so accessing them requires membership (`in`) and indexing (`[...]`) rather than plain
+field access:
+
+```python
+# equivalent to withType(...).claim(...)
+flow.claims.vc.filter(c, "MembershipCredential" in c.type)[0].credentialSubject[0].holderIdentifier
+# -> "BPNL0001"
+
+# filter and project in one pass; yields a list
+flow.claims.vc.map(c, "MembershipCredential" in c.type, c.credentialSubject[0].holderIdentifier)
+# -> ["BPNL0001"]
+
+# guard so a missing credential does not fail the flow
+flow.claims.vc.exists(c, "DismantlerCredential" in c.type)
+  ? flow.claims.vc.filter(c, "DismantlerCredential" in c.type)[0].credentialSubject[0].allowedBrands
+  : null
+```
+
+Indexing an empty filter result (`[0]` when nothing matched) is an evaluation error, so either guard it with
+`exists(...)`/`size(...)` as above or mark the mapping `optional`.
+
+If evaluation fails with `Unexpected type: got 'string', want 'int|uint'`, a `.field` access landed on an **array**
+instead of an object — CEL reads `someArray.field` as "index the array by the string `field`". Index the element you
+want first (`credentialSubject[0].holderIdentifier`), `map`/`filter` over the array, or use the credential helpers above.
+This is the most common mistake when treating an array-valued `credentialSubject` as if it were a single object.
+
+Available macros are `has`, `all`, `exists`, `exists_one`, `map` (two- and three-argument forms) and `filter`. CEL is
+non-Turing-complete and always terminates, so an expression cannot hang the signaling path.
 
 ---
 
@@ -664,6 +853,39 @@ endpoint = "https://eu-west-1.data.example.com"
 key = "region"
 value = "us-east-1"
 endpoint = "https://us-east-1.data.example.com"
+
+# Claim mappings — compute JWT claims from the flow (see the "Claim Mapping" section).
+# `from` is a CEL expression evaluated against the `flow` root variable; `to` is the claim key.
+# Set `optional = true` to skip a mapping whose expression fails or yields null instead of
+# failing the flow.
+[[transfer_types]]
+transfer_type = "HttpData-PULL"
+endpoint_type = "HTTP"
+token_source = "provider"
+
+# Root-level mappings apply to every flow using this transfer type.
+[[transfer_types.claim_mappings]]
+from = "flow.metadata.region"
+to = "region"
+
+[[transfer_types.claim_mappings]]
+from = '"urn:asset:" + flow.datasetId'
+to = "assetUrn"
+
+[[transfer_types.claim_mappings]]
+from = 'flow.claims.vc.withType("MembershipCredential").claim("holderIdentifier")'
+to = "holderIdentifier"
+optional = true
+
+[[transfer_types.endpoint_mappings]]
+key = "region"
+value = "us-east-1"
+endpoint = "https://us-east-1.data.example.com"
+
+# Mappings on a matched endpoint are layered over the root ones and win on a shared `to`.
+[[transfer_types.endpoint_mappings.claim_mappings]]
+from = '"us-east-1"'
+to = "region"
 ```
 
 ### Environment Variable Overrides

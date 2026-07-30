@@ -50,6 +50,9 @@ multibase = "0.9"
 bs58 = "0.5"
 sha2 = "0.10"
 hmac = "0.12"
+# `json` is not a default feature but is required for `cel::Value::json()`, which converts
+# evaluation results back into `serde_json::Value` for the JWT claim map.
+cel = { version = "0.14.1", features = ["json"] }
 
 
 [workspace.lints.clippy]

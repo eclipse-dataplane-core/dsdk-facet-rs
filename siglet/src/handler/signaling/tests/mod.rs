@@ -11,9 +11,10 @@
 //
 
 use super::SigletDataFlowHandler;
-use crate::config::{TokenSource, TransferType};
+use crate::config::{ClaimMapping, EndpointMapping, TokenSource, TransferType};
 use crate::transfer_type::{MemoryTransferTypeMappingStore, TransferTypeMapping, TransferTypeMappingRepository};
 use dataplane_sdk::core::db::memory::MemoryTransaction;
+use dataplane_sdk::core::error::HandlerResult;
 use dataplane_sdk::core::handler::DataFlowHandler;
 use dataplane_sdk::core::model::data_address::EndpointProperty;
 use dataplane_sdk::core::model::data_flow::{DataFlow, DataFlowType};
@@ -718,6 +719,353 @@ async fn test_on_terminate_propagates_other_errors() {
     let result = handler.on_terminate(&mut tx, &flow).await;
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("Failed to revoke token"));
+}
+
+// ---------------------------------------------------------------------------
+// Ordering contract: endpoint resolution must only happen when a token is generated
+// ---------------------------------------------------------------------------
+
+/// A transfer type whose endpoint mappings can never match `create_test_flow` (which has no
+/// metadata at all).
+fn transfer_type_with_unmatchable_endpoint_mappings(transfer_type: &str, token_source: TokenSource) -> TransferType {
+    TransferType::builder()
+        .transfer_type(transfer_type.to_string())
+        .endpoint_type("HTTP".to_string())
+        .token_source(token_source)
+        .endpoint_mappings(vec![
+            EndpointMapping::builder()
+                .key("app".to_string())
+                .value("never-matches".to_string())
+                .endpoint("https://unreachable.example.com".to_string())
+                .build(),
+        ])
+        .build()
+}
+
+#[tokio::test]
+async fn test_on_prepare_with_non_matching_endpoint_mapping_does_not_error() {
+    use dataplane_sdk::core::db::memory::MemoryContext;
+    use dataplane_sdk::core::db::tx::TransactionalContext;
+
+    // The transfer type's token source is Provider, so `on_prepare` (which requires Client) must
+    // short-circuit before endpoint resolution. A non-matching endpoint mapping must NOT surface
+    // as an error on a flow this data plane is not the token source for.
+    let mappings = static_map(vec![transfer_type_with_unmatchable_endpoint_mappings(
+        "http-pull",
+        TokenSource::Provider,
+    )]);
+
+    let handler = Handler::builder()
+        .token_store(Arc::new(MemoryTokenStore::new()))
+        .token_manager(Arc::new(MockTokenManager))
+        .dataplane_id("dataplane-1")
+        .transfer_type_mappings(mappings)
+        .build();
+
+    let flow = create_test_flow("flow-1", "participant-1", "http-pull");
+    let context = MemoryContext;
+    let mut tx = context.begin().await.unwrap();
+
+    let result = handler.on_prepare(&mut tx, &flow).await;
+    assert!(
+        result.is_ok(),
+        "a non-matching endpoint mapping must not fail a flow whose token source does not match: {:?}",
+        result.err()
+    );
+    assert!(
+        result.unwrap().data_address.is_none(),
+        "no token is generated, so no data address should be returned"
+    );
+}
+
+#[tokio::test]
+async fn test_endpoint_resolution_failure_does_not_mint_token() {
+    use dataplane_sdk::core::db::memory::MemoryContext;
+    use dataplane_sdk::core::db::tx::TransactionalContext;
+
+    // Endpoint resolution runs before token generation, so a flow that cannot resolve an endpoint
+    // must fail without leaving an orphaned token behind.
+    let mappings = static_map(vec![transfer_type_with_unmatchable_endpoint_mappings(
+        "http-pull",
+        TokenSource::Provider,
+    )]);
+
+    let token_manager = Arc::new(CountingTokenManager::default());
+    let handler = Handler::builder()
+        .token_store(Arc::new(MemoryTokenStore::new()))
+        .token_manager(token_manager.clone())
+        .dataplane_id("dataplane-1")
+        .transfer_type_mappings(mappings)
+        .build();
+
+    let flow = create_test_flow("flow-1", "participant-1", "http-pull");
+    let context = MemoryContext;
+    let mut tx = context.begin().await.unwrap();
+
+    let result = handler.on_start(&mut tx, &flow).await;
+    assert!(result.is_err(), "unresolvable endpoint should fail the flow");
+    assert_eq!(
+        token_manager.generate_calls(),
+        0,
+        "no token should be minted when the endpoint cannot be resolved"
+    );
+}
+
+/// A `TokenManager` that records the claims it was asked to sign.
+#[derive(Default)]
+struct CountingTokenManager {
+    generate_calls: std::sync::atomic::AtomicUsize,
+    last_claims: std::sync::Mutex<Option<HashMap<String, Value>>>,
+}
+
+impl CountingTokenManager {
+    fn generate_calls(&self) -> usize {
+        self.generate_calls.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    fn last_claims(&self) -> HashMap<String, Value> {
+        self.last_claims
+            .lock()
+            .expect("claims mutex poisoned")
+            .clone()
+            .expect("generate_pair was never called")
+    }
+}
+
+#[async_trait::async_trait]
+impl TokenManager for CountingTokenManager {
+    async fn generate_pair(
+        &self,
+        _participant_context: &ParticipantContext,
+        _subject: &str,
+        claims: HashMap<String, Value>,
+        _flow_id: String,
+    ) -> Result<RenewableTokenPair, TokenError> {
+        self.generate_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        *self.last_claims.lock().expect("claims mutex poisoned") = Some(claims);
+        Ok(RenewableTokenPair::builder()
+            .token("mock_token".to_string())
+            .refresh_token("mock_refresh_token".to_string())
+            .expires_at(chrono::Utc::now() + chrono::Duration::hours(1))
+            .refresh_endpoint("https://mock.endpoint/refresh".to_string())
+            .build())
+    }
+
+    async fn renew(&self, _bound_token: &str, _refresh_token: &str) -> Result<RenewableTokenPair, TokenError> {
+        unimplemented!()
+    }
+
+    async fn revoke_token(&self, _participant_context: &ParticipantContext, _flow_id: &str) -> Result<(), TokenError> {
+        Ok(())
+    }
+
+    async fn validate_token(
+        &self,
+        _audience: &str,
+        _token: &str,
+    ) -> Result<dsdk_facet_core::jwt::TokenClaims, TokenError> {
+        unimplemented!()
+    }
+
+    async fn jwk_set(&self) -> Result<JwkSet, TokenError> {
+        unimplemented!()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Claim mapping
+// ---------------------------------------------------------------------------
+
+fn claim_mapping(from: &str, to: &str) -> ClaimMapping {
+    ClaimMapping::builder().from(from).to(to).build()
+}
+
+fn optional_claim_mapping(from: &str, to: &str) -> ClaimMapping {
+    ClaimMapping::builder().from(from).to(to).optional(true).build()
+}
+
+/// Runs `on_start` against a handler configured with `transfer_type` and returns the claims the
+/// token manager was asked to sign.
+async fn claims_for(transfer_type: TransferType, flow: &DataFlow) -> HandlerResult<HashMap<String, Value>> {
+    use dataplane_sdk::core::db::memory::MemoryContext;
+    use dataplane_sdk::core::db::tx::TransactionalContext;
+
+    let token_manager = Arc::new(CountingTokenManager::default());
+    let handler = Handler::builder()
+        .token_store(Arc::new(MemoryTokenStore::new()))
+        .token_manager(token_manager.clone())
+        .dataplane_id("dataplane-1")
+        .transfer_type_mappings(static_map(vec![transfer_type]))
+        .build();
+
+    let context = MemoryContext;
+    let mut tx = context.begin().await.unwrap();
+    handler.on_start(&mut tx, flow).await?;
+
+    Ok(token_manager.last_claims())
+}
+
+/// A transfer type with a static endpoint and the given root claim mappings.
+fn transfer_type_with_claim_mappings(claim_mappings: Vec<ClaimMapping>) -> TransferType {
+    TransferType::builder()
+        .transfer_type("http-pull".to_string())
+        .endpoint_type("HTTP".to_string())
+        .endpoint("https://pull.example.com".to_string())
+        .token_source(TokenSource::Provider)
+        .claim_mappings(claim_mappings)
+        .build()
+}
+
+#[tokio::test]
+async fn test_root_claim_mappings_are_applied() {
+    let transfer_type = transfer_type_with_claim_mappings(vec![
+        claim_mapping("flow.participantContextId", "context"),
+        claim_mapping("'urn:asset:' + flow.datasetId", "assetUrn"),
+    ]);
+
+    let claims = claims_for(transfer_type, &create_test_flow("flow-1", "participant-1", "http-pull"))
+        .await
+        .unwrap();
+
+    assert_eq!(claims.get("context"), Some(&Value::String("context-1".to_string())));
+    assert_eq!(
+        claims.get("assetUrn"),
+        Some(&Value::String("urn:asset:dataset-1".to_string()))
+    );
+}
+
+#[tokio::test]
+async fn test_endpoint_claim_mappings_override_root() {
+    let endpoint_mapping = EndpointMapping::builder()
+        .key("app".to_string())
+        .value("app2".to_string())
+        .endpoint("https://app2.example.com".to_string())
+        .claim_mappings(vec![claim_mapping("'us-east-1'", "zone")])
+        .build();
+
+    let transfer_type = TransferType::builder()
+        .transfer_type("http-pull".to_string())
+        .endpoint_type("HTTP".to_string())
+        .token_source(TokenSource::Provider)
+        .claim_mappings(vec![
+            claim_mapping("flow.profile", "profile"),
+            claim_mapping("'eu'", "zone"),
+        ])
+        .endpoint_mappings(vec![endpoint_mapping])
+        .build();
+
+    let mut flow = create_test_flow("flow-1", "participant-1", "http-pull");
+    flow.metadata
+        .insert("app".to_string(), Value::String("app2".to_string()));
+
+    let claims = claims_for(transfer_type, &flow).await.unwrap();
+
+    // The root mapping still applies...
+    assert_eq!(claims.get("profile"), Some(&Value::String("http-pull".to_string())));
+    // ...and the endpoint mapping wins on the shared key.
+    assert_eq!(claims.get("zone"), Some(&Value::String("us-east-1".to_string())));
+}
+
+#[tokio::test]
+async fn test_mapped_claim_overrides_metadata_claim() {
+    let transfer_type = transfer_type_with_claim_mappings(vec![claim_mapping("'mapped'", "shared")]);
+
+    let mut flow = create_test_flow("flow-1", "participant-1", "http-pull");
+    flow.metadata
+        .insert("shared".to_string(), Value::String("from-metadata".to_string()));
+
+    let claims = claims_for(transfer_type, &flow).await.unwrap();
+    assert_eq!(claims.get("shared"), Some(&Value::String("mapped".to_string())));
+}
+
+#[tokio::test]
+async fn test_mapped_claim_overrides_builtin_claim() {
+    // Mappings are applied last, so an operator can deliberately reshape a built-in claim.
+    let transfer_type =
+        transfer_type_with_claim_mappings(vec![claim_mapping("'urn:uuid:' + flow.agreementId", "agreementId")]);
+
+    let claims = claims_for(transfer_type, &create_test_flow("flow-1", "participant-1", "http-pull"))
+        .await
+        .unwrap();
+
+    assert_eq!(
+        claims.get("agreementId"),
+        Some(&Value::String("urn:uuid:agreement-1".to_string()))
+    );
+}
+
+#[tokio::test]
+async fn test_mapped_claims_preserve_json_types() {
+    let transfer_type = transfer_type_with_claim_mappings(vec![
+        claim_mapping("[1, 2]", "list"),
+        claim_mapping("size(flow.labels) == 0", "noLabels"),
+    ]);
+
+    let claims = claims_for(transfer_type, &create_test_flow("flow-1", "participant-1", "http-pull"))
+        .await
+        .unwrap();
+
+    assert_eq!(claims.get("list"), Some(&serde_json::json!([1, 2])));
+    assert_eq!(claims.get("noLabels"), Some(&Value::Bool(true)));
+}
+
+#[tokio::test]
+async fn test_required_claim_mapping_failure_fails_the_flow() {
+    let transfer_type = transfer_type_with_claim_mappings(vec![claim_mapping("flow.metadata.absent", "missing")]);
+
+    let result = claims_for(transfer_type, &create_test_flow("flow-1", "participant-1", "http-pull")).await;
+
+    let error = result
+        .expect_err("a failing required mapping must fail the flow")
+        .to_string();
+    assert!(error.contains("flow-1"), "error should name the flow: {error}");
+    assert!(error.contains("missing"), "error should name the claim: {error}");
+}
+
+#[tokio::test]
+async fn test_optional_claim_mapping_failure_is_skipped() {
+    let transfer_type = transfer_type_with_claim_mappings(vec![
+        optional_claim_mapping("flow.metadata.absent", "missing"),
+        claim_mapping("flow.datasetId", "kept"),
+    ]);
+
+    let claims = claims_for(transfer_type, &create_test_flow("flow-1", "participant-1", "http-pull"))
+        .await
+        .unwrap();
+
+    assert!(!claims.contains_key("missing"));
+    assert_eq!(claims.get("kept"), Some(&Value::String("dataset-1".to_string())));
+}
+
+#[tokio::test]
+async fn test_no_claim_mappings_leaves_claims_unchanged() {
+    // Regression guard: a transfer type with endpoint mappings but no claim mappings must produce
+    // exactly the claims it did before claim mapping existed.
+    let endpoint_mapping = EndpointMapping::builder()
+        .key("app".to_string())
+        .value("app1".to_string())
+        .endpoint("https://app1.example.com".to_string())
+        .build();
+
+    let transfer_type = TransferType::builder()
+        .transfer_type("http-pull".to_string())
+        .endpoint_type("HTTP".to_string())
+        .token_source(TokenSource::Provider)
+        .endpoint_mappings(vec![endpoint_mapping])
+        .build();
+
+    let mut flow = create_test_flow("flow-1", "participant-1", "http-pull");
+    flow.metadata
+        .insert("app".to_string(), Value::String("app1".to_string()));
+
+    let claims = claims_for(transfer_type, &flow).await.unwrap();
+
+    let mut keys: Vec<&String> = claims.keys().collect();
+    keys.sort();
+    assert_eq!(
+        keys,
+        vec!["agreementId", "app", "counterPartyId", "datasetId", "participantId"]
+    );
 }
 
 /// Mock TokenManager for testing
