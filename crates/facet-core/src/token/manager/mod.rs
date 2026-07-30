@@ -27,6 +27,7 @@ use crate::util::clock::{Clock, default_clock};
 use async_trait::async_trait;
 use bon::Builder;
 use chrono::{DateTime, Utc};
+use hmac::KeyInit;
 use hmac::{Hmac, Mac};
 use jwt::JwtGenerator;
 use rand::Rng;
