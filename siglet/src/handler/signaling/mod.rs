@@ -10,7 +10,8 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 #![allow(clippy::unwrap_used)]
-use crate::config::{TokenSource, TransferType};
+use crate::claim_mapper::{CelClaimMapper, ClaimMapper, merge_claim_mappings, unwrap_json_value};
+use crate::config::{EndpointMapping, TokenSource, TransferType};
 use crate::transfer_type::{MemoryTransferTypeMappingStore, TransferTypeMappingError, TransferTypeMappingRepository};
 use bon::Builder;
 use chrono::Utc;
@@ -59,35 +60,33 @@ pub struct SigletDataFlowHandler<Tx = MemoryTransaction> {
     transfer_type_repo: Arc<dyn TransferTypeMappingRepository>,
     /// Static, global fallback mappings from configuration (`SigletConfig::transfer_types`).
     transfer_type_mappings: HashMap<String, TransferType>,
+    /// Evaluates the configured claim mappings against the flow. Defaults to the CEL
+    /// implementation, so a handler built without one behaves exactly as before whenever no claim
+    /// mappings are configured.
+    #[builder(default = Arc::new(CelClaimMapper::new()) as Arc<dyn ClaimMapper>)]
+    claim_mapper: Arc<dyn ClaimMapper>,
     #[builder(skip)]
     _phantom: PhantomData<fn() -> Tx>,
 }
 
 impl<Tx> SigletDataFlowHandler<Tx> {
-    /// Converts a serde_json::Value to a String for use in JWT claims.
+    /// Flattens a serde_json::Value into a plain String for endpoint-mapping comparison.
     ///
     /// - Objects and arrays are serialized as JSON
     /// - Primitives (string, number, bool) are serialized in raw format (no JSON encoding)
     /// - Null values are serialized as an empty string
     /// - If a string value is itself a JSON-encoded string, it will be unwrapped
+    ///
+    /// The unwrapping step is shared with the claim-mapper flow projection (see
+    /// [`unwrap_json_value`]) so endpoint matching and claim-mapping expressions agree on what a
+    /// JSON-encoded metadata value means.
     fn value_to_claim_string(v: &Value) -> String {
-        use serde_json::Value;
-
-        match v {
+        match unwrap_json_value(v) {
             Value::Null => String::new(),
             Value::Bool(b) => b.to_string(),
             Value::Number(n) => n.to_string(),
-            Value::String(s) => {
-                // Check if the string is a JSON-encoded value and unwrap it if so
-                if let Ok(parsed) = serde_json::from_str::<Value>(s) {
-                    // If it's a JSON string, recursively process it to unwrap
-                    Self::value_to_claim_string(&parsed)
-                } else {
-                    // Not a JSON value, use as-is
-                    s.clone()
-                }
-            }
-            Value::Array(_) | Value::Object(_) => serde_json::to_string(v).unwrap_or_else(|_| v.to_string()),
+            Value::String(s) => s,
+            other => serde_json::to_string(&other).unwrap_or_else(|_| other.to_string()),
         }
     }
 
@@ -173,14 +172,21 @@ impl<Tx> SigletDataFlowHandler<Tx> {
             .ok_or_else(|| HandlerError::Generic(format!("Unsupported profile: {}", flow.profile).into()))
     }
 
-    /// Resolves the endpoint for the given flow and transfer type configuration.
+    /// Resolves the endpoint for the given flow, returning the endpoint mapping that matched.
     ///
     /// If `endpoint_mappings` are configured, iterates over them and returns the endpoint whose
     /// `key`/`value` pair matches a `flow.metadata` entry. Returns an error if no mapping matches.
-    /// If no mappings are configured falls back to the static `endpoint`.
-    fn resolve_endpoint(transfer_type: &TransferType, flow: &DataFlow) -> HandlerResult<String> {
+    /// If no mappings are configured falls back to the static `endpoint`, and there is no matched
+    /// mapping to return.
+    ///
+    /// The matched mapping is handed back so the caller can layer its claim mappings on top of the
+    /// transfer type's.
+    fn resolve_endpoint<'a>(
+        transfer_type: &'a TransferType,
+        flow: &DataFlow,
+    ) -> HandlerResult<(String, Option<&'a EndpointMapping>)> {
         if transfer_type.endpoint_mappings.is_empty() {
-            return transfer_type.endpoint.clone().ok_or_else(|| {
+            let endpoint = transfer_type.endpoint.clone().ok_or_else(|| {
                 HandlerError::Generic(
                     format!(
                         "No endpoint configured for transfer type '{}'",
@@ -188,7 +194,8 @@ impl<Tx> SigletDataFlowHandler<Tx> {
                     )
                     .into(),
                 )
-            });
+            })?;
+            return Ok((endpoint, None));
         }
 
         transfer_type
@@ -199,7 +206,7 @@ impl<Tx> SigletDataFlowHandler<Tx> {
                     .get(&m.key)
                     .is_some_and(|v| Self::value_to_claim_string(v) == m.value)
             })
-            .map(|m| m.endpoint.clone())
+            .map(|m| (m.endpoint.clone(), Some(m)))
             .ok_or_else(|| {
                 HandlerError::Generic(
                     format!(
@@ -211,27 +218,27 @@ impl<Tx> SigletDataFlowHandler<Tx> {
             })
     }
 
-    /// Generates a token pair if the transfer type's token source matches `required_source`.
+    /// Generates a token pair for the flow.
     ///
-    /// Flow-level claims (agreement, participant, dataset, counter-party) are included
-    /// only when `required_source` is `Provider`.
-    async fn generate_token_for_source(
+    /// Callers are responsible for checking that the transfer type's token source matches; see
+    /// `handle_flow`.
+    ///
+    /// Claims are assembled in three layers, each able to override the last:
+    /// 1. `flow.metadata`, copied verbatim — values keep their JSON type
+    /// 2. the flow-level claims (agreement, participant, dataset, counter-party), only when
+    ///    `required_source` is `Provider`
+    /// 3. the configured claim mappings, so an operator can reshape or replace anything above
+    ///
+    /// Claim keys that would collide with a reserved JWT claim are rejected when the configuration
+    /// is written, and `TokenManager::generate_pair` rejects them again as a backstop.
+    async fn generate_token(
         &self,
         participant_context: &ParticipantContext,
         config: &TransferType,
+        endpoint_mapping: Option<&EndpointMapping>,
         flow: &DataFlow,
         required_source: TokenSource,
-    ) -> HandlerResult<Option<RenewableTokenPair>> {
-        if config.token_source != required_source {
-            return Ok(None);
-        }
-
-        // value_to_claim_string flattens each metadata value into a plain string for the JWT claim.
-        // Notable behaviors to be aware of when reading claim output:
-        //   - JSON-encoded strings are unwrapped: `"\"hello\""` → `hello`
-        //   - `null` becomes an empty string `""`
-        //   - objects and arrays are serialized as compact JSON
-        // See value_to_claim_string for the full specification.
+    ) -> HandlerResult<RenewableTokenPair> {
         let mut claims: HashMap<String, Value> = flow.metadata.clone();
 
         if matches!(required_source, TokenSource::Provider) {
@@ -247,13 +254,21 @@ impl<Tx> SigletDataFlowHandler<Tx> {
             claims.insert(CLAIM_DATASET_ID.to_string(), Value::String(flow.dataset_id.clone()));
         }
 
-        let pair = self
-            .token_manager
+        let mappings = merge_claim_mappings(
+            &config.claim_mappings,
+            endpoint_mapping.map(|m| m.claim_mappings.as_slice()),
+        );
+        if !mappings.is_empty() {
+            let mapped = self.claim_mapper.map_claims(&mappings, flow).map_err(|e| {
+                HandlerError::Generic(format!("Failed to map claims for flow '{}': {}", flow.id, e).into())
+            })?;
+            claims.extend(mapped);
+        }
+
+        self.token_manager
             .generate_pair(participant_context, &flow.counter_party_id, claims, flow.id.clone())
             .await
-            .map_err(|e| HandlerError::Generic(format!("Failed to generate token pair: {}", e).into()))?;
-
-        Ok(Some(pair))
+            .map_err(|e| HandlerError::Generic(format!("Failed to generate token pair: {}", e).into()))
     }
 
     async fn cleanup_tokens(&self, flow: &DataFlow, participant_context: &ParticipantContext) -> HandlerResult<()> {
@@ -308,31 +323,43 @@ impl<Tx> SigletDataFlowHandler<Tx> {
         required_source: TokenSource,
         state: DataFlowState,
     ) -> HandlerResult<DataFlowStatusMessage> {
-        let participant_context = Self::build_participant_context(flow);
         let transfer_type = self.get_transfer_type(flow).await?;
 
-        let data_address = if let Some(pair) = self
-            .generate_token_for_source(&participant_context, &transfer_type, flow, required_source)
-            .await?
-        {
-            let endpoint = Self::resolve_endpoint(&transfer_type, flow)?;
-            let properties = if transfer_type.tx_renewal_support {
-                Self::create_tx_renewal_properties(&flow.participant_id, &pair)
-            } else {
-                Self::create_auth_properties(&pair)
-            };
-            Some(
-                DataAddress::builder()
-                    .endpoint_type(&transfer_type.endpoint_type)
-                    .endpoint(endpoint)
-                    .endpoint_properties(properties)
-                    .build(),
+        // When this data plane is not the token source for the transfer type, nothing further
+        // about it is resolved or validated. In particular an endpoint mapping that matches
+        // nothing must not fail a flow we are not issuing a token for.
+        if transfer_type.token_source != required_source {
+            return Ok(self.build_response(&flow.id, state, None));
+        }
+
+        // Resolve the endpoint before minting anything: a token generated first would be orphaned
+        // if endpoint resolution then failed.
+        let (endpoint, endpoint_mapping) = Self::resolve_endpoint(&transfer_type, flow)?;
+
+        let participant_context = Self::build_participant_context(flow);
+        let pair = self
+            .generate_token(
+                &participant_context,
+                &transfer_type,
+                endpoint_mapping,
+                flow,
+                required_source,
             )
+            .await?;
+
+        let properties = if transfer_type.tx_renewal_support {
+            Self::create_tx_renewal_properties(&flow.participant_id, &pair)
         } else {
-            None
+            Self::create_auth_properties(&pair)
         };
 
-        Ok(self.build_response(&flow.id, state, data_address))
+        let data_address = DataAddress::builder()
+            .endpoint_type(&transfer_type.endpoint_type)
+            .endpoint(endpoint)
+            .endpoint_properties(properties)
+            .build();
+
+        Ok(self.build_response(&flow.id, state, Some(data_address)))
     }
 }
 

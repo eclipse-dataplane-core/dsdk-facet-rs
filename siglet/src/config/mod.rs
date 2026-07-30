@@ -11,11 +11,17 @@
 //
 use bon::Builder;
 use config::{Config, Environment, File};
+use dsdk_facet_core::token::manager::RESERVED_CLAIMS;
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::HashSet,
     net::{IpAddr, Ipv4Addr},
     path::PathBuf,
 };
+
+/// Re-exported so call sites already importing from `config` keep working; the type itself lives
+/// with the mapper that consumes it.
+pub use crate::claim_mapper::ClaimMapping;
 
 #[cfg(test)]
 mod tests;
@@ -251,15 +257,31 @@ pub struct TransferType {
     #[serde(alias = "tx_renewal_support")]
     #[builder(default)]
     pub tx_renewal_support: bool,
+    /// Claim mappings applied to every flow using this transfer type.
+    ///
+    /// When an [`EndpointMapping`] matches, its own `claim_mappings` are layered on top of these
+    /// and win on a shared `to` key.
+    #[serde(default)]
+    #[builder(default)]
+    #[serde(alias = "claim_mappings")]
+    pub claim_mappings: Vec<ClaimMapping>,
 }
 
 #[derive(Builder, Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
 pub struct EndpointMapping {
     /// A key in `DataFlow.metadata` to match on.
     pub key: String,
     /// The expected string value of the metadata entry identified by `key`.
     pub value: String,
     pub endpoint: String,
+    /// Claim mappings applied only when this endpoint mapping matches the flow.
+    ///
+    /// Layered on top of the transfer type's root `claim_mappings`; ties on `to` are won here.
+    #[serde(default)]
+    #[builder(default)]
+    #[serde(alias = "claim_mappings")]
+    pub claim_mappings: Vec<ClaimMapping>,
 }
 
 /// Vault authentication configuration.
@@ -535,6 +557,12 @@ impl SigletConfig {
                 errors.push(format!("transfer_types[{}]: endpoint_type cannot be empty", idx));
             }
 
+            validate_claim_mappings(
+                &tt.claim_mappings,
+                &format!("transfer_types[{}].claim_mappings", idx),
+                &mut errors,
+            );
+
             if tt.endpoint_mappings.is_empty() {
                 // No mappings: static endpoint is required
                 match &tt.endpoint {
@@ -568,6 +596,11 @@ impl SigletConfig {
                             idx, midx
                         ));
                     }
+                    validate_claim_mappings(
+                        &mapping.claim_mappings,
+                        &format!("transfer_types[{}].endpoint_mappings[{}].claim_mappings", idx, midx),
+                        &mut errors,
+                    );
                 }
             }
         }
@@ -664,6 +697,37 @@ impl SigletConfig {
             Ok(())
         } else {
             Err(ValidationError::Multiple(errors))
+        }
+    }
+}
+
+/// Validates a list of claim mappings, appending one message per problem to `errors`.
+///
+/// `path` is the dotted location of the list in the surrounding document, so messages point at the
+/// offending entry. Shared with the management API so a mapping written at runtime is held to the
+/// same rules as one loaded from the configuration file.
+///
+/// Expression syntax is checked with the same compiler used at flow time, so a configuration that
+/// validates cannot then fail to compile when a flow arrives.
+pub(crate) fn validate_claim_mappings(mappings: &[ClaimMapping], path: &str, errors: &mut Vec<String>) {
+    let mut seen: HashSet<&str> = HashSet::new();
+
+    for (idx, mapping) in mappings.iter().enumerate() {
+        if mapping.to.trim().is_empty() {
+            errors.push(format!("{}[{}]: to cannot be empty", path, idx));
+        } else if RESERVED_CLAIMS.contains(&mapping.to.as_str()) {
+            errors.push(format!(
+                "{}[{}]: to cannot be a reserved JWT claim: '{}'",
+                path, idx, mapping.to
+            ));
+        } else if !seen.insert(mapping.to.as_str()) {
+            errors.push(format!("{}[{}]: duplicate claim key '{}'", path, idx, mapping.to));
+        }
+
+        if mapping.from.trim().is_empty() {
+            errors.push(format!("{}[{}]: from cannot be empty", path, idx));
+        } else if let Err(e) = crate::claim_mapper::validate_expression(&mapping.from) {
+            errors.push(format!("{}[{}]: {}", path, idx, e));
         }
     }
 }

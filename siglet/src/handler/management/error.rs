@@ -22,6 +22,10 @@ pub enum ManagementApiError {
     Mapping(#[from] SigningKeyMappingError),
     #[error(transparent)]
     TransferType(#[from] TransferTypeMappingError),
+    /// The submitted payload is well-formed JSON but semantically invalid — an unparseable claim
+    /// expression, say. Carries one message per problem, matching config validation.
+    #[error("invalid request: {}", .0.join("; "))]
+    Validation(Vec<String>),
 }
 
 impl IntoResponse for ManagementApiError {
@@ -47,6 +51,7 @@ impl IntoResponse for ManagementApiError {
                 tracing::error!("Unexpected error: {}", e);
                 (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
             }
+            ManagementApiError::Validation(ref errors) => (StatusCode::BAD_REQUEST, errors.join("; ")),
         };
 
         let body = Json(json!({ "error": error_message }));

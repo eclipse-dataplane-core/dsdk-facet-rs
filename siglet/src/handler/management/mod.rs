@@ -35,7 +35,7 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::config::TransferType;
+use crate::config::{TransferType, validate_claim_mappings};
 use crate::server::auth::AuthLayer;
 use crate::transfer_type::{TransferTypeMapping, TransferTypeMappingRepository};
 use error::ManagementApiError;
@@ -141,10 +141,41 @@ async fn get_transfer_type_mapping(
     Ok(Json(transfer_type_repo.find(&id).await?))
 }
 
+/// Validates the claim mappings of every transfer type in a submitted map.
+///
+/// Mappings written here never pass through `SigletConfig::validate`, so without this a bad
+/// expression would be accepted and then fail every flow for the participant context. Reuses the
+/// configuration validator so both entry points enforce identical rules.
+fn validate_transfer_types(mappings: &HashMap<String, TransferType>) -> Result<(), ManagementApiError> {
+    let mut errors = Vec::new();
+
+    for (key, transfer_type) in mappings {
+        validate_claim_mappings(
+            &transfer_type.claim_mappings,
+            &format!("mappings.{}.claimMappings", key),
+            &mut errors,
+        );
+        for (idx, endpoint_mapping) in transfer_type.endpoint_mappings.iter().enumerate() {
+            validate_claim_mappings(
+                &endpoint_mapping.claim_mappings,
+                &format!("mappings.{}.endpointMappings[{}].claimMappings", key, idx),
+                &mut errors,
+            );
+        }
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(ManagementApiError::Validation(errors))
+    }
+}
+
 async fn create_transfer_type_mapping(
     State(ManagementApiHandler { transfer_type_repo, .. }): State<ManagementApiHandler>,
     Json(mapping): Json<TransferTypeMapping>,
 ) -> Result<StatusCode, ManagementApiError> {
+    validate_transfer_types(&mapping.mappings)?;
     transfer_type_repo.create(mapping).await?;
     Ok(StatusCode::CREATED)
 }
@@ -155,6 +186,7 @@ async fn update_transfer_type_mapping(
     Path(id): Path<String>,
     Json(mappings): Json<HashMap<String, TransferType>>,
 ) -> Result<StatusCode, ManagementApiError> {
+    validate_transfer_types(&mappings)?;
     transfer_type_repo
         .update(
             TransferTypeMapping::builder()

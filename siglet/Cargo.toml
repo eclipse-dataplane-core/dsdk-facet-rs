@@ -16,9 +16,9 @@ dsdk-facet-postgres = { path = "../crates/facet-postgres", version = "0.1.0" }
 dsdk-facet-hashicorp-vault = { path = "../crates/facet-hashicorp-vault", version = "0.1.0" }
 
 # Eclipse Data Plane SDK
-dataplane-sdk = "0.1.0"
-dataplane-sdk-axum = "0.1.0"
-dataplane-sdk-postgres = "0.1.0"
+dataplane-sdk = "0.1.1"
+dataplane-sdk-axum = "0.1.1"
+dataplane-sdk-postgres = "0.1.1"
 
 # Runtime dependencies
 tokio = { workspace = true }
@@ -31,6 +31,9 @@ serde_json = { workspace = true }
 async-trait = { workspace = true }
 anyhow = "1.0"
 config = "0.15"
+
+# CEL expression engine backing the claim mapper
+cel = { workspace = true }
 
 # HTTP server
 axum = "0.8"

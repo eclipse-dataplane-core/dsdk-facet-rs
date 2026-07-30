@@ -18,7 +18,7 @@
 #![allow(clippy::unwrap_used)]
 
 use dsdk_facet_testcontainers::postgres::setup_postgres_container;
-use siglet::config::{TokenSource, TransferType};
+use siglet::config::{ClaimMapping, EndpointMapping, TokenSource, TransferType};
 use siglet::transfer_type::postgres::PostgresTransferTypeMappingStore;
 use siglet::transfer_type::{TransferTypeMapping, TransferTypeMappingError, TransferTypeMappingRepository};
 use std::collections::HashMap;
@@ -158,4 +158,88 @@ async fn test_delete_nonexistent() {
 
     let result = store.delete("missing").await;
     assert!(matches!(result.unwrap_err(), TransferTypeMappingError::NotFound { .. }));
+}
+
+#[tokio::test]
+async fn test_claim_mappings_round_trip_through_jsonb() {
+    let (pool, _container) = setup_postgres_container().await;
+    let store = PostgresTransferTypeMappingStore::new(pool);
+    store.initialize().await.unwrap();
+
+    let mut tt = transfer_type("http-pull", "https://pull.example.com", TokenSource::Provider);
+    tt.claim_mappings = vec![
+        ClaimMapping::builder().from("flow.datasetId").to("assetId").build(),
+        ClaimMapping::builder()
+            .from("flow.metadata.tier")
+            .to("tier")
+            .optional(true)
+            .build(),
+    ];
+    tt.endpoint_mappings = vec![
+        EndpointMapping::builder()
+            .key("app".to_string())
+            .value("app1".to_string())
+            .endpoint("https://app1.example.com".to_string())
+            .claim_mappings(vec![ClaimMapping::builder().from("'app1'").to("app").build()])
+            .build(),
+    ];
+
+    let mut mappings = HashMap::new();
+    mappings.insert("http-pull".to_string(), tt);
+    store
+        .create(
+            TransferTypeMapping::builder()
+                .participant_context_id("pc-claims")
+                .mappings(mappings)
+                .build(),
+        )
+        .await
+        .unwrap();
+
+    let found = store.find("pc-claims").await.unwrap();
+    let stored = &found.mappings["http-pull"];
+
+    assert_eq!(stored.claim_mappings.len(), 2);
+    assert_eq!(stored.claim_mappings[0].from, "flow.datasetId");
+    assert_eq!(stored.claim_mappings[0].to, "assetId");
+    assert!(!stored.claim_mappings[0].optional);
+    assert!(stored.claim_mappings[1].optional);
+
+    assert_eq!(stored.endpoint_mappings[0].claim_mappings.len(), 1);
+    assert_eq!(stored.endpoint_mappings[0].claim_mappings[0].to, "app");
+}
+
+#[tokio::test]
+async fn test_row_without_claim_mappings_reads_back_as_empty() {
+    // Back-compat guard: rows written before claim mapping existed have no `claimMappings` key in
+    // their JSONB payload and must still deserialize, so no migration is required.
+    let (pool, _container) = setup_postgres_container().await;
+    let store = PostgresTransferTypeMappingStore::new(pool.clone());
+    store.initialize().await.unwrap();
+
+    let legacy = serde_json::json!({
+        "http-pull": {
+            "transferType": "http-pull",
+            "endpointType": "HTTP",
+            "endpoint": "https://pull.example.com",
+            "tokenSource": "provider",
+            "endpointMappings": [{
+                "key": "app",
+                "value": "app1",
+                "endpoint": "https://app1.example.com"
+            }]
+        }
+    });
+
+    sqlx::query("INSERT INTO transfer_type_mappings (participant_context_id, mappings) VALUES ($1, $2)")
+        .bind("pc-legacy")
+        .bind(sqlx::types::Json(&legacy))
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let found = store.find("pc-legacy").await.unwrap();
+    let stored = &found.mappings["http-pull"];
+    assert!(stored.claim_mappings.is_empty());
+    assert!(stored.endpoint_mappings[0].claim_mappings.is_empty());
 }

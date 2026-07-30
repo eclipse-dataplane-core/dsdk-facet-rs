@@ -89,8 +89,11 @@ impl TryFrom<Vec<u8>> for ValidatedServerSecret {
     }
 }
 
-/// Reserved JWT claim names that cannot be overridden by custom claims
-const RESERVED_CLAIMS: &[&str] = &["iss", "sub", "aud", "exp", "iat", "nbf", "jti"];
+/// Reserved JWT claim names that cannot be overridden by custom claims.
+///
+/// Public so that callers building a custom claim set can reject a colliding name up front —
+/// when configuration is written, say — rather than letting `generate_pair` fail at token time.
+pub const RESERVED_CLAIMS: &[&str] = &["iss", "sub", "aud", "exp", "iat", "nbf", "jti"];
 
 /// Type alias for HMAC-SHA256
 type HmacSha256 = Hmac<Sha256>;

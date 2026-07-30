@@ -29,7 +29,7 @@ use dsdk_facet_core::token::client::{MemoryTokenStore, TokenStore};
 use dsdk_facet_core::token::manager::{JwtTokenManager, MemoryRenewableTokenStore, ValidatedServerSecret};
 use dsdk_facet_core::util::clock::{Clock, MockClock};
 use serde_json::Value;
-use siglet::config::{EndpointMapping, TokenSource, TransferType};
+use siglet::config::{ClaimMapping, EndpointMapping, TokenSource, TransferType};
 use siglet::handler::{
     CLAIM_AGREEMENT_ID, CLAIM_COUNTER_PARTY_ID, CLAIM_DATASET_ID, CLAIM_PARTICIPANT_ID, SigletDataFlowHandler,
 };
@@ -795,4 +795,257 @@ fn s3_pull_mappings_with_endpoints() -> HashMap<String, TransferType> {
             .build(),
     );
     mappings
+}
+
+// ===========================================================================
+// Claim Mapping Tests
+// ===========================================================================
+
+fn claim_mapping(from: &str, to: &str) -> ClaimMapping {
+    ClaimMapping::builder().from(from).to(to).build()
+}
+
+/// Builds `http-pull` mappings carrying the given root claim mappings.
+fn http_pull_mappings_with_claims(claim_mappings: Vec<ClaimMapping>) -> HashMap<String, TransferType> {
+    let mut mappings = HashMap::new();
+    mappings.insert(
+        "http-pull".to_string(),
+        TransferType::builder()
+            .transfer_type("http-pull".to_string())
+            .endpoint_type("HTTP".to_string())
+            .endpoint("https://pull.example.com".to_string())
+            .token_source(TokenSource::Provider)
+            .claim_mappings(claim_mappings)
+            .build(),
+    );
+    mappings
+}
+
+/// Runs `on_start` with the given transfer types and returns the decoded JWT payload.
+async fn start_and_decode(mappings: HashMap<String, TransferType>, flow: &DataFlow) -> Value {
+    let handler = SigletDataFlowHandler::builder()
+        .token_store(Arc::new(MemoryTokenStore::new()))
+        .token_manager(create_jwt_token_manager())
+        .dataplane_id("test-dataplane")
+        .transfer_type_mappings(mappings)
+        .build();
+
+    let context = MemoryContext;
+    let mut tx = context.begin().await.unwrap();
+    let response = handler.on_start(&mut tx, flow).await.expect("on_start should succeed");
+    decode_jwt_payload(&response)
+}
+
+#[tokio::test]
+async fn test_on_start_mapped_claim_in_jwt() {
+    let mappings = http_pull_mappings_with_claims(vec![
+        claim_mapping("flow.participantId", "mappedParticipant"),
+        claim_mapping("'urn:asset:' + flow.datasetId", "assetUrn"),
+    ]);
+    let flow = create_test_flow("flow-1", "participant-1", "http-pull");
+
+    let payload = start_and_decode(mappings, &flow).await;
+
+    assert_eq!(payload["mappedParticipant"], Value::String("participant-1".to_string()));
+    assert_eq!(payload["assetUrn"], Value::String("urn:asset:dataset-1".to_string()));
+    // The pre-existing claims are untouched.
+    assert_eq!(payload[CLAIM_AGREEMENT_ID], Value::String("agreement-1".to_string()));
+    assert_eq!(payload["key1"], Value::String("value1".to_string()));
+}
+
+#[tokio::test]
+async fn test_on_start_mapped_claim_preserves_json_types() {
+    // Claim values are flattened into the JWT payload as real JSON, so a list stays a list rather
+    // than being stringified.
+    let mappings = http_pull_mappings_with_claims(vec![
+        claim_mapping("['a', 'b']", "list"),
+        claim_mapping("{'nested': flow.datasetId}", "object"),
+        claim_mapping("size(flow.labels)", "labelCount"),
+        claim_mapping("flow.suspensionReason == null", "notSuspended"),
+    ]);
+    let flow = create_test_flow("flow-1", "participant-1", "http-pull");
+
+    let payload = start_and_decode(mappings, &flow).await;
+
+    assert!(payload["list"].is_array(), "expected an array, got {}", payload["list"]);
+    assert_eq!(payload["list"], serde_json::json!(["a", "b"]));
+    assert_eq!(payload["object"], serde_json::json!({"nested": "dataset-1"}));
+    assert_eq!(payload["labelCount"], serde_json::json!(0));
+    assert_eq!(payload["notSuspended"], Value::Bool(true));
+}
+
+#[tokio::test]
+async fn test_on_start_mapped_claim_overrides_builtin_claim() {
+    let mappings = http_pull_mappings_with_claims(vec![claim_mapping(
+        "'urn:uuid:' + flow.agreementId",
+        CLAIM_AGREEMENT_ID,
+    )]);
+    let flow = create_test_flow("flow-1", "participant-1", "http-pull");
+
+    let payload = start_and_decode(mappings, &flow).await;
+
+    assert_eq!(
+        payload[CLAIM_AGREEMENT_ID],
+        Value::String("urn:uuid:agreement-1".to_string())
+    );
+}
+
+#[tokio::test]
+async fn test_on_start_endpoint_claim_mapping_overrides_root_in_jwt() {
+    // Root mappings apply to every endpoint; the matched endpoint mapping wins on a shared key.
+    let mut mappings = HashMap::new();
+    mappings.insert(
+        "s3-pull".to_string(),
+        TransferType::builder()
+            .transfer_type("s3-pull".to_string())
+            .endpoint_type("AmazonS3".to_string())
+            .token_source(TokenSource::Provider)
+            .claim_mappings(vec![
+                claim_mapping("flow.profile", "profile"),
+                claim_mapping("'eu-west-1'", "zone"),
+            ])
+            .endpoint_mappings(vec![
+                EndpointMapping::builder()
+                    .key("app".to_string())
+                    .value("app1".to_string())
+                    .endpoint("https://s3.eu-west-1.amazonaws.com/climate-bucket".to_string())
+                    .build(),
+                EndpointMapping::builder()
+                    .key("app".to_string())
+                    .value("app2".to_string())
+                    .endpoint("https://s3.us-east-1.amazonaws.com/finance-bucket".to_string())
+                    .claim_mappings(vec![claim_mapping("'us-east-1'", "zone")])
+                    .build(),
+            ])
+            .build(),
+    );
+
+    let mut flow = create_test_flow("flow-1", "participant-1", "s3-pull");
+    flow.metadata
+        .insert("app".to_string(), Value::String("app2".to_string()));
+
+    let handler = SigletDataFlowHandler::builder()
+        .token_store(Arc::new(MemoryTokenStore::new()))
+        .token_manager(create_jwt_token_manager())
+        .dataplane_id("test-dataplane")
+        .transfer_type_mappings(mappings)
+        .build();
+
+    let context = MemoryContext;
+    let mut tx = context.begin().await.unwrap();
+    let response = handler.on_start(&mut tx, &flow).await.unwrap();
+
+    // The second endpoint mapping matched...
+    assert_eq!(
+        response.data_address.as_ref().unwrap().endpoint,
+        "https://s3.us-east-1.amazonaws.com/finance-bucket"
+    );
+
+    let payload = decode_jwt_payload(&response);
+    // ...so its claim mapping overrode the root one, while the other root mapping survived.
+    assert_eq!(payload["zone"], Value::String("us-east-1".to_string()));
+    assert_eq!(payload["profile"], Value::String("s3-pull".to_string()));
+}
+
+#[tokio::test]
+async fn test_on_start_verifiable_credential_claim_in_jwt() {
+    // The credential list arrives as a JSON-encoded string, as control planes commonly send it.
+    let credentials = r#"[{"type":["VerifiableCredential","MembershipCredential"],
+                           "credentialSubject":{"holderIdentifier":"BPNL0001"}},
+                          {"type":["VerifiableCredential","DismantlerCredential"],
+                           "credentialSubject":{"allowedBrands":["BMW","Audi"]}}]"#;
+
+    let mappings = http_pull_mappings_with_claims(vec![
+        claim_mapping(
+            r#"flow.claims.vc.filter(c, "MembershipCredential" in c.type)[0].credentialSubject.holderIdentifier"#,
+            "holderIdentifier",
+        ),
+        claim_mapping(
+            r#"flow.claims.vc.filter(c, "DismantlerCredential" in c.type).map(c, c.credentialSubject.allowedBrands)[0]"#,
+            "allowedBrands",
+        ),
+    ]);
+
+    let mut flow = create_test_flow("flow-1", "participant-1", "http-pull");
+    flow.claims
+        .insert("vc".to_string(), Value::String(credentials.to_string()));
+
+    let payload = start_and_decode(mappings, &flow).await;
+
+    assert_eq!(payload["holderIdentifier"], Value::String("BPNL0001".to_string()));
+    assert_eq!(payload["allowedBrands"], serde_json::json!(["BMW", "Audi"]));
+}
+
+#[tokio::test]
+async fn test_on_start_credential_helper_functions_in_jwt() {
+    // The array-form `credentialSubject` (a set of subjects) is what makes the naive
+    // `credentialSubject.holderIdentifier` expression fail. The credential helpers normalize it, so
+    // the ergonomic expression works end-to-end and produces a real claim in the signed JWT.
+    let credentials = r#"[{"type":["VerifiableCredential","MembershipCredential"],
+                           "credentialSubject":[{"holderIdentifier":"BPNL0001","status":"active"}]},
+                          {"type":["VerifiableCredential","DismantlerCredential"],
+                           "credentialSubject":[{"allowedBrands":["BMW","Audi"]}]}]"#;
+
+    let mappings = http_pull_mappings_with_claims(vec![
+        claim_mapping(
+            "flow.claims.vc.withType('MembershipCredential').claim('holderIdentifier')",
+            "holderIdentifier",
+        ),
+        claim_mapping(
+            "flow.claims.vc.withType('DismantlerCredential').claim('allowedBrands')",
+            "allowedBrands",
+        ),
+        claim_mapping("flow.claims.vc.hasClaim('status', 'active')", "membershipActive"),
+    ]);
+
+    let mut flow = create_test_flow("flow-1", "participant-1", "http-pull");
+    flow.claims
+        .insert("vc".to_string(), Value::String(credentials.to_string()));
+
+    let payload = start_and_decode(mappings, &flow).await;
+
+    assert_eq!(payload["holderIdentifier"], Value::String("BPNL0001".to_string()));
+    // JSON type is preserved end-to-end through the signed JWT.
+    assert_eq!(payload["allowedBrands"], serde_json::json!(["BMW", "Audi"]));
+    assert_eq!(payload["membershipActive"], Value::Bool(true));
+}
+
+#[tokio::test]
+async fn test_on_start_claim_mapping_error_fails_flow() {
+    let mappings = http_pull_mappings_with_claims(vec![claim_mapping("flow.metadata.absent", "missing")]);
+    let flow = create_test_flow("flow-1", "participant-1", "http-pull");
+
+    let handler = SigletDataFlowHandler::builder()
+        .token_store(Arc::new(MemoryTokenStore::new()))
+        .token_manager(create_jwt_token_manager())
+        .dataplane_id("test-dataplane")
+        .transfer_type_mappings(mappings)
+        .build();
+
+    let context = MemoryContext;
+    let mut tx = context.begin().await.unwrap();
+    let result = handler.on_start(&mut tx, &flow).await;
+
+    let error = result
+        .expect_err("a failing required mapping must fail the flow")
+        .to_string();
+    assert!(error.contains("missing"), "error should name the claim: {error}");
+}
+
+#[tokio::test]
+async fn test_on_start_optional_claim_mapping_is_skipped() {
+    let mappings = http_pull_mappings_with_claims(vec![
+        ClaimMapping::builder()
+            .from("flow.metadata.absent")
+            .to("missing")
+            .optional(true)
+            .build(),
+        claim_mapping("flow.datasetId", "kept"),
+    ]);
+    let flow = create_test_flow("flow-1", "participant-1", "http-pull");
+
+    let payload = start_and_decode(mappings, &flow).await;
+
+    assert!(payload.get("missing").is_none(), "optional failure should be skipped");
+    assert_eq!(payload["kept"], Value::String("dataset-1".to_string()));
 }

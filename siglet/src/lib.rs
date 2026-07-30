@@ -11,6 +11,7 @@
 //
 
 pub mod assembly;
+pub mod claim_mapper;
 pub mod config;
 pub mod error;
 pub mod handler;

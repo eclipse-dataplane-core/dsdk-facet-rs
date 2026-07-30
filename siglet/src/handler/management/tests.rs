@@ -548,3 +548,198 @@ async fn test_transfer_type_delete_then_404() {
         .unwrap();
     assert_eq!(get.status(), StatusCode::NOT_FOUND);
 }
+
+// ---------------------------------------------------------------------------
+// Claim-mapping validation on the write routes
+// ---------------------------------------------------------------------------
+
+/// A transfer-type mapping payload whose `http-pull` entry carries the given claim mappings.
+fn transfer_type_body_with_claim_mappings(claim_mappings: serde_json::Value) -> serde_json::Value {
+    serde_json::json!({
+        "participantContextId": "pc-1",
+        "mappings": {
+            "http-pull": {
+                "transferType": "http-pull",
+                "endpointType": "HTTP",
+                "endpoint": "http://provider:8080/data",
+                "tokenSource": "provider",
+                "claimMappings": claim_mappings
+            }
+        }
+    })
+}
+
+#[tokio::test]
+async fn test_transfer_type_create_accepts_valid_claim_mappings() {
+    let repo = Arc::new(MemoryTransferTypeMappingStore::new());
+    let app = router_with_transfer_type_repo(repo);
+
+    let body = transfer_type_body_with_claim_mappings(serde_json::json!([
+        {"from": "flow.agreementId", "to": "agreement"},
+        {"from": "flow.metadata.tier", "to": "tier", "optional": true}
+    ]));
+
+    let create = app
+        .clone()
+        .oneshot(json_request("POST", "/transfer-type-mappings", body))
+        .await
+        .unwrap();
+    assert_eq!(create.status(), StatusCode::CREATED);
+
+    // The mappings round-trip in camelCase.
+    let get = app
+        .oneshot(
+            Request::builder()
+                .uri("/transfer-type-mappings/pc-1")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let json = body_json(get).await;
+    let mappings = &json["mappings"]["http-pull"]["claimMappings"];
+    assert_eq!(mappings[0]["from"], "flow.agreementId");
+    assert_eq!(mappings[0]["to"], "agreement");
+    assert_eq!(mappings[1]["optional"], true);
+}
+
+#[tokio::test]
+async fn test_transfer_type_create_rejects_invalid_expression() {
+    let repo = Arc::new(MemoryTransferTypeMappingStore::new());
+    let app = router_with_transfer_type_repo(repo);
+
+    let body = transfer_type_body_with_claim_mappings(serde_json::json!([{"from": "flow.", "to": "broken"}]));
+
+    let create = app
+        .oneshot(json_request("POST", "/transfer-type-mappings", body))
+        .await
+        .unwrap();
+    assert_eq!(create.status(), StatusCode::BAD_REQUEST);
+
+    let json = body_json(create).await;
+    let error = json["error"].as_str().unwrap();
+    assert!(
+        error.contains("invalid expression"),
+        "response should explain the failure, got {error}"
+    );
+}
+
+#[tokio::test]
+async fn test_transfer_type_create_rejects_reserved_claim_name() {
+    let repo = Arc::new(MemoryTransferTypeMappingStore::new());
+    let app = router_with_transfer_type_repo(repo);
+
+    let body = transfer_type_body_with_claim_mappings(serde_json::json!([{"from": "'x'", "to": "sub"}]));
+
+    let create = app
+        .oneshot(json_request("POST", "/transfer-type-mappings", body))
+        .await
+        .unwrap();
+    assert_eq!(create.status(), StatusCode::BAD_REQUEST);
+    assert!(
+        body_json(create).await["error"]
+            .as_str()
+            .unwrap()
+            .contains("reserved JWT claim")
+    );
+}
+
+#[tokio::test]
+async fn test_transfer_type_update_rejects_invalid_expression() {
+    let repo = Arc::new(MemoryTransferTypeMappingStore::new());
+    let app = router_with_transfer_type_repo(repo);
+
+    // Seed a valid mapping so the update targets an existing row.
+    let create = app
+        .clone()
+        .oneshot(json_request("POST", "/transfer-type-mappings", transfer_type_body()))
+        .await
+        .unwrap();
+    assert_eq!(create.status(), StatusCode::CREATED);
+
+    let update_body = serde_json::json!({
+        "http-pull": {
+            "transferType": "http-pull",
+            "endpointType": "HTTP",
+            "endpoint": "http://provider:8080/data",
+            "tokenSource": "provider",
+            "claimMappings": [{"from": "flow.", "to": "broken"}]
+        }
+    });
+
+    let update = app
+        .oneshot(json_request("PUT", "/transfer-type-mappings/pc-1", update_body))
+        .await
+        .unwrap();
+    assert_eq!(update.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn test_transfer_type_update_accepts_valid_claim_mappings() {
+    let repo = Arc::new(MemoryTransferTypeMappingStore::new());
+    let app = router_with_transfer_type_repo(repo);
+
+    let create = app
+        .clone()
+        .oneshot(json_request("POST", "/transfer-type-mappings", transfer_type_body()))
+        .await
+        .unwrap();
+    assert_eq!(create.status(), StatusCode::CREATED);
+
+    let update_body = serde_json::json!({
+        "http-pull": {
+            "transferType": "http-pull",
+            "endpointType": "HTTP",
+            "endpointMappings": [{
+                "key": "app",
+                "value": "app1",
+                "endpoint": "http://provider:8080/app1",
+                "claimMappings": [{"from": "'app1'", "to": "app"}]
+            }],
+            "tokenSource": "provider",
+            "claimMappings": [{"from": "flow.datasetId", "to": "assetId"}]
+        }
+    });
+
+    let update = app
+        .oneshot(json_request("PUT", "/transfer-type-mappings/pc-1", update_body))
+        .await
+        .unwrap();
+    assert_eq!(update.status(), StatusCode::NO_CONTENT);
+}
+
+#[tokio::test]
+async fn test_transfer_type_create_rejects_invalid_endpoint_mapping_expression() {
+    let repo = Arc::new(MemoryTransferTypeMappingStore::new());
+    let app = router_with_transfer_type_repo(repo);
+
+    let body = serde_json::json!({
+        "participantContextId": "pc-1",
+        "mappings": {
+            "http-pull": {
+                "transferType": "http-pull",
+                "endpointType": "HTTP",
+                "tokenSource": "provider",
+                "endpointMappings": [{
+                    "key": "app",
+                    "value": "app1",
+                    "endpoint": "http://provider:8080/app1",
+                    "claimMappings": [{"from": "flow.", "to": "broken"}]
+                }]
+            }
+        }
+    });
+
+    let create = app
+        .oneshot(json_request("POST", "/transfer-type-mappings", body))
+        .await
+        .unwrap();
+    assert_eq!(create.status(), StatusCode::BAD_REQUEST);
+    assert!(
+        body_json(create).await["error"]
+            .as_str()
+            .unwrap()
+            .contains("endpointMappings[0].claimMappings[0]"),
+        "the message should point at the offending endpoint mapping"
+    );
+}
