@@ -15,7 +15,7 @@ use bon::Builder;
 use chrono::TimeDelta;
 use dsdk_facet_core::lock::{LockError, LockGuard, LockManager, UnlockOps};
 use dsdk_facet_core::util::clock::{Clock, default_clock};
-use rand::Rng;
+use rand::RngExt;
 use sqlx::PgPool;
 use std::sync::Arc;
 

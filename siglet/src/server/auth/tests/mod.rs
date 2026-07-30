@@ -36,7 +36,7 @@ use jsonwebtoken::{
         PublicKeyUse,
     },
 };
-use rand::RngCore;
+use rand::Rng;
 use serde_json::{Value, json};
 use tower::ServiceExt;
 
@@ -57,7 +57,7 @@ struct TestKey {
 impl TestKey {
     fn new(kid: &str) -> Self {
         let mut seed = [0u8; 32];
-        rand::thread_rng().fill_bytes(&mut seed);
+        rand::rng().fill_bytes(&mut seed);
         let signing_key = SigningKey::from_bytes(&seed);
         let public_key_bytes = signing_key.verifying_key().to_bytes();
         let x_b64 = base64_url(public_key_bytes.as_slice());

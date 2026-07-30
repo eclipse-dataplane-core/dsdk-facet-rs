@@ -40,8 +40,8 @@ use dsdk_facet_hashicorp_vault::{HashicorpVaultClient, HashicorpVaultConfig, Vau
 use dsdk_facet_postgres::lock::PostgresLockManager;
 use dsdk_facet_postgres::renewable_token_store::PostgresRenewableTokenStore;
 use dsdk_facet_postgres::signing_key_mapping::PostgresSigningKeyMappingStore;
-use rand::Rng;
-use rand::thread_rng;
+use rand::RngExt;
+use rand::rng;
 use reqwest::Client;
 use sqlx::PgPool;
 use std::collections::HashMap;
@@ -485,7 +485,7 @@ fn generate_server_secret(cfg: &SigletConfig) -> Result<ValidatedServerSecret, S
     let bytes = cfg.token.server_secret.as_ref().map_or_else(
         || {
             let mut secret = vec![0u8; RANDOM_SECRET_SIZE_BYTES];
-            thread_rng().fill(&mut secret[..]);
+            rng().fill(&mut secret[..]);
             warn!("Generated random secret for token signing - Do not use in production");
             Ok(secret)
         },

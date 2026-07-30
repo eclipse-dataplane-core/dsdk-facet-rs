@@ -21,7 +21,7 @@ use dsdk_facet_core::util::task::TaskHandle;
 use dsdk_facet_core::vault::VaultError;
 use log::error;
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
-use rand::Rng;
+use rand::RngExt;
 use reqwest::Client;
 use serde::Serialize;
 use std::path::PathBuf;

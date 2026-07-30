@@ -29,7 +29,7 @@ use bon::Builder;
 use chrono::{DateTime, Utc};
 use hmac::{Hmac, Mac};
 use jwt::JwtGenerator;
-use rand::RngCore;
+use rand::Rng;
 use serde_json::{Map, Value};
 use sha2::Sha256;
 use uuid::Uuid;

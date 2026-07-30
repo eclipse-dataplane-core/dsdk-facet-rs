@@ -27,7 +27,7 @@ use bon::Builder;
 use ed25519_dalek::SigningKey;
 use jsonwebtoken::{EncodingKey, Header, encode};
 use pkcs8::{EncodePrivateKey, EncodePublicKey, LineEnding};
-use rand::Rng;
+use rand::RngExt;
 use rsa::rand_core::OsRng as RsaOsRng;
 use rsa::{RsaPrivateKey, RsaPublicKey};
 use std::sync::Arc;

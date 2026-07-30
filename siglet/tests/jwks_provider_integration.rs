@@ -19,7 +19,7 @@ use jsonwebtoken::jwk::{
     AlgorithmParameters, CommonParameters, Jwk, JwkSet, KeyAlgorithm, OctetKeyPairParameters, OctetKeyPairType,
     PublicKeyUse,
 };
-use rand::RngCore;
+use rand::Rng;
 use siglet::server::auth::{AuthError, HttpKeyProvider, KeyProvider};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -181,7 +181,7 @@ struct TestKey {
 impl TestKey {
     fn new(kid: &str) -> Self {
         let mut seed = [0u8; 32];
-        rand::thread_rng().fill_bytes(&mut seed);
+        rand::rng().fill_bytes(&mut seed);
         let signing_key = SigningKey::from_bytes(&seed);
         let x_b64 = base64_url(signing_key.verifying_key().to_bytes().as_slice());
 
