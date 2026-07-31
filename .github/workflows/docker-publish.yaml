@@ -2,6 +2,16 @@ name: Build and Publish Docker Siglet Image
 
 on:
   workflow_dispatch:
+  # Reusable entry point: release-siglet.yml calls this with an explicit version so the image
+  # is built+pushed (latest + version tags) BEFORE the tag/GitHub Release are created. In this
+  # mode github.ref is the caller's ref (main), not a tag, so tags come from inputs.version
+  # rather than the ref — see the enable guards in the "Extract metadata" steps.
+  workflow_call:
+    inputs:
+      version:
+        description: "Siglet version to tag the image with, e.g. 0.1.0"
+        required: true
+        type: string
   push:
     branches: [main]
     tags:
@@ -44,15 +54,31 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: "Derive version tags"
+        id: ver
+        if: ${{ inputs.version != '' }}
+        run: |
+          v='${{ inputs.version }}'
+          echo "full=$v" >> "$GITHUB_OUTPUT"
+          echo "mm=${v%.*}" >> "$GITHUB_OUTPUT"
+
       - name: "Extract metadata"
         id: meta
         uses: docker/metadata-action@030e881283bb7a6894de51c315a6bfe6a94e05cf # v6.0.0
         with:
           images: ${{ env.GHCR_IMAGE }}
+          # Two modes, discriminated by whether a version input was supplied (github.event_name
+          # is unreliable here: in a workflow_call it reflects the CALLER's event, not 'workflow_call').
+          #  - push/dispatch (no input): tags come from the git ref — dev on main, version from a siglet-v* tag.
+          #  - workflow_call (version set): github.ref is the caller's (main), so version + latest
+          #    come from inputs.version instead of the ref.
           tags: |
-            type=raw,value=dev,enable={{is_default_branch}}
-            type=match,pattern=siglet-v(\d+\.\d+\.\d+),group=1
-            type=match,pattern=siglet-v(\d+\.\d+),group=1
+            type=raw,value=dev,enable=${{ inputs.version == '' && github.ref == 'refs/heads/main' }}
+            type=match,pattern=siglet-v(\d+\.\d+\.\d+),group=1,enable=${{ inputs.version == '' }}
+            type=match,pattern=siglet-v(\d+\.\d+),group=1,enable=${{ inputs.version == '' }}
+            type=raw,value=${{ steps.ver.outputs.full }},enable=${{ inputs.version != '' }}
+            type=raw,value=${{ steps.ver.outputs.mm }},enable=${{ inputs.version != '' }}
+            type=raw,value=latest,enable=${{ inputs.version != '' }}
 
       - name: "Build and push Docker image"
         id: build
@@ -101,15 +127,31 @@ jobs:
       - name: "Set up Docker Buildx"
         uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
 
+      - name: "Derive version tags"
+        id: ver
+        if: ${{ inputs.version != '' }}
+        run: |
+          v='${{ inputs.version }}'
+          echo "full=$v" >> "$GITHUB_OUTPUT"
+          echo "mm=${v%.*}" >> "$GITHUB_OUTPUT"
+
       - name: "Extract metadata"
         id: meta
         uses: docker/metadata-action@030e881283bb7a6894de51c315a6bfe6a94e05cf # v6.0.0
         with:
           images: ${{ env.GHCR_IMAGE }}
+          # Two modes, discriminated by whether a version input was supplied (github.event_name
+          # is unreliable here: in a workflow_call it reflects the CALLER's event, not 'workflow_call').
+          #  - push/dispatch (no input): tags come from the git ref — dev on main, version from a siglet-v* tag.
+          #  - workflow_call (version set): github.ref is the caller's (main), so version + latest
+          #    come from inputs.version instead of the ref.
           tags: |
-            type=raw,value=dev,enable={{is_default_branch}}
-            type=match,pattern=siglet-v(\d+\.\d+\.\d+),group=1
-            type=match,pattern=siglet-v(\d+\.\d+),group=1
+            type=raw,value=dev,enable=${{ inputs.version == '' && github.ref == 'refs/heads/main' }}
+            type=match,pattern=siglet-v(\d+\.\d+\.\d+),group=1,enable=${{ inputs.version == '' }}
+            type=match,pattern=siglet-v(\d+\.\d+),group=1,enable=${{ inputs.version == '' }}
+            type=raw,value=${{ steps.ver.outputs.full }},enable=${{ inputs.version != '' }}
+            type=raw,value=${{ steps.ver.outputs.mm }},enable=${{ inputs.version != '' }}
+            type=raw,value=latest,enable=${{ inputs.version != '' }}
 
       - name: "Log in to GitHub Container Registry"
         uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0

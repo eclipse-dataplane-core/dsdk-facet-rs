@@ -1,0 +1,112 @@
+name: Release Siglet
+
+# Manual release for the siglet Docker image. siglet is `publish = false`, so release-plz
+# never tags or releases it — this workflow owns its lifecycle.
+#
+# Ordering is deliberate: validate -> test -> build+push the image -> only then create the
+# `siglet-v<version>` tag + GitHub Release. The Release is the human-facing "this version is
+# out" marker, so it must not appear before the image actually exists in GHCR. Because the
+# image build is a reusable-workflow call (`needs: build`), the release step can't run unless
+# the build succeeded — no polling, no draft/un-draft dance.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Siglet version to release, e.g. 0.1.0 (no leading v)"
+        required: true
+        type: string
+
+concurrency:
+  group: release-siglet
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  validate:
+    name: Validate version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+      tag: ${{ steps.check.outputs.tag }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Validate version and build tag
+        id: check
+        run: |
+          version='${{ inputs.version }}'
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::version must be MAJOR.MINOR.PATCH (e.g. 0.1.0), got '$version'"
+            exit 1
+          fi
+          tag="siglet-v${version}"
+          if git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null 2>&1; then
+            echo "::error::tag ${tag} already exists"
+            exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+
+  # Gate: mirrors release-plz.yml so we never release from a red tree.
+  test:
+    name: Check, Lint, and Test
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run clippy
+        run: cargo clippy -- -D warnings
+
+      - name: Run tests
+        run: cargo test --all-features --verbose
+
+  # Build+push the image first (latest + version tags) via the reusable publish workflow.
+  build:
+    name: Build and publish image
+    needs: [validate, test]
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/docker-publish.yaml
+    with:
+      version: ${{ needs.validate.outputs.version }}
+    secrets: inherit
+
+  # Only now that the image exists: create the tag + GitHub Release.
+  release:
+    name: Tag and release siglet
+    needs: [validate, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Create tag and GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ needs.validate.outputs.tag }}" \
+            --target "$GITHUB_SHA" \
+            --title "${{ needs.validate.outputs.tag }}" \
+            --generate-notes
+          {
+            echo "### Released \`${{ needs.validate.outputs.tag }}\` :rocket:"
+            echo ""
+            echo "Image \`latest\` + \`${{ needs.validate.outputs.version }}\` pushed to GHCR before this Release was created."
+          } >> "$GITHUB_STEP_SUMMARY"
