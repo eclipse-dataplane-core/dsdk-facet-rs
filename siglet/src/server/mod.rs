@@ -27,7 +27,7 @@ use tokio_util::sync::CancellationToken;
 use tower_http::trace::TraceLayer;
 use tracing::{error, info, warn};
 
-use crate::config::{ManagementApiAuthConfig, SignalingAuthConfig};
+use crate::config::{ManagementApiAuthConfig, SignalingAuthConfig, TokenApiAuthConfig};
 use crate::error::SigletError;
 use crate::handler::refresh::TokenRefreshHandler;
 use crate::handler::{ManagementApiHandler, TokenApiHandler};
@@ -54,7 +54,7 @@ pub fn build_signaling_auth_layer(cfg: &SignalingAuthConfig, http_client: reqwes
             cache_ttl_seconds,
             audience,
             required_scope,
-        } => AuthLayer::enabled_http(
+        } => AuthLayer::enabled_http_require_token(
             jwks_url,
             Duration::from_secs(*cache_ttl_seconds),
             audience,
@@ -64,33 +64,35 @@ pub fn build_signaling_auth_layer(cfg: &SignalingAuthConfig, http_client: reqwes
     }
 }
 
-/// Scope required on token-management-API JWTs.
-///
-/// The token API reuses the signaling JWKS and audience (see [`build_token_api_auth_layer`])
-/// but requires this scope in place of the signaling one. Kept as a fixed value rather
-/// than a config knob to keep the shared `signaling_auth` block small.
-const TOKEN_API_REQUIRED_SCOPE: &str = "siglet-token-api";
-
-/// Builds the `AuthLayer` for the token-management API from the (shared) signaling auth
+/// Builds the `AuthLayer` for the token-management API from its own `token_api_auth`
 /// configuration.
 ///
-/// Reuses `jwks_url`, `cache_ttl_seconds`, and `audience` from `signaling_auth`, but
-/// requires the `siglet-token-api` scope and authenticates pathless protected routes
-/// (`/tokens/verify`) rather than passing them through. `build_signaling_auth_layer`
-/// already logs the "auth disabled" warning, so the disabled branch here stays quiet.
-pub fn build_token_api_auth_layer(cfg: &SignalingAuthConfig, http_client: reqwest::Client) -> AuthLayer {
+/// Independent of `signaling_auth`: the token API can be pointed at a different JWKS,
+/// audience and scope, or disabled on its own. Uses `enabled_http_require_token` so that
+/// pathless protected routes (`/tokens/verify`) are authenticated rather than passed
+/// through — unlike the signaling API, every protected token-API route requires a valid
+/// token even when there is no participant context to bind `sub` against.
+///
+/// Since the two APIs are disabled independently, the disabled branch logs its own warning.
+pub fn build_token_api_auth_layer(cfg: &TokenApiAuthConfig, http_client: reqwest::Client) -> AuthLayer {
     match cfg {
-        SignalingAuthConfig::Disabled => AuthLayer::Disabled,
-        SignalingAuthConfig::Enabled {
+        TokenApiAuthConfig::Disabled => {
+            warn!(
+                "Token API authentication is DISABLED — \
+                 Do not use in production."
+            );
+            AuthLayer::Disabled
+        }
+        TokenApiAuthConfig::Enabled {
             jwks_url,
             cache_ttl_seconds,
             audience,
-            ..
+            required_scope,
         } => AuthLayer::enabled_http_require_token(
             jwks_url,
             Duration::from_secs(*cache_ttl_seconds),
             audience,
-            TOKEN_API_REQUIRED_SCOPE,
+            required_scope,
             http_client,
         ),
     }

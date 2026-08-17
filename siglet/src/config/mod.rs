@@ -72,6 +72,19 @@ pub const DEFAULT_SIGNALING_SCOPE: &str = "dplane-signaling";
 /// (overridable via `management_api_auth.audience`).
 pub const DEFAULT_MANAGEMENT_AUDIENCE: &str = "siglet";
 
+/// Default expected audience for tokens accepted on the token-management API.
+///
+/// Tokens presented to the token API must carry `aud` equal to this value
+/// (overridable via `token_api_auth.audience`).
+pub const DEFAULT_TOKEN_API_AUDIENCE: &str = "siglet";
+
+/// Default scope required on token-management-API JWTs.
+///
+/// Protected token-API routes require this value as one of the space-delimited entries
+/// in the caller's `scope` claim. Operators can override it via
+/// `token_api_auth.required_scope`.
+pub const DEFAULT_TOKEN_API_SCOPE: &str = "siglet-token-api";
+
 /// Default TCP connect-phase timeout in seconds for the shared HTTP client.
 pub const DEFAULT_HTTP_CONNECT_TIMEOUT_SECS: u64 = 10;
 
@@ -187,6 +200,60 @@ impl Default for ManagementApiAuthConfig {
             jwks_url: String::new(),
             cache_ttl_seconds: DEFAULT_JWKS_CACHE_TTL_SECONDS,
             audience: DEFAULT_MANAGEMENT_AUDIENCE.to_string(),
+        }
+    }
+}
+
+/// Authentication configuration for the token-management API (token retrieval/deletion and
+/// server-side verification).
+///
+/// Separate from [`SignalingAuthConfig`] so the token endpoints can be secured against a
+/// different IdP/audience than the signaling protocol, and enabled or disabled independently
+/// of it. Unlike [`ManagementApiAuthConfig`], the required scope *is* configurable: the token
+/// API binds a single scope rather than one per operation.
+///
+/// TOML example:
+/// ```text
+/// [token_api_auth]
+/// mode = "enabled"
+/// jwks_url = "https://idp.example.com/.well-known/jwks.json"
+/// audience = "siglet"
+///
+/// # Development: skip JWT verification on the token API.
+/// [token_api_auth]
+/// mode = "disabled"
+/// ```
+#[derive(Deserialize, Clone, Debug, PartialEq)]
+#[serde(tag = "mode", rename_all = "lowercase", deny_unknown_fields)]
+pub enum TokenApiAuthConfig {
+    Disabled,
+    Enabled {
+        jwks_url: String,
+        #[serde(default = "default_jwks_cache_ttl_seconds")]
+        cache_ttl_seconds: u64,
+        /// Expected JWT `aud` claim on token-API tokens. Defaults to `"siglet"`.
+        #[serde(default = "default_token_api_audience")]
+        audience: String,
+        /// Scope the token-API verifier requires in the JWT's `scope` claim. The claim is
+        /// OAuth2 space-delimited (RFC 6749 §3.3): a token is accepted as long as this value
+        /// is one of its whitespace-separated entries.
+        ///
+        /// Defaults to `"siglet-token-api"`. Must be non-empty when auth is enabled.
+        #[serde(default = "default_token_api_scope")]
+        required_scope: String,
+    },
+}
+
+impl Default for TokenApiAuthConfig {
+    /// Default is auth ON with an empty `jwks_url`, which fails validation — forcing every
+    /// deployment to either supply a JWKS URL or explicitly opt out via `mode = "disabled"`.
+    /// Same security-by-default rationale as [`SignalingAuthConfig::default`].
+    fn default() -> Self {
+        Self::Enabled {
+            jwks_url: String::new(),
+            cache_ttl_seconds: DEFAULT_JWKS_CACHE_TTL_SECONDS,
+            audience: DEFAULT_TOKEN_API_AUDIENCE.to_string(),
+            required_scope: DEFAULT_TOKEN_API_SCOPE.to_string(),
         }
     }
 }
@@ -421,6 +488,8 @@ pub struct SigletConfig {
     #[serde(default)]
     pub signaling_auth: SignalingAuthConfig,
     #[serde(default)]
+    pub token_api_auth: TokenApiAuthConfig,
+    #[serde(default)]
     pub management_api_auth: ManagementApiAuthConfig,
     #[serde(default)]
     pub http_client: HttpClientConfig,
@@ -439,6 +508,7 @@ impl Default for SigletConfig {
             vault: VaultConfig::default(),
             token: TokenConfig::default(),
             signaling_auth: SignalingAuthConfig::default(),
+            token_api_auth: TokenApiAuthConfig::default(),
             management_api_auth: ManagementApiAuthConfig::default(),
             http_client: HttpClientConfig::default(),
         }
@@ -665,6 +735,37 @@ impl SigletConfig {
             }
         }
 
+        // Validate token API auth config. Independent of signaling_auth: the token API can be
+        // pointed at a different IdP, audience and scope, or disabled on its own.
+        if let TokenApiAuthConfig::Enabled {
+            jwks_url,
+            cache_ttl_seconds,
+            audience,
+            required_scope,
+        } = &self.token_api_auth
+        {
+            if jwks_url.is_empty() {
+                errors.push(
+                    "token_api_auth.jwks_url is required when token_api_auth.mode = \"enabled\" \
+                     (set token_api_auth.mode = \"disabled\" to skip JWT verification in dev)"
+                        .to_string(),
+                );
+            } else if jwks_url.parse::<reqwest::Url>().is_err() {
+                errors.push(format!("token_api_auth.jwks_url is not a valid URL: '{}'", jwks_url));
+            }
+            if *cache_ttl_seconds == 0 {
+                errors.push("token_api_auth.cache_ttl_seconds must be greater than 0".to_string());
+            }
+            if audience.is_empty() {
+                errors.push("token_api_auth.audience cannot be empty".to_string());
+            }
+            // A blank required_scope can't be satisfied by any token, so it would fail every
+            // request closed. Same rationale as signaling_auth.required_scope above.
+            if required_scope.trim().is_empty() {
+                errors.push("token_api_auth.required_scope cannot be empty".to_string());
+            }
+        }
+
         // Validate management API auth config. The management API binds fixed per-operation
         // scopes, so there is no required_scope to validate here.
         if let ManagementApiAuthConfig::Enabled {
@@ -770,6 +871,14 @@ fn default_signaling_scope() -> String {
 
 fn default_management_audience() -> String {
     DEFAULT_MANAGEMENT_AUDIENCE.to_string()
+}
+
+fn default_token_api_audience() -> String {
+    DEFAULT_TOKEN_API_AUDIENCE.to_string()
+}
+
+fn default_token_api_scope() -> String {
+    DEFAULT_TOKEN_API_SCOPE.to_string()
 }
 
 const fn default_http_connect_timeout_seconds() -> u64 {

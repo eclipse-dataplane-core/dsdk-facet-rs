@@ -947,10 +947,10 @@ async fn enabled_mode_rejects_jwk_alg_mismatch() {
 // Token-API policy (NoParticipantContext::RequireToken)
 // ============================================================================
 //
-// The token API reuses this middleware with the RequireToken policy and the
-// siglet-token-api scope. Unlike the signaling API, a protected route with no
-// participant_context_id (e.g. /tokens/verify) must still present a valid scoped
-// token rather than passing through.
+// The token API uses this middleware with the RequireToken policy and the scope from
+// `token_api_auth.required_scope` (siglet-token-api by default). Unlike the signaling
+// API, a protected route with no participant_context_id (e.g. /tokens/verify) must still
+// present a valid scoped token rather than passing through.
 
 /// Builds a token-API-style layer: RequireToken policy + the siglet-token-api scope.
 fn token_api_layer(jwk_set: JwkSet) -> AuthLayer {
@@ -1104,6 +1104,46 @@ async fn pass_through_mode_allows_pathless_route_without_token() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
+}
+
+// ============================================================================
+// build_token_api_auth_layer wiring
+// ============================================================================
+//
+// These sit here rather than in `server::tests` because only a descendant of
+// `server::auth` can read `AuthState`'s private fields.
+
+#[test]
+fn build_token_api_auth_layer_uses_configured_scope_and_audience() {
+    // The whole point of the separate [token_api_auth] block: the token API's scope,
+    // audience and JWKS come from its own config rather than being borrowed from
+    // signaling_auth with a hard-coded scope.
+    let layer = crate::server::build_token_api_auth_layer(
+        &crate::config::TokenApiAuthConfig::Enabled {
+            jwks_url: "https://idp.example.com/.well-known/jwks.json".to_string(),
+            cache_ttl_seconds: 300,
+            audience: "token-api-audience".to_string(),
+            required_scope: "custom:token-api".to_string(),
+        },
+        reqwest::Client::new(),
+    );
+
+    match layer {
+        AuthLayer::Enabled(state) => {
+            assert_eq!(state.expected_audience, "token-api-audience");
+            assert_eq!(state.required_scope, "custom:token-api");
+            // Pathless protected routes (/tokens/verify) must still require a token.
+            assert_eq!(state.no_participant_context, NoParticipantContext::RequireToken);
+        }
+        AuthLayer::Disabled => panic!("expected an enabled layer"),
+    }
+}
+
+#[test]
+fn build_token_api_auth_layer_disabled_yields_disabled_layer() {
+    let layer =
+        crate::server::build_token_api_auth_layer(&crate::config::TokenApiAuthConfig::Disabled, reqwest::Client::new());
+    assert!(matches!(layer, AuthLayer::Disabled));
 }
 
 // ============================================================================

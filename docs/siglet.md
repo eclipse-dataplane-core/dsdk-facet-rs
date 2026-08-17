@@ -352,10 +352,11 @@ arriving after the TTL pays the round-trip cost of refreshing the cache.
 
 ## Token API Authentication
 
-The token-management API (port 8080) authenticates the same way as the signaling API,
-against the **same** JWKS and audience configured under `[signaling_auth]` — there is no
-separate auth config block. The only differences are the required scope and which routes
-are protected.
+The token-management API (port 8080) has its own auth configuration block,
+`[token_api_auth]`, separate from `[signaling_auth]`. It can therefore be pointed at a
+different IdP, audience or scope than the DPS signaling protocol, and enabled or disabled
+on its own. The verification mechanics are otherwise identical to the signaling API; what
+differs is the default scope and which routes are protected.
 
 ### Protected vs. public routes
 
@@ -369,16 +370,39 @@ are protected.
 ### Required scope
 
 Protected routes require a JWT whose space-delimited `scope` claim contains
-`siglet-token-api` (rather than the signaling API's `dplane-signaling`). The matching
-and rejection semantics are identical to the signaling API: a missing or non-matching
-scope returns `403`, a missing/invalid/expired token or wrong `aud` returns `401`, and a
-`sub` that doesn't match the path participant context returns `403`. Unlike the signaling
-API — whose only pathless routes are intentionally open — every protected token-API route
-requires a valid token, including `POST /tokens/verify`.
+`token_api_auth.required_scope` — `siglet-token-api` by default, rather than the signaling
+API's `dplane-signaling`. The matching and rejection semantics are identical to the
+signaling API: a missing or non-matching scope returns `403`, a missing/invalid/expired
+token or wrong `aud` returns `401`, and a `sub` that doesn't match the path participant
+context returns `403`. Unlike the signaling API — whose only pathless routes are
+intentionally open — every protected token-API route requires a valid token, including
+`POST /tokens/verify`.
 
-Unlike `signaling_auth.required_scope`, the token-API scope is a fixed value, not a config
-knob; enabling/disabling token-API auth follows `signaling_auth.mode` together with the
-signaling API.
+### Configuration
+
+Like the signaling API, auth is **on by default**: operators must either supply a
+`jwks_url` or explicitly opt out with `mode = "disabled"`. A siglet that omits
+`[token_api_auth]` entirely fails to start.
+
+```toml
+# Production
+[token_api_auth]
+mode = "enabled"
+jwks_url = "https://idp.example.com/.well-known/jwks.json"
+audience = "https://siglet.example.com"   # optional, defaults to "siglet"
+cache_ttl_seconds = 300                    # optional, defaults to 300
+required_scope = "siglet-token-api"        # optional, defaults to "siglet-token-api"
+
+# Development — skip JWT verification on the token API. Logs a loud warning at startup.
+# [token_api_auth]
+# mode = "disabled"
+```
+
+Pointing this block at the same `jwks_url` and `audience` as `[signaling_auth]` reproduces
+the behaviour of siglet versions that had no separate token-API auth config.
+
+Environment-variable overrides follow the standard `SIGLET__` convention, e.g.
+`SIGLET__TOKEN_API_AUTH__MODE=disabled`.
 
 ---
 
@@ -794,6 +818,17 @@ mode = "enabled"
 jwks_url = "https://idp.example.com/.well-known/jwks.json"
 audience = "https://siglet.example.com"  # Default: "siglet". Must agree with the IdP's stamped aud claim.
 cache_ttl_seconds = 300
+
+# Token API JWT authentication (token retrieval/deletion and /tokens/verify, port 8080).
+# Separate from [signaling_auth]. Same on-by-default rule: set mode = "enabled" with a jwks_url,
+# or mode = "disabled". Point it at the same jwks_url/audience as [signaling_auth] to reproduce
+# the pre-split behaviour.
+[token_api_auth]
+mode = "enabled"
+jwks_url = "https://idp.example.com/.well-known/jwks.json"
+audience = "siglet"                     # Default: "siglet"
+cache_ttl_seconds = 300                 # Default: 300
+required_scope = "siglet-token-api"     # Default: "siglet-token-api"
 
 # Management API JWT authentication (transfer-type & signing-key mapping CRUD, port 8083).
 # Separate from [signaling_auth]. Same on-by-default rule: set mode = "enabled" with a jwks_url,
