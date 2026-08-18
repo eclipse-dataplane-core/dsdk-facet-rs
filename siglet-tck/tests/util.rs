@@ -25,8 +25,8 @@ use reqwest::Client;
 use serde_json::json;
 use siglet::assembly::assemble_postgres;
 use siglet::config::{
-    ManagementApiAuthConfig, SigletConfig, SignalingAuthConfig, StorageBackend, TokenConfig, TokenSource, TransferType,
-    VaultConfig,
+    ManagementApiAuthConfig, SigletConfig, SignalingAuthConfig, StorageBackend, TokenApiAuthConfig, TokenConfig,
+    TokenSource, TransferType, VaultConfig,
 };
 use siglet::http::build_http_client;
 use siglet::server::{
@@ -157,6 +157,7 @@ pub fn build_config(vault_url: &str, token_file: &Path, pg_url: &str) -> SigletC
             url: pg_url.to_string(),
         },
         signaling_auth: SignalingAuthConfig::Disabled,
+        token_api_auth: TokenApiAuthConfig::Disabled,
         management_api_auth: ManagementApiAuthConfig::Disabled,
         vault: VaultConfig {
             url: Some(vault_url.to_string()),
@@ -187,7 +188,7 @@ pub async fn start_siglet(cfg: SigletConfig) {
 
     let http_client = build_http_client(&cfg.http_client);
     let signaling_auth = build_signaling_auth_layer(&cfg.signaling_auth, http_client.clone());
-    let token_api_auth = build_token_api_auth_layer(&cfg.signaling_auth, http_client.clone());
+    let token_api_auth = build_token_api_auth_layer(&cfg.token_api_auth, http_client.clone());
     let (mgmt_read_auth, mgmt_write_auth) =
         build_management_api_auth_layers(&cfg.management_api_auth, http_client.clone());
 

@@ -50,8 +50,9 @@ async fn run(cfg: SigletConfig) -> Result<(), SigletError> {
     // Single process-wide HTTP client
     let http_client = build_http_client(&cfg.http_client);
     let auth_layer = build_signaling_auth_layer(&cfg.signaling_auth, http_client.clone());
-    // The token API reuses the signaling JWKS/audience but requires the siglet-token-api scope.
-    let token_auth_layer = build_token_api_auth_layer(&cfg.signaling_auth, http_client.clone());
+    // The token API has its own auth config (token_api_auth) and requires the configured scope,
+    // siglet-token-api by default.
+    let token_auth_layer = build_token_api_auth_layer(&cfg.token_api_auth, http_client.clone());
     // The management API has its own auth config (management_api_auth) and binds per-operation
     // scopes: siglet-mgmt-api:read for reads and siglet-mgmt-api:write for writes.
     let (mgmt_read_auth, mgmt_write_auth) =

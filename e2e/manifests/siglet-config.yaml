@@ -16,6 +16,18 @@ data:
     audience = "siglet"
     cache_ttl_seconds = 300
 
+    [token_api_auth]
+    mode = "enabled"
+    jwks_url = "http://signaling-jwks/.well-known/jwks.json"
+    audience = "siglet"
+    cache_ttl_seconds = 300
+
+    [management_api_auth]
+    mode = "enabled"
+    jwks_url = "http://signaling-jwks/.well-known/jwks.json"
+    audience = "siglet"
+    cache_ttl_seconds = 300
+
     [[transfer_types]]
     transfer_type = "http-pull"
     endpoint_type = "HTTP"

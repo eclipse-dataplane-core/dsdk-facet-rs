@@ -62,7 +62,7 @@ use std::{
 
 use async_trait::async_trait;
 use axum::{
-    RequestPartsExt,
+    Json, RequestPartsExt,
     body::Body,
     extract::{Path, Request},
     response::{IntoResponse, Response},
@@ -73,6 +73,7 @@ use jsonwebtoken::{
     jwk::{JwkSet, KeyAlgorithm},
 };
 use reqwest::StatusCode;
+use serde_json::json;
 use tokio::sync::RwLock;
 use tower::{Layer, Service};
 
@@ -217,8 +218,8 @@ pub struct AuthState {
     expected_audience: String,
     /// The scope the JWT's `scope` claim must grant. For the signaling API this comes
     /// from `signaling_auth.required_scope` (default `"dplane-signaling"`); for the token
-    /// API it is the fixed `siglet-token-api` scope. Validated non-empty at config load,
-    /// so an empty value never reaches here.
+    /// API from `token_api_auth.required_scope` (default `"siglet-token-api"`). Validated
+    /// non-empty at config load, so an empty value never reaches here.
     required_scope: String,
     /// How to handle an enabled-mode request whose path carries no participant context.
     no_participant_context: NoParticipantContext,
@@ -369,7 +370,10 @@ impl IntoResponse for AuthError {
         } else {
             tracing::debug!("Auth rejected: {:?}", self);
         }
-        (self.status(), self.client_message()).into_response()
+        let body = Json(json!({
+            "message": self.client_message()
+        }));
+        (self.status(), body).into_response()
     }
 }
 

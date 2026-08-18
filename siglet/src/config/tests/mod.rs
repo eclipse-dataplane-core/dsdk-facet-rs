@@ -14,7 +14,7 @@
 
 use crate::config::{
     ClaimMapping, EndpointMapping, ManagementApiAuthConfig, SigletConfig, SignalingAuthConfig, StorageBackend,
-    TokenConfig, TokenSource, TransferType, ValidationError, VaultAuth, VaultConfig,
+    TokenApiAuthConfig, TokenConfig, TokenSource, TransferType, ValidationError, VaultAuth, VaultConfig,
 };
 use std::net::{IpAddr, Ipv4Addr};
 
@@ -30,6 +30,7 @@ fn create_valid_config() -> SigletConfig {
             ..Default::default()
         },
         signaling_auth: SignalingAuthConfig::Disabled,
+        token_api_auth: TokenApiAuthConfig::Disabled,
         management_api_auth: ManagementApiAuthConfig::Disabled,
         ..Default::default()
     }
@@ -44,6 +45,7 @@ fn create_valid_config_with_token_file() -> SigletConfig {
             ..Default::default()
         },
         signaling_auth: SignalingAuthConfig::Disabled,
+        token_api_auth: TokenApiAuthConfig::Disabled,
         management_api_auth: ManagementApiAuthConfig::Disabled,
         ..Default::default()
     }
@@ -92,6 +94,12 @@ fn test_valid_config_with_all_fields() {
             cache_ttl_seconds: 300,
             audience: "https://siglet.example.com".to_string(),
             required_scope: "dplane-signaling".to_string(),
+        },
+        token_api_auth: TokenApiAuthConfig::Enabled {
+            jwks_url: "https://idp.example.com/.well-known/jwks.json".to_string(),
+            cache_ttl_seconds: 300,
+            audience: "https://siglet.example.com".to_string(),
+            required_scope: "siglet-token-api".to_string(),
         },
         management_api_auth: ManagementApiAuthConfig::Enabled {
             jwks_url: "https://idp.example.com/.well-known/jwks.json".to_string(),
@@ -806,6 +814,7 @@ fn test_all_possible_errors() {
             audience: String::new(),       // Error 12: empty audience
             required_scope: String::new(), // Error 13: empty required scope
         },
+        token_api_auth: TokenApiAuthConfig::Disabled,
         management_api_auth: ManagementApiAuthConfig::Disabled,
         http_client: crate::config::HttpClientConfig {
             connect_timeout_seconds: 0, // Error 12: zero connect timeout
@@ -1454,6 +1463,165 @@ fn test_signaling_auth_rejects_empty_required_scope() {
 }
 
 // ============================================================================
+// Token API Auth Config Validation Tests
+// ============================================================================
+
+#[test]
+fn test_token_api_auth_default_is_enabled_with_empty_url() {
+    // Same "default is on" contract as signaling and management auth: the empty URL
+    // is a forcing function that fails validation until the operator either supplies
+    // a JWKS URL or explicitly switches to Disabled.
+    assert!(matches!(
+        TokenApiAuthConfig::default(),
+        TokenApiAuthConfig::Enabled { jwks_url, .. } if jwks_url.is_empty()
+    ));
+}
+
+#[test]
+fn test_token_api_auth_enabled_requires_jwks_url() {
+    let mut config = create_valid_config();
+    config.token_api_auth = TokenApiAuthConfig::Enabled {
+        jwks_url: String::new(),
+        cache_ttl_seconds: 300,
+        audience: "siglet".to_string(),
+        required_scope: "siglet-token-api".to_string(),
+    };
+
+    let messages = config.validate().unwrap_err().messages().join("\n");
+    assert!(messages.contains("token_api_auth.jwks_url is required"));
+}
+
+#[test]
+fn test_token_api_auth_enabled_rejects_invalid_jwks_url() {
+    let mut config = create_valid_config();
+    config.token_api_auth = TokenApiAuthConfig::Enabled {
+        jwks_url: "not-a-url".to_string(),
+        cache_ttl_seconds: 300,
+        audience: "siglet".to_string(),
+        required_scope: "siglet-token-api".to_string(),
+    };
+
+    let messages = config.validate().unwrap_err().messages().join("\n");
+    assert!(messages.contains("token_api_auth.jwks_url is not a valid URL"));
+}
+
+#[test]
+fn test_token_api_auth_enabled_with_valid_jwks_url_passes() {
+    let mut config = create_valid_config();
+    config.token_api_auth = TokenApiAuthConfig::Enabled {
+        jwks_url: "https://idp.example.com/.well-known/jwks.json".to_string(),
+        cache_ttl_seconds: 300,
+        audience: "siglet".to_string(),
+        required_scope: "siglet-token-api".to_string(),
+    };
+
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_token_api_auth_disabled_passes_without_url() {
+    let mut config = create_valid_config();
+    config.token_api_auth = TokenApiAuthConfig::Disabled;
+
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_token_api_auth_rejects_zero_cache_ttl() {
+    let mut config = create_valid_config();
+    config.token_api_auth = TokenApiAuthConfig::Enabled {
+        jwks_url: "https://idp.example.com/.well-known/jwks.json".to_string(),
+        cache_ttl_seconds: 0,
+        audience: "siglet".to_string(),
+        required_scope: "siglet-token-api".to_string(),
+    };
+
+    let messages = config.validate().unwrap_err().messages().join("\n");
+    assert!(messages.contains("token_api_auth.cache_ttl_seconds"));
+}
+
+#[test]
+fn test_token_api_auth_rejects_empty_audience() {
+    let mut config = create_valid_config();
+    config.token_api_auth = TokenApiAuthConfig::Enabled {
+        jwks_url: "https://idp.example.com/.well-known/jwks.json".to_string(),
+        cache_ttl_seconds: 300,
+        audience: String::new(),
+        required_scope: "siglet-token-api".to_string(),
+    };
+
+    let messages = config.validate().unwrap_err().messages().join("\n");
+    assert!(messages.contains("token_api_auth.audience cannot be empty"));
+}
+
+#[test]
+fn test_token_api_auth_rejects_empty_required_scope() {
+    // A blank required_scope can't be satisfied by any token; a whitespace-only
+    // value is treated the same. Mirrors the signaling-auth rule.
+    let mut config = create_valid_config();
+    config.token_api_auth = TokenApiAuthConfig::Enabled {
+        jwks_url: "https://idp.example.com/.well-known/jwks.json".to_string(),
+        cache_ttl_seconds: 300,
+        audience: "siglet".to_string(),
+        required_scope: "   ".to_string(),
+    };
+
+    let messages = config.validate().unwrap_err().messages().join("\n");
+    assert!(messages.contains("token_api_auth.required_scope cannot be empty"));
+}
+
+#[test]
+fn test_token_api_auth_deserialize_disabled() {
+    let json = r#"{"mode": "disabled"}"#;
+    let parsed: TokenApiAuthConfig = serde_json::from_str(json).expect("disabled variant should parse");
+    assert_eq!(parsed, TokenApiAuthConfig::Disabled);
+}
+
+#[test]
+fn test_token_api_auth_deserialize_enabled_uses_defaults() {
+    // Pins the user-visible defaults: a [token_api_auth] table carrying only a
+    // jwks_url yields the same TTL/audience/scope the token API used when it was
+    // still driven by [signaling_auth], so behaviour is unchanged for operators
+    // who just move the URL into the new block.
+    let json = r#"{
+        "mode": "enabled",
+        "jwks_url": "https://idp.example.com/.well-known/jwks.json"
+    }"#;
+    let parsed: TokenApiAuthConfig = serde_json::from_str(json).expect("enabled variant should parse");
+    assert_eq!(
+        parsed,
+        TokenApiAuthConfig::Enabled {
+            jwks_url: "https://idp.example.com/.well-known/jwks.json".to_string(),
+            cache_ttl_seconds: 300,
+            audience: "siglet".to_string(),
+            required_scope: "siglet-token-api".to_string(),
+        }
+    );
+}
+
+#[test]
+fn test_token_api_auth_audience_and_scope_round_trip() {
+    let json = r#"{
+        "mode": "enabled",
+        "jwks_url": "https://idp.example.com/.well-known/jwks.json",
+        "audience": "https://siglet.example.com",
+        "required_scope": "custom:token-api"
+    }"#;
+    let parsed: TokenApiAuthConfig = serde_json::from_str(json).unwrap();
+    match parsed {
+        TokenApiAuthConfig::Enabled {
+            audience,
+            required_scope,
+            ..
+        } => {
+            assert_eq!(audience, "https://siglet.example.com");
+            assert_eq!(required_scope, "custom:token-api");
+        }
+        TokenApiAuthConfig::Disabled => panic!("expected Enabled variant"),
+    }
+}
+
+// ============================================================================
 // HTTP Client Config Validation Tests
 // ============================================================================
 
@@ -1872,6 +2040,7 @@ fn test_documented_claim_mapping_toml_parses_and_validates() {
         .try_deserialize()
         .unwrap();
     cfg.signaling_auth = SignalingAuthConfig::Disabled;
+    cfg.token_api_auth = TokenApiAuthConfig::Disabled;
     cfg.management_api_auth = ManagementApiAuthConfig::Disabled;
 
     let tt = &cfg.transfer_types[0];

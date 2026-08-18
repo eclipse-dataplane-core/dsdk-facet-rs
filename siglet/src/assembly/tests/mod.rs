@@ -461,8 +461,8 @@ impl JwtVerifier for MockJwtVerifier {
 
 /// Helper function to create a minimal valid config.
 ///
-/// Signaling auth is set to Disabled — these assembly tests don't exercise the
-/// signaling-API auth layer, and the default of `Enabled { jwks_url: "" }`
+/// Signaling and token-API auth are set to Disabled — these assembly tests don't
+/// exercise either auth layer, and their default of `Enabled { jwks_url: "" }`
 /// would otherwise fail SigletConfig::validate() (not called here, but kept
 /// consistent with the config-test helper so future validation calls work).
 fn create_test_config() -> SigletConfig {
@@ -473,6 +473,7 @@ fn create_test_config() -> SigletConfig {
             ..Default::default()
         },
         signaling_auth: crate::config::SignalingAuthConfig::Disabled,
+        token_api_auth: crate::config::TokenApiAuthConfig::Disabled,
         ..Default::default()
     }
 }
