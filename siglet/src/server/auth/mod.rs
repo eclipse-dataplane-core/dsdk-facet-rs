@@ -30,6 +30,11 @@
 //! requests through unauthenticated (its only pathless routes are intentionally open),
 //! while the token API still requires a valid scoped token but skips subject binding.
 //!
+//! Subject binding can additionally be waived per-caller by an optional *admin scope*
+//! (`token_api_auth.admin_scope`, absent by default). A token whose `scope` claim carries
+//! that value may act on any participant context. The grant is additive: the required
+//! scope is still enforced, so an admin token that lacks it is rejected like any other.
+//!
 //! ## Expected JWT shape (enabled mode)
 //!
 //! ```json
@@ -129,8 +134,8 @@ impl AuthLayer {
     /// `signaling_auth.required_scope` in config (default `"dplane-signaling"`).
     ///
     /// Built for the signaling API: pathless requests pass through unauthenticated
-    /// ([`NoParticipantContext::PassThrough`]). Use [`AuthLayer::enabled_http_require_token`]
-    /// for the token API.
+    /// ([`NoParticipantContext::PassThrough`]) and there is no admin-scope bypass. Use
+    /// [`AuthLayer::enabled_http_require_token`] for the token API.
     pub fn enabled_http(
         jwks_url: impl Into<String>,
         cache_ttl: Duration,
@@ -143,6 +148,7 @@ impl AuthLayer {
             Box::new(provider),
             expected_audience,
             required_scope,
+            None,
             NoParticipantContext::PassThrough,
         )
     }
@@ -151,11 +157,16 @@ impl AuthLayer {
     /// path carries no participant context ([`NoParticipantContext::RequireToken`]).
     /// Built for the token-management API, whose `/tokens/verify` route is protected but
     /// has no participant context to bind `sub` against.
+    ///
+    /// `admin_scope` is the optional scope that waives subject binding on participant-scoped
+    /// routes (`token_api_auth.admin_scope`). Pass `None` — the default — to keep `sub`
+    /// bound for every caller.
     pub fn enabled_http_require_token(
         jwks_url: impl Into<String>,
         cache_ttl: Duration,
         expected_audience: impl Into<String>,
         required_scope: impl Into<String>,
+        admin_scope: Option<String>,
         client: reqwest::Client,
     ) -> Self {
         let provider = HttpKeyProvider::new(jwks_url.into(), cache_ttl, client);
@@ -163,6 +174,7 @@ impl AuthLayer {
             Box::new(provider),
             expected_audience,
             required_scope,
+            admin_scope,
             NoParticipantContext::RequireToken,
         )
     }
@@ -179,32 +191,42 @@ impl AuthLayer {
             provider,
             expected_audience,
             required_scope,
+            None,
             NoParticipantContext::PassThrough,
         )
     }
 
     /// Builds an enabled `AuthLayer` backed by a caller-supplied key provider, with an
-    /// explicit [`NoParticipantContext`] policy. Lets token-API tests exercise the
-    /// require-token behavior with an in-memory provider.
+    /// explicit [`NoParticipantContext`] policy and optional admin scope. Lets token-API
+    /// tests exercise the require-token and admin-bypass behavior with an in-memory provider.
     pub fn enabled_with_provider_and_policy(
         provider: Box<dyn KeyProvider>,
         expected_audience: impl Into<String>,
         required_scope: impl Into<String>,
+        admin_scope: Option<String>,
         no_participant_context: NoParticipantContext,
     ) -> Self {
-        Self::enabled(provider, expected_audience, required_scope, no_participant_context)
+        Self::enabled(
+            provider,
+            expected_audience,
+            required_scope,
+            admin_scope,
+            no_participant_context,
+        )
     }
 
     fn enabled(
         provider: Box<dyn KeyProvider>,
         expected_audience: impl Into<String>,
         required_scope: impl Into<String>,
+        admin_scope: Option<String>,
         no_participant_context: NoParticipantContext,
     ) -> Self {
         Self::Enabled(Arc::new(AuthState {
             key_provider: provider,
             expected_audience: expected_audience.into(),
             required_scope: required_scope.into(),
+            admin_scope,
             no_participant_context,
         }))
     }
@@ -221,6 +243,13 @@ pub struct AuthState {
     /// API from `token_api_auth.required_scope` (default `"siglet-token-api"`). Validated
     /// non-empty at config load, so an empty value never reaches here.
     required_scope: String,
+    /// Optional scope that waives subject binding on participant-scoped routes. Comes from
+    /// `token_api_auth.admin_scope` and is `None` — the bypass off — unless an operator
+    /// names one. The signaling and management APIs always leave it `None`.
+    ///
+    /// Additive, not a substitute: a token carrying only this scope still fails the
+    /// [`AuthState::required_scope`] check below.
+    admin_scope: Option<String>,
     /// How to handle an enabled-mode request whose path carries no participant context.
     no_participant_context: NoParticipantContext,
 }
@@ -479,7 +508,8 @@ where
 /// Verifies the bearer token in the request headers against the JWKS, enforcing the
 /// audience and required scope. When `expected_pc_id` is `Some`, additionally asserts
 /// that the token's `sub` claim equals that participant-context id; when `None`
-/// (pathless routes) the subject is not bound.
+/// (pathless routes) the subject is not bound. A token carrying the configured
+/// [`AuthState::admin_scope`], if any, also skips that assertion.
 async fn verify_jwt(
     state: &AuthState,
     headers: &axum::http::HeaderMap,
@@ -535,17 +565,6 @@ async fn verify_jwt(
     let token_data =
         decode::<Claims>(token, &decoding_key, &validation).map_err(|e| AuthError::InvalidSignature(e.to_string()))?;
 
-    // Subject binding only applies on participant-scoped routes. Pathless routes
-    // (token API's `/tokens/verify`) pass `None` and skip this check.
-    if let Some(expected_pc_id) = expected_pc_id
-        && token_data.claims.sub != expected_pc_id
-    {
-        return Err(AuthError::SubjectMismatch {
-            expected: expected_pc_id.to_string(),
-            got: token_data.claims.sub,
-        });
-    }
-
     // Authorization check: the caller proved their identity (signature, and `sub` when
     // bound), but must additionally hold the required scope. `required_spec_claims` only
     // covers registered claims, so a missing `scope` isn't caught by `decode` — handle it
@@ -555,6 +574,32 @@ async fn verify_jwt(
         return Err(AuthError::InsufficientScope {
             required: state.required_scope.clone(),
         });
+    }
+
+    // An admin-scoped caller may act on any participant context, so subject binding is
+    // waived for it. This does not relax the required-scope gate below: the admin scope is
+    // additive, so a token holding it alone is still rejected as insufficiently scoped.
+    let is_admin = state
+        .admin_scope
+        .as_deref()
+        .is_some_and(|admin| scope_grants(token_data.claims.scope.as_deref(), admin));
+
+    // Subject binding only applies on participant-scoped routes. Pathless routes
+    // (token API's `/tokens/verify`) pass `None` and skip this check.
+    if let Some(expected_pc_id) = expected_pc_id {
+        if is_admin {
+            // Cross-participant access to token material: log every use so it is auditable.
+            tracing::warn!(
+                subject = %token_data.claims.sub,
+                participant_context = %expected_pc_id,
+                "Admin scope granted — skipping subject binding on a participant-scoped route"
+            );
+        } else if token_data.claims.sub != expected_pc_id {
+            return Err(AuthError::SubjectMismatch {
+                expected: expected_pc_id.to_string(),
+                got: token_data.claims.sub,
+            });
+        }
     }
 
     Ok(())

@@ -61,6 +61,7 @@ fn enabled_auth(scope: &str) -> AuthLayer {
         Box::new(EmptyKeyProvider),
         "siglet",
         scope,
+        None,
         NoParticipantContext::RequireToken,
     )
 }

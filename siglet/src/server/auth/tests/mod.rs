@@ -166,8 +166,13 @@ const TEST_AUDIENCE: &str = "siglet";
 /// `signaling_auth.required_scope`).
 const REQUIRED_SCOPE: &str = "dplane-signaling";
 
-/// The scope the token-management API requires (the fixed `TOKEN_API_REQUIRED_SCOPE`).
+/// The scope the token-management API requires (the default value of
+/// `token_api_auth.required_scope`).
 const TOKEN_API_SCOPE: &str = "siglet-token-api";
+
+/// The conventional value of the optional `token_api_auth.admin_scope`: waives subject
+/// binding so its holder can reach any participant context.
+const TOKEN_API_ADMIN_SCOPE: &str = "siglet-token-api:admin";
 
 fn standard_claims(sub: &str) -> Value {
     let exp = chrono::Utc::now().timestamp() + 3600;
@@ -952,12 +957,25 @@ async fn enabled_mode_rejects_jwk_alg_mismatch() {
 // API, a protected route with no participant_context_id (e.g. /tokens/verify) must still
 // present a valid scoped token rather than passing through.
 
-/// Builds a token-API-style layer: RequireToken policy + the siglet-token-api scope.
+/// Builds a token-API-style layer: RequireToken policy + the siglet-token-api scope, with
+/// the admin bypass off — the shipped default.
 fn token_api_layer(jwk_set: JwkSet) -> AuthLayer {
     AuthLayer::enabled_with_provider_and_policy(
         Box::new(StaticKeyProvider::new(jwk_set)),
         TEST_AUDIENCE,
         TOKEN_API_SCOPE,
+        None,
+        NoParticipantContext::RequireToken,
+    )
+}
+
+/// Same, but with `token_api_auth.admin_scope` configured to [`TOKEN_API_ADMIN_SCOPE`].
+fn token_api_layer_with_admin(jwk_set: JwkSet) -> AuthLayer {
+    AuthLayer::enabled_with_provider_and_policy(
+        Box::new(StaticKeyProvider::new(jwk_set)),
+        TEST_AUDIENCE,
+        TOKEN_API_SCOPE,
+        Some(TOKEN_API_ADMIN_SCOPE.to_string()),
         NoParticipantContext::RequireToken,
     )
 }
@@ -1107,6 +1125,183 @@ async fn pass_through_mode_allows_pathless_route_without_token() {
 }
 
 // ============================================================================
+// Token-API admin scope (token_api_auth.admin_scope)
+// ============================================================================
+//
+// An operator may name a scope that waives subject binding so one principal can fetch
+// tokens across participant contexts (issue #95). It is off unless configured, and it is
+// additive: the required scope is still enforced.
+
+/// Claims carrying both the token-API scope and the admin scope.
+fn admin_claims(sub: &str) -> Value {
+    let now = chrono::Utc::now().timestamp();
+    json!({
+        "sub": sub,
+        "aud": TEST_AUDIENCE,
+        "scope": format!("{} {}", TOKEN_API_SCOPE, TOKEN_API_ADMIN_SCOPE),
+        "iat": now,
+        "exp": now + 3600,
+    })
+}
+
+#[tokio::test]
+async fn admin_scope_waives_subject_binding() {
+    // The point of the feature: `sub` is another participant entirely, yet the request
+    // reaches the handler because the token carries the configured admin scope.
+    let key = TestKey::new("kid-1");
+    let app = echo_router(token_api_layer_with_admin(key.jwk_set.clone()));
+
+    let token = key.issue(admin_claims("ctx-admin"));
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/dataflows/ctx-abc/start")
+                .header("authorization", format!("Bearer {}", token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    // The participant context injected downstream still comes from the path, not from
+    // `sub` — an admin acts *on* ctx-abc rather than becoming it.
+    assert_eq!(response_text(response).await, "ctx-abc");
+}
+
+#[tokio::test]
+async fn admin_scope_configured_still_binds_subject_for_ordinary_tokens() {
+    // Configuring an admin scope must not weaken anyone else: a plain token with a
+    // mismatched `sub` is rejected exactly as before.
+    let key = TestKey::new("kid-1");
+    let app = echo_router(token_api_layer_with_admin(key.jwk_set.clone()));
+
+    let token = key.issue(token_api_claims("ctx-other"));
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/dataflows/ctx-abc/start")
+                .header("authorization", format!("Bearer {}", token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn admin_scope_is_inert_when_not_configured() {
+    // The security guarantee behind the "off by default" requirement: the admin scope is
+    // just an unrecognised scope string unless an operator names it in config.
+    let key = TestKey::new("kid-1");
+    let app = echo_router(token_api_layer(key.jwk_set.clone()));
+
+    let token = key.issue(admin_claims("ctx-admin"));
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/dataflows/ctx-abc/start")
+                .header("authorization", format!("Bearer {}", token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    assert!(
+        response_text(response)
+            .await
+            .contains("does not match participant context")
+    );
+}
+
+#[tokio::test]
+async fn admin_scope_alone_does_not_satisfy_the_required_scope() {
+    // Admin is additive, not a replacement: without the required scope the token never
+    // gets past the scope gate, whatever it would have been allowed to reach.
+    let key = TestKey::new("kid-1");
+    let app = echo_router(token_api_layer_with_admin(key.jwk_set.clone()));
+
+    let now = chrono::Utc::now().timestamp();
+    let token = key.issue(json!({
+        "sub": "ctx-admin",
+        "aud": TEST_AUDIENCE,
+        "scope": TOKEN_API_ADMIN_SCOPE, // admin only, no siglet-token-api
+        "iat": now,
+        "exp": now + 3600,
+    }));
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/dataflows/ctx-abc/start")
+                .header("authorization", format!("Bearer {}", token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    let body = response_text(response).await;
+    assert!(body.contains("missing required scope"));
+    assert!(body.contains(TOKEN_API_SCOPE));
+}
+
+#[tokio::test]
+async fn admin_scope_leaves_pathless_routes_unchanged() {
+    // /tokens/verify never bound `sub` in the first place, so an admin token is treated
+    // like any other correctly-scoped one.
+    let key = TestKey::new("kid-1");
+    let app = pathless_router(token_api_layer_with_admin(key.jwk_set.clone()));
+
+    let token = key.issue(admin_claims("ctx-admin"));
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/tokens/verify")
+                .header("authorization", format!("Bearer {}", token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn admin_scope_does_not_bypass_signature_or_audience_checks() {
+    // The bypass is scoped to subject binding alone — an admin token minted for another
+    // audience is still a 401.
+    let key = TestKey::new("kid-1");
+    let app = echo_router(token_api_layer_with_admin(key.jwk_set.clone()));
+
+    let now = chrono::Utc::now().timestamp();
+    let token = key.issue(json!({
+        "sub": "ctx-admin",
+        "aud": "some-other-service",
+        "scope": format!("{} {}", TOKEN_API_SCOPE, TOKEN_API_ADMIN_SCOPE),
+        "iat": now,
+        "exp": now + 3600,
+    }));
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/dataflows/ctx-abc/start")
+                .header("authorization", format!("Bearer {}", token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
+// ============================================================================
 // build_token_api_auth_layer wiring
 // ============================================================================
 //
@@ -1124,6 +1319,7 @@ fn build_token_api_auth_layer_uses_configured_scope_and_audience() {
             cache_ttl_seconds: 300,
             audience: "token-api-audience".to_string(),
             required_scope: "custom:token-api".to_string(),
+            admin_scope: None,
         },
         reqwest::Client::new(),
     );
@@ -1132,9 +1328,54 @@ fn build_token_api_auth_layer_uses_configured_scope_and_audience() {
         AuthLayer::Enabled(state) => {
             assert_eq!(state.expected_audience, "token-api-audience");
             assert_eq!(state.required_scope, "custom:token-api");
+            // Omitting admin_scope leaves the subject-binding bypass off.
+            assert_eq!(state.admin_scope, None);
             // Pathless protected routes (/tokens/verify) must still require a token.
             assert_eq!(state.no_participant_context, NoParticipantContext::RequireToken);
         }
+        AuthLayer::Disabled => panic!("expected an enabled layer"),
+    }
+}
+
+#[test]
+fn build_token_api_auth_layer_passes_admin_scope_through() {
+    let layer = crate::server::build_token_api_auth_layer(
+        &crate::config::TokenApiAuthConfig::Enabled {
+            jwks_url: "https://idp.example.com/.well-known/jwks.json".to_string(),
+            cache_ttl_seconds: 300,
+            audience: "token-api-audience".to_string(),
+            required_scope: TOKEN_API_SCOPE.to_string(),
+            admin_scope: Some(TOKEN_API_ADMIN_SCOPE.to_string()),
+        },
+        reqwest::Client::new(),
+    );
+
+    match layer {
+        AuthLayer::Enabled(state) => {
+            assert_eq!(state.admin_scope.as_deref(), Some(TOKEN_API_ADMIN_SCOPE));
+            // The required scope is untouched — admin widens reach, it does not replace it.
+            assert_eq!(state.required_scope, TOKEN_API_SCOPE);
+        }
+        AuthLayer::Disabled => panic!("expected an enabled layer"),
+    }
+}
+
+#[test]
+fn build_signaling_auth_layer_never_sets_an_admin_scope() {
+    // Subject binding is the signaling protocol's participant isolation; the token-API
+    // bypass must not leak into it.
+    let layer = crate::server::build_signaling_auth_layer(
+        &crate::config::SignalingAuthConfig::Enabled {
+            jwks_url: "https://idp.example.com/.well-known/jwks.json".to_string(),
+            cache_ttl_seconds: 300,
+            audience: TEST_AUDIENCE.to_string(),
+            required_scope: REQUIRED_SCOPE.to_string(),
+        },
+        reqwest::Client::new(),
+    );
+
+    match layer {
+        AuthLayer::Enabled(state) => assert_eq!(state.admin_scope, None),
         AuthLayer::Disabled => panic!("expected an enabled layer"),
     }
 }
