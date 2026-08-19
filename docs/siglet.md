@@ -362,7 +362,7 @@ differs is the default scope and which routes are protected.
 
 | Route                                     | Auth required | Notes                                              |
 |-------------------------------------------|---------------|----------------------------------------------------|
-| `GET`/`DELETE /tokens/{participant_context_id}/{id}` | yes | `sub` must equal the `{participant_context_id}` path segment |
+| `GET`/`DELETE /tokens/{participant_context_id}/{id}` | yes | `sub` must equal the `{participant_context_id}` path segment, unless the caller holds the [admin scope](#admin-scope) |
 | `POST /tokens/verify`                     | yes           | No participant context, so `sub` is not bound      |
 | `GET /keys` (JWKS)                        | no            | Public discovery endpoint                          |
 | `GET /` , `GET /health`                   | no            | Liveness/readiness                                 |
@@ -378,6 +378,37 @@ context returns `403`. Unlike the signaling API — whose only pathless routes a
 intentionally open — every protected token-API route requires a valid token, including
 `POST /tokens/verify`.
 
+### Admin scope
+
+`token_api_auth.admin_scope` names an optional second scope that **waives subject binding**:
+a caller holding it may read and delete tokens for any participant context, not just its
+own. It exists for demos and debugging, where one client needs to pull tokens on behalf of
+several participants.
+
+The grant is *additive* — it relaxes the `sub` check only, and does not stand in for
+`required_scope`:
+
+| `scope` claim                               | Result                                    |
+|---------------------------------------------|-------------------------------------------|
+| `siglet-token-api siglet-token-api:admin`   | `200` — any participant context reachable |
+| `siglet-token-api`                          | `200` — `sub` must match the path segment |
+| `siglet-token-api:admin`                    | `403` — missing the required scope        |
+
+Everything else is unchanged: signature, `aud`, `exp`/`nbf` and the required-scope check all
+still apply, and `POST /tokens/verify` (which never bound `sub`) behaves as before.
+
+The feature is **off unless configured** — with the key absent, `siglet-token-api:admin` is
+just an unrecognised scope string and `sub` stays bound. When it *is* configured, siglet
+logs a warning at startup naming the scope, and a further warning on every request that
+uses the bypass, carrying the token's `sub` and the participant context it reached.
+
+Two values are rejected at startup: a blank scope (omit the key instead to disable the
+bypass) and a value equal to `required_scope` (which would silently turn every valid token
+into an admin token).
+
+> **Do not enable this in production.** Tokens are credentials for the underlying data
+> transfers; a caller with the admin scope can retrieve every participant's.
+
 ### Configuration
 
 Like the signaling API, auth is **on by default**: operators must either supply a
@@ -392,6 +423,10 @@ jwks_url = "https://idp.example.com/.well-known/jwks.json"
 audience = "https://siglet.example.com"   # optional, defaults to "siglet"
 cache_ttl_seconds = 300                    # optional, defaults to 300
 required_scope = "siglet-token-api"        # optional, defaults to "siglet-token-api"
+
+# Demo/debug only — waives the sub == participant_context_id check for callers holding this
+# scope. Absent by default; must differ from required_scope. Logs a warning at startup.
+# admin_scope = "siglet-token-api:admin"
 
 # Development — skip JWT verification on the token API. Logs a loud warning at startup.
 # [token_api_auth]
@@ -829,6 +864,9 @@ jwks_url = "https://idp.example.com/.well-known/jwks.json"
 audience = "siglet"                     # Default: "siglet"
 cache_ttl_seconds = 300                 # Default: 300
 required_scope = "siglet-token-api"     # Default: "siglet-token-api"
+# Waives sub == participant_context_id for holders of this scope. Absent by default; must
+# differ from required_scope. Demo/debug only — holders can read ANY participant's tokens.
+# admin_scope = "siglet-token-api:admin"
 
 # Management API JWT authentication (transfer-type & signing-key mapping CRUD, port 8083).
 # Separate from [signaling_auth]. Same on-by-default rule: set mode = "enabled" with a jwks_url,

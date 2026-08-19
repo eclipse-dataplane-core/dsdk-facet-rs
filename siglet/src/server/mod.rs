@@ -59,6 +59,9 @@ pub fn build_signaling_auth_layer(cfg: &SignalingAuthConfig, http_client: reqwes
             Duration::from_secs(*cache_ttl_seconds),
             audience,
             required_scope,
+            // No admin bypass on the signaling API: subject binding is the protocol's
+            // participant isolation, not a convenience.
+            None,
             http_client,
         ),
     }
@@ -74,6 +77,8 @@ pub fn build_signaling_auth_layer(cfg: &SignalingAuthConfig, http_client: reqwes
 /// token even when there is no participant context to bind `sub` against.
 ///
 /// Since the two APIs are disabled independently, the disabled branch logs its own warning.
+/// A configured `admin_scope` likewise announces itself at startup: its holders can reach
+/// every participant context, so it must never be silently in effect.
 pub fn build_token_api_auth_layer(cfg: &TokenApiAuthConfig, http_client: reqwest::Client) -> AuthLayer {
     match cfg {
         TokenApiAuthConfig::Disabled => {
@@ -88,13 +93,24 @@ pub fn build_token_api_auth_layer(cfg: &TokenApiAuthConfig, http_client: reqwest
             cache_ttl_seconds,
             audience,
             required_scope,
-        } => AuthLayer::enabled_http_require_token(
-            jwks_url,
-            Duration::from_secs(*cache_ttl_seconds),
-            audience,
-            required_scope,
-            http_client,
-        ),
+            admin_scope,
+        } => {
+            if let Some(admin_scope) = admin_scope {
+                warn!(
+                    "Token API admin scope '{}' is ENABLED — callers holding it can read and \
+                     delete tokens for ANY participant context. Do not use in production.",
+                    admin_scope
+                );
+            }
+            AuthLayer::enabled_http_require_token(
+                jwks_url,
+                Duration::from_secs(*cache_ttl_seconds),
+                audience,
+                required_scope,
+                admin_scope.clone(),
+                http_client,
+            )
+        }
     }
 }
 
@@ -127,15 +143,24 @@ pub fn build_management_api_auth_layers(
             audience,
         } => {
             let ttl = Duration::from_secs(*cache_ttl_seconds);
+            // The management routes are keyed on a generic `{id}`, so `sub` is never bound
+            // here and there is nothing for an admin scope to waive.
             let read = AuthLayer::enabled_http_require_token(
                 jwks_url,
                 ttl,
                 audience,
                 MANAGEMENT_API_READ_SCOPE,
+                None,
                 http_client.clone(),
             );
-            let write =
-                AuthLayer::enabled_http_require_token(jwks_url, ttl, audience, MANAGEMENT_API_WRITE_SCOPE, http_client);
+            let write = AuthLayer::enabled_http_require_token(
+                jwks_url,
+                ttl,
+                audience,
+                MANAGEMENT_API_WRITE_SCOPE,
+                None,
+                http_client,
+            );
             (read, write)
         }
     }

@@ -219,6 +219,9 @@ impl Default for ManagementApiAuthConfig {
 /// jwks_url = "https://idp.example.com/.well-known/jwks.json"
 /// audience = "siglet"
 ///
+/// # Demo/debug only: let holders of this scope read tokens across participant contexts.
+/// # admin_scope = "siglet-token-api:admin"
+///
 /// # Development: skip JWT verification on the token API.
 /// [token_api_auth]
 /// mode = "disabled"
@@ -241,6 +244,20 @@ pub enum TokenApiAuthConfig {
         /// Defaults to `"siglet-token-api"`. Must be non-empty when auth is enabled.
         #[serde(default = "default_token_api_scope")]
         required_scope: String,
+        /// Optional scope that waives subject binding on participant-scoped token routes.
+        ///
+        /// When a caller's `scope` claim contains this value, the verifier skips the
+        /// `sub == {participant_context_id}` check, letting a single principal retrieve or
+        /// delete tokens across participant contexts. The grant is *additive*: the token must
+        /// still carry `required_scope` to clear the scope gate, so naming an admin scope
+        /// widens what an already-authorized caller may reach rather than opening a second
+        /// way in.
+        ///
+        /// Absent by default — the bypass is off unless an operator names a scope.
+        /// Conventionally `"siglet-token-api:admin"`. Tokens are sensitive: intended for
+        /// demo and debugging deployments, never production.
+        #[serde(default)]
+        admin_scope: Option<String>,
     },
 }
 
@@ -254,6 +271,7 @@ impl Default for TokenApiAuthConfig {
             cache_ttl_seconds: DEFAULT_JWKS_CACHE_TTL_SECONDS,
             audience: DEFAULT_TOKEN_API_AUDIENCE.to_string(),
             required_scope: DEFAULT_TOKEN_API_SCOPE.to_string(),
+            admin_scope: None,
         }
     }
 }
@@ -742,6 +760,7 @@ impl SigletConfig {
             cache_ttl_seconds,
             audience,
             required_scope,
+            admin_scope,
         } = &self.token_api_auth
         {
             if jwks_url.is_empty() {
@@ -763,6 +782,23 @@ impl SigletConfig {
             // request closed. Same rationale as signaling_auth.required_scope above.
             if required_scope.trim().is_empty() {
                 errors.push("token_api_auth.required_scope cannot be empty".to_string());
+            }
+            // The admin scope waives subject binding, so a misconfigured value is a security
+            // problem rather than a startup annoyance. Omitting the key disables the bypass;
+            // a present-but-blank value would be an operator typo that silently does nothing.
+            if let Some(admin_scope) = admin_scope {
+                if admin_scope.trim().is_empty() {
+                    errors.push(
+                        "token_api_auth.admin_scope cannot be empty when set \
+                         (omit the key to disable the admin bypass)"
+                            .to_string(),
+                    );
+                } else if admin_scope == required_scope {
+                    // Otherwise every correctly-scoped token is an admin token and subject
+                    // binding is off for all callers — never what an operator means.
+                    errors
+                        .push("token_api_auth.admin_scope must differ from token_api_auth.required_scope".to_string());
+                }
             }
         }
 

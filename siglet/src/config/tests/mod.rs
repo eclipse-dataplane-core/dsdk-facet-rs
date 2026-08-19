@@ -100,6 +100,7 @@ fn test_valid_config_with_all_fields() {
             cache_ttl_seconds: 300,
             audience: "https://siglet.example.com".to_string(),
             required_scope: "siglet-token-api".to_string(),
+            admin_scope: None,
         },
         management_api_auth: ManagementApiAuthConfig::Enabled {
             jwks_url: "https://idp.example.com/.well-known/jwks.json".to_string(),
@@ -1475,6 +1476,11 @@ fn test_token_api_auth_default_is_enabled_with_empty_url() {
         TokenApiAuthConfig::default(),
         TokenApiAuthConfig::Enabled { jwks_url, .. } if jwks_url.is_empty()
     ));
+    // The admin bypass is opt-in: a default config never waives subject binding.
+    assert!(matches!(
+        TokenApiAuthConfig::default(),
+        TokenApiAuthConfig::Enabled { admin_scope: None, .. }
+    ));
 }
 
 #[test]
@@ -1485,6 +1491,7 @@ fn test_token_api_auth_enabled_requires_jwks_url() {
         cache_ttl_seconds: 300,
         audience: "siglet".to_string(),
         required_scope: "siglet-token-api".to_string(),
+        admin_scope: None,
     };
 
     let messages = config.validate().unwrap_err().messages().join("\n");
@@ -1499,6 +1506,7 @@ fn test_token_api_auth_enabled_rejects_invalid_jwks_url() {
         cache_ttl_seconds: 300,
         audience: "siglet".to_string(),
         required_scope: "siglet-token-api".to_string(),
+        admin_scope: None,
     };
 
     let messages = config.validate().unwrap_err().messages().join("\n");
@@ -1513,6 +1521,7 @@ fn test_token_api_auth_enabled_with_valid_jwks_url_passes() {
         cache_ttl_seconds: 300,
         audience: "siglet".to_string(),
         required_scope: "siglet-token-api".to_string(),
+        admin_scope: None,
     };
 
     assert!(config.validate().is_ok());
@@ -1534,6 +1543,7 @@ fn test_token_api_auth_rejects_zero_cache_ttl() {
         cache_ttl_seconds: 0,
         audience: "siglet".to_string(),
         required_scope: "siglet-token-api".to_string(),
+        admin_scope: None,
     };
 
     let messages = config.validate().unwrap_err().messages().join("\n");
@@ -1548,6 +1558,7 @@ fn test_token_api_auth_rejects_empty_audience() {
         cache_ttl_seconds: 300,
         audience: String::new(),
         required_scope: "siglet-token-api".to_string(),
+        admin_scope: None,
     };
 
     let messages = config.validate().unwrap_err().messages().join("\n");
@@ -1564,10 +1575,81 @@ fn test_token_api_auth_rejects_empty_required_scope() {
         cache_ttl_seconds: 300,
         audience: "siglet".to_string(),
         required_scope: "   ".to_string(),
+        admin_scope: None,
     };
 
     let messages = config.validate().unwrap_err().messages().join("\n");
     assert!(messages.contains("token_api_auth.required_scope cannot be empty"));
+}
+
+#[test]
+fn test_token_api_auth_rejects_blank_admin_scope() {
+    // Omitting the key disables the bypass; a present-but-blank value is an operator
+    // typo that would silently do nothing, so fail loudly at startup instead.
+    let mut config = create_valid_config();
+    config.token_api_auth = TokenApiAuthConfig::Enabled {
+        jwks_url: "https://idp.example.com/.well-known/jwks.json".to_string(),
+        cache_ttl_seconds: 300,
+        audience: "siglet".to_string(),
+        required_scope: "siglet-token-api".to_string(),
+        admin_scope: Some("   ".to_string()),
+    };
+
+    let messages = config.validate().unwrap_err().messages().join("\n");
+    assert!(messages.contains("token_api_auth.admin_scope cannot be empty when set"));
+}
+
+#[test]
+fn test_token_api_auth_rejects_admin_scope_equal_to_required_scope() {
+    // Otherwise every correctly-scoped token becomes an admin token and subject binding
+    // is silently off for all callers.
+    let mut config = create_valid_config();
+    config.token_api_auth = TokenApiAuthConfig::Enabled {
+        jwks_url: "https://idp.example.com/.well-known/jwks.json".to_string(),
+        cache_ttl_seconds: 300,
+        audience: "siglet".to_string(),
+        required_scope: "siglet-token-api".to_string(),
+        admin_scope: Some("siglet-token-api".to_string()),
+    };
+
+    let messages = config.validate().unwrap_err().messages().join("\n");
+    assert!(messages.contains("token_api_auth.admin_scope must differ from token_api_auth.required_scope"));
+}
+
+#[test]
+fn test_token_api_auth_accepts_distinct_admin_scope() {
+    let mut config = create_valid_config();
+    config.token_api_auth = TokenApiAuthConfig::Enabled {
+        jwks_url: "https://idp.example.com/.well-known/jwks.json".to_string(),
+        cache_ttl_seconds: 300,
+        audience: "siglet".to_string(),
+        required_scope: "siglet-token-api".to_string(),
+        admin_scope: Some("siglet-token-api:admin".to_string()),
+    };
+
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_token_api_auth_admin_scope_round_trip() {
+    let json = r#"{
+        "mode": "enabled",
+        "jwks_url": "https://idp.example.com/.well-known/jwks.json",
+        "admin_scope": "siglet-token-api:admin"
+    }"#;
+    let parsed: TokenApiAuthConfig = serde_json::from_str(json).unwrap();
+    match parsed {
+        TokenApiAuthConfig::Enabled {
+            required_scope,
+            admin_scope,
+            ..
+        } => {
+            assert_eq!(admin_scope.as_deref(), Some("siglet-token-api:admin"));
+            // Naming an admin scope leaves the required scope at its default.
+            assert_eq!(required_scope, "siglet-token-api");
+        }
+        TokenApiAuthConfig::Disabled => panic!("expected Enabled variant"),
+    }
 }
 
 #[test]
@@ -1595,6 +1677,7 @@ fn test_token_api_auth_deserialize_enabled_uses_defaults() {
             cache_ttl_seconds: 300,
             audience: "siglet".to_string(),
             required_scope: "siglet-token-api".to_string(),
+            admin_scope: None,
         }
     );
 }
