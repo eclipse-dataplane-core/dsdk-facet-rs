@@ -223,11 +223,16 @@ impl<Tx> SigletDataFlowHandler<Tx> {
     /// Callers are responsible for checking that the transfer type's token source matches; see
     /// `handle_flow`.
     ///
-    /// Claims are assembled in three layers, each able to override the last:
-    /// 1. `flow.metadata`, copied verbatim — values keep their JSON type
-    /// 2. the flow-level claims (agreement, participant, dataset, counter-party), only when
+    /// Claims are assembled in two layers, the second able to override the first:
+    /// 1. the flow-level claims (agreement, participant, dataset, counter-party), only when
     ///    `required_source` is `Provider`
-    /// 3. the configured claim mappings, so an operator can reshape or replace anything above
+    /// 2. the configured claim mappings, so an operator can reshape or replace anything above
+    ///
+    /// `flow.metadata` is deliberately *not* copied in. Metadata is control-plane-to-data-plane
+    /// state and may carry information that has no business leaving the data plane, so a token
+    /// exposes a metadata entry only when an operator asks for it by name — via a claim mapping
+    /// such as `{ from = "flow.metadata.region", to = "region" }`. Metadata still drives endpoint
+    /// resolution (see `resolve_endpoint`), which stays internal.
     ///
     /// Claim keys that would collide with a reserved JWT claim are rejected when the configuration
     /// is written, and `TokenManager::generate_pair` rejects them again as a backstop.
@@ -239,7 +244,7 @@ impl<Tx> SigletDataFlowHandler<Tx> {
         flow: &DataFlow,
         required_source: TokenSource,
     ) -> HandlerResult<RenewableTokenPair> {
-        let mut claims: HashMap<String, Value> = flow.metadata.clone();
+        let mut claims: HashMap<String, Value> = HashMap::new();
 
         if matches!(required_source, TokenSource::Provider) {
             claims.insert(CLAIM_AGREEMENT_ID.to_string(), Value::String(flow.agreement_id.clone()));

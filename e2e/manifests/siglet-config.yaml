@@ -33,3 +33,9 @@ data:
     endpoint_type = "HTTP"
     endpoint = "http://provider:8080/data"
     token_source = "provider"
+
+    # Flow metadata never reaches a token on its own; only a mapping exposes it. `claim1` is
+    # mapped here, `claim2` deliberately is not — the e2e flow asserts both halves.
+    [[transfer_types.claim_mappings]]
+    from = "flow.metadata.claim1"
+    to = "claim1"
