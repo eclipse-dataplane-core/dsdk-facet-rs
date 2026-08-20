@@ -967,15 +967,23 @@ async fn test_endpoint_claim_mappings_override_root() {
 }
 
 #[tokio::test]
-async fn test_mapped_claim_overrides_metadata_claim() {
-    let transfer_type = transfer_type_with_claim_mappings(vec![claim_mapping("'mapped'", "shared")]);
+async fn test_metadata_reaches_claims_only_through_a_mapping() {
+    // Metadata is opt-in: a key is exposed to the token only when a mapping names it.
+    let transfer_type = transfer_type_with_claim_mappings(vec![claim_mapping("flow.metadata.mapped", "mapped")]);
 
     let mut flow = create_test_flow("flow-1", "participant-1", "http-pull");
     flow.metadata
-        .insert("shared".to_string(), Value::String("from-metadata".to_string()));
+        .insert("mapped".to_string(), Value::String("exposed".to_string()));
+    flow.metadata
+        .insert("unmapped".to_string(), Value::String("internal".to_string()));
 
     let claims = claims_for(transfer_type, &flow).await.unwrap();
-    assert_eq!(claims.get("shared"), Some(&Value::String("mapped".to_string())));
+
+    assert_eq!(claims.get("mapped"), Some(&Value::String("exposed".to_string())));
+    assert!(
+        !claims.contains_key("unmapped"),
+        "metadata without a mapping must not reach the token"
+    );
 }
 
 #[tokio::test]
@@ -1038,9 +1046,10 @@ async fn test_optional_claim_mapping_failure_is_skipped() {
 }
 
 #[tokio::test]
-async fn test_no_claim_mappings_leaves_claims_unchanged() {
-    // Regression guard: a transfer type with endpoint mappings but no claim mappings must produce
-    // exactly the claims it did before claim mapping existed.
+async fn test_metadata_is_not_copied_into_claims() {
+    // Regression guard: flow metadata never lands in the token on its own. The flow below carries
+    // an `app` metadata entry because the endpoint mapping matches on it — and that entry must
+    // still be absent from the claims.
     let endpoint_mapping = EndpointMapping::builder()
         .key("app".to_string())
         .value("app1".to_string())
@@ -1064,7 +1073,7 @@ async fn test_no_claim_mappings_leaves_claims_unchanged() {
     keys.sort();
     assert_eq!(
         keys,
-        vec!["agreementId", "app", "counterPartyId", "datasetId", "participantId"]
+        vec!["agreementId", "counterPartyId", "datasetId", "participantId"]
     );
 }
 

@@ -93,14 +93,30 @@ Custom claims **cannot** override reserved claims (`iss`, `sub`, `aud`, `exp`, `
 ### Mapped Claims
 
 On top of the above, a transfer type may declare **claim mappings** that compute claims from the data flow — see
-[Claim Mapping](#claim-mapping). Claims are assembled in three layers, each able to override the last:
+[Claim Mapping](#claim-mapping). Claims are assembled in two layers, the second able to override the first:
 
-1. `DataFlow.metadata`, copied verbatim
-2. the four flow-level claims in the table above (provider-initiated flows only)
-3. the configured claim mappings
+1. the four flow-level claims in the table above (provider-initiated flows only)
+2. the configured claim mappings
 
-Because mappings are applied last, an operator can deliberately reshape or replace a metadata entry or a built-in
-claim. Reserved claim names remain off limits and are rejected when the configuration is written, not at flow time.
+Because mappings are applied last, an operator can deliberately reshape or replace a built-in claim. Reserved claim
+names remain off limits and are rejected when the configuration is written, not at flow time.
+
+`DataFlow.metadata` is **not** copied into the token. Metadata is control-plane-to-data-plane state and may carry
+information that has no business reaching the counter-party, so a metadata entry is exposed only when an operator
+asks for it by name:
+
+```toml
+[[transfer_types.claim_mappings]]
+from = "flow.metadata.region"
+to = "region"
+```
+
+Metadata still drives endpoint resolution (`endpoint_mappings`), which stays internal to the data plane.
+
+> **Migrating.** Metadata used to be copied into every token verbatim. If a deployment relied on that, add one
+> `claimMappings` entry per key you actually need — there is no wildcard, and mapping `flow.metadata` as a whole
+> would nest the entire map under a single claim rather than flatten it. One value can also differ: the old copy
+> preserved a double-JSON-encoded string as `"\"x\""`, whereas `flow.metadata.k` unwraps it to `x`.
 
 Claim values keep their JSON type end to end: a mapping that yields a list or an object lands in the JWT as a real
 JSON array or object, not as a string.
@@ -658,7 +674,8 @@ key:
 | `to`       | The JWT claim key to bind the result to. Cannot be a reserved claim.                              |
 | `optional` | When `true`, the mapping is skipped if the expression fails or yields null. Defaults to `false`.   |
 
-Mappings apply after the metadata and built-in claims, so they can override either — see [Mapped Claims](#mapped-claims).
+Mappings apply after the built-in claims, so they can override them, and they are the only way a `flow.metadata` entry
+reaches a token — see [Mapped Claims](#mapped-claims).
 
 ### Where mappings live
 
@@ -700,13 +717,12 @@ Two behaviours worth knowing:
 - **JSON-encoded strings are unwrapped.** Control planes differ in whether they send structured metadata as real JSON
   or as a string containing JSON. Values in `flow.metadata` and `flow.claims` that parse as JSON are exposed to
   expressions as the parsed structure, so one expression works against both. Only the top level is unwrapped.
-  Note this normalization applies to what *expressions* see; metadata copied straight into claims is untouched.
 - **`flow.dataAddress["@type"]`** needs index syntax, since `@type` is not an identifier.
 
 ### Cookbook
 
 ```python
-# rename or namespace a metadata entry
+# expose a metadata entry as a claim (metadata is never copied in on its own)
 flow.metadata.region
 
 # metadata keys that are not identifiers need index syntax

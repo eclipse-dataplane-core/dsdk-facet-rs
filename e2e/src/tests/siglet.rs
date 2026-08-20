@@ -589,7 +589,7 @@ async fn step_start(ctx: &TestCtx) -> Result<StartOutput> {
             .filter(|s| !s.is_empty())
             .context("Authorization property not found or empty in data address")?;
 
-        // Decode the JWT payload and verify the provider's custom claims are present.
+        // Decode the JWT payload and verify claim mapping governs what metadata is exposed.
         let token_parts: Vec<&str> = token.split('.').collect();
         assert_eq!(
             token_parts.len(),
@@ -601,15 +601,17 @@ async fn step_start(ctx: &TestCtx) -> Result<StartOutput> {
             .context("Failed to decode JWT payload")?;
         let jwt_payload: serde_json::Value =
             serde_json::from_slice(&payload_bytes).context("Failed to parse JWT payload as JSON")?;
+        // claim1 is exposed by a claim mapping in the siglet config; claim2 is not mapped and
+        // must stay inside the data plane.
         assert_eq!(
             jwt_payload.get("claim1").and_then(|v| v.as_str()),
             Some("claimvalue1"),
-            "claim1 should be present in JWT with correct value"
+            "claim1 should be mapped into the JWT with correct value"
         );
-        assert_eq!(
-            jwt_payload.get("claim2").and_then(|v| v.as_str()),
-            Some("claimvalue2"),
-            "claim2 should be present in JWT with correct value"
+        assert!(
+            jwt_payload.get("claim2").is_none(),
+            "unmapped flow metadata must not reach the JWT, got: {}",
+            jwt_payload
         );
 
         let refresh_token = get_prop("refreshToken").context("Refresh token not found in data address")?;

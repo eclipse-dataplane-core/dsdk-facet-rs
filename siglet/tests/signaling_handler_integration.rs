@@ -87,16 +87,14 @@ async fn test_on_start_creates_token() {
     let payload_str = String::from_utf8(payload_bytes).expect("Failed to convert payload to string");
     let jwt_payload: Value = serde_json::from_str(&payload_str).expect("Failed to parse JWT payload as JSON");
 
-    // Verify the metadata claims are present in the JWT
-    assert_eq!(
-        jwt_payload.get("key1").and_then(|v| v.as_str()),
-        Some("value1"),
-        "key1 should be present in JWT with correct value"
+    // The flow carries key1/key2 metadata; neither may reach the token without a claim mapping.
+    assert!(
+        jwt_payload.get("key1").is_none(),
+        "flow metadata must not be copied into the JWT: {jwt_payload}"
     );
-    assert_eq!(
-        jwt_payload.get("key2").and_then(|v| v.as_str()),
-        Some("value2"),
-        "key2 should be present in JWT with correct value"
+    assert!(
+        jwt_payload.get("key2").is_none(),
+        "flow metadata must not be copied into the JWT: {jwt_payload}"
     );
 
     // Verify additional flow-based claims are present in the JWT
@@ -330,99 +328,6 @@ async fn test_on_started_missing_token_errors() {
     let result = handler.on_started(&mut tx, &flow).await;
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("authorization"));
-}
-
-/// Verifies that a metadata value of JSON null produces an empty-string claim in the JWT.
-///
-/// value_to_claim_string maps JSON null → "". This test pins that behavior at the callsite,
-/// so it is visible to anyone reading the claim-generation path, not just the private helper.
-#[tokio::test]
-async fn test_on_start_metadata_null_produces_empty_claim() {
-    let mut metadata = HashMap::new();
-    metadata.insert("nullable_field".to_string(), Value::Null);
-
-    let flow = DataFlow::builder()
-        .id("flow-null")
-        .participant_id("participant-1")
-        .profile("http-pull")
-        .agreement_id("agreement-1")
-        .dataset_id("dataset-1")
-        .dataspace_context("dataspace-1")
-        .counter_party_id("counter-party-1")
-        .control_plane_id("control-plane-1")
-        .participant_context_id("context-1")
-        .metadata(metadata)
-        .kind(DataFlowType::Provider)
-        .build();
-
-    let token_store = Arc::new(MemoryTokenStore::new());
-    let token_manager = create_jwt_token_manager();
-    let handler = SigletDataFlowHandler::builder()
-        .token_store(token_store)
-        .token_manager(token_manager)
-        .dataplane_id("test-dataplane")
-        .transfer_type_mappings(http_pull_mappings())
-        .build();
-
-    let context = MemoryContext;
-    let mut tx = context.begin().await.unwrap();
-    let response = handler.on_start(&mut tx, &flow).await.unwrap();
-
-    let jwt_payload = decode_jwt_payload(&response);
-    assert_eq!(
-        jwt_payload.get("nullable_field"),
-        Some(&serde_json::Value::Null),
-        "JSON null metadata value is preserved as null in the claim"
-    );
-}
-
-/// Verifies that a JSON-encoded string in metadata is unwrapped to its inner value in the JWT.
-///
-/// value_to_claim_string unwraps double-encoded strings: `"\"hello\""` → `hello`.
-/// This test pins that behavior at the callsite, so the transformation is visible
-/// when reading the claim-generation path.
-#[tokio::test]
-async fn test_on_start_json_encoded_metadata_unwrapped_in_claim() {
-    let mut metadata = HashMap::new();
-    // Simulates a provider that JSON-encodes string values before putting them in metadata
-    metadata.insert(
-        "encoded_field".to_string(),
-        Value::String("\"inner-value\"".to_string()),
-    );
-
-    let flow = DataFlow::builder()
-        .id("flow-encoded")
-        .participant_id("participant-1")
-        .profile("http-pull")
-        .agreement_id("agreement-1")
-        .dataset_id("dataset-1")
-        .dataspace_context("dataspace-1")
-        .counter_party_id("counter-party-1")
-        .control_plane_id("control-plane-1")
-        .participant_context_id("context-1")
-        .metadata(metadata)
-        .kind(DataFlowType::Provider)
-        .build();
-
-    let token_store = Arc::new(MemoryTokenStore::new());
-    let token_manager = create_jwt_token_manager();
-    let handler = SigletDataFlowHandler::builder()
-        .token_store(token_store)
-        .token_manager(token_manager)
-        .dataplane_id("test-dataplane")
-        .transfer_type_mappings(http_pull_mappings())
-        .build();
-
-    let context = MemoryContext;
-    let mut tx = context.begin().await.unwrap();
-    let response = handler.on_start(&mut tx, &flow).await.unwrap();
-
-    let jwt_payload = decode_jwt_payload(&response);
-    assert_eq!(
-        jwt_payload.get("encoded_field").and_then(|v| v.as_str()),
-        Some("\"inner-value\""),
-        "JSON-encoded string metadata value is preserved as-is in the claim"
-    );
 }
 
 // ============================================================================
@@ -848,9 +753,9 @@ async fn test_on_start_mapped_claim_in_jwt() {
 
     assert_eq!(payload["mappedParticipant"], Value::String("participant-1".to_string()));
     assert_eq!(payload["assetUrn"], Value::String("urn:asset:dataset-1".to_string()));
-    // The pre-existing claims are untouched.
+    // The built-in flow claims are untouched, and the flow's metadata still stays out.
     assert_eq!(payload[CLAIM_AGREEMENT_ID], Value::String("agreement-1".to_string()));
-    assert_eq!(payload["key1"], Value::String("value1".to_string()));
+    assert_eq!(payload["key1"], Value::Null);
 }
 
 #[tokio::test]
