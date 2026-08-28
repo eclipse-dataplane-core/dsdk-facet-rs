@@ -1602,9 +1602,9 @@ dependencies = [
 
 [[package]]
 name = "dataplane-sdk"
-version = "0.1.1"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b31a4ed23306b47941f6cff8bdd8fa51dfeda4c3d68e9bdf5d8736a918b8a75d"
+checksum = "b4a0e49b294f90ffcbb873ae0c050fe36c57a309c7b3134c0b02c21fef88de85"
 dependencies = [
  "async-trait",
  "bon",
@@ -1618,9 +1618,9 @@ dependencies = [
 
 [[package]]
 name = "dataplane-sdk-axum"
-version = "0.1.1"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "04ccdbd65e9659a6c81dcb8251e9eba4eab2df197569f2390d1d4eb19677d859"
+checksum = "1cdcb9ade12079e6f6037f654900775d53411b0033fa345f9a3f20d0a51118fc"
 dependencies = [
  "anyhow",
  "axum",
@@ -1632,9 +1632,9 @@ dependencies = [
 
 [[package]]
 name = "dataplane-sdk-postgres"
-version = "0.1.1"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5d7bf56d59de518d459bd574d9a50ab9b59ca06d8acca3ab7f749b4cfbae5320"
+checksum = "dc5db12bc34204aed3a6c9b4b5228d7d932dda9596a1aaa47fc0894c0fe66632"
 dependencies = [
  "async-trait",
  "bon",
