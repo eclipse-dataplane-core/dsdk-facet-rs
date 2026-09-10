@@ -80,7 +80,8 @@ impl JwtVerifier for RenewMockVerifier {
         let mut custom = serde_json::Map::new();
         custom.insert("token".to_string(), Value::String(self.embedded_token.clone()));
         Ok(crate::jwt::TokenClaims::builder()
-            .iss("test")
+            // `renew` requires iss == sub == the recorded subject.
+            .iss(&self.subject)
             .sub(&self.subject)
             .aud("test_audience")
             .exp(9999999999)
