@@ -120,6 +120,43 @@ async fn test_file_based_trigger_nonexistent_file() {
     assert!(result.is_err(), "Creating trigger with non-existent file should fail");
 }
 
+/// A kubelet-style token rotation must fire the trigger. The token path is a stable symlink
+/// that is never touched; the rotation writes a new timestamped directory, swaps the `..data`
+/// symlink, and deletes the old directory.
+#[cfg(unix)]
+#[tokio::test]
+async fn test_file_based_trigger_fires_on_kubelet_rotation() {
+    let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
+    let mount = temp_dir.path().join("mount");
+    let old_data = mount.join("..2026_09_07_01_00_00.000000000");
+    let new_data = mount.join("..2026_09_07_02_00_00.000000000");
+
+    std::fs::create_dir_all(&old_data).expect("Failed to create data dir");
+    std::fs::write(old_data.join("token"), "token-a").expect("Failed to write token");
+    std::os::unix::fs::symlink("..data/token", mount.join("token")).expect("Failed to link token");
+    std::os::unix::fs::symlink(old_data.file_name().unwrap(), mount.join("..data")).expect("Failed to link ..data");
+
+    assert_eq!(std::fs::read_to_string(mount.join("token")).unwrap(), "token-a");
+
+    let mut trigger = FileBasedRenewalTrigger::new(mount.join("token")).expect("Failed to create file based trigger");
+
+    let rotation = tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        std::fs::create_dir_all(&new_data).expect("Failed to create new data dir");
+        std::fs::write(new_data.join("token"), "token-b").expect("Failed to write new token");
+        std::fs::remove_file(mount.join("..data")).expect("Failed to remove ..data");
+        std::os::unix::fs::symlink(new_data.file_name().unwrap(), mount.join("..data"))
+            .expect("Failed to relink ..data");
+        std::fs::remove_dir_all(&old_data).expect("Failed to remove old data dir");
+    });
+
+    let result = timeout(Duration::from_secs(5), trigger.wait_for_trigger(3600, 0)).await;
+
+    assert!(result.is_ok(), "Trigger should fire within timeout");
+    assert!(result.unwrap().is_ok(), "Trigger should succeed");
+    rotation.await.expect("rotation task join")
+}
+
 /// Test that FileBasedRenewalTrigger can be reused after triggering
 #[tokio::test]
 async fn test_file_based_trigger_reuse() {
