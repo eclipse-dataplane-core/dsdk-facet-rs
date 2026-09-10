@@ -350,6 +350,15 @@ impl TokenManager for JwtTokenManager {
             .map_err(|_| TokenError::NotAuthorized("Invalid refresh token".to_string()))?;
 
         let verified_claims = self.client_verifier.verify_token(&entry.audience, bound_token).await?;
+
+        // The bound token proves possession of the client's key. Verification resolves the
+        // signing key from `iss`, so `iss` identifies who actually signed; `sub` is only an
+        // assertion. Both must be the recorded subject, per the Tractus-X refresh profile
+        // requirement that the client authentication token has iss == sub == client DID.
+        // Checking `sub` alone would let any signer mint tokens for the subject it names.
+        if verified_claims.iss != entry.subject {
+            return Err(TokenError::NotAuthorized("Issuer mismatch".to_string()));
+        }
         if verified_claims.sub != entry.subject {
             return Err(TokenError::NotAuthorized("Subject mismatch".to_string()));
         }

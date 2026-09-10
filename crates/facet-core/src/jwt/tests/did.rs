@@ -283,6 +283,15 @@ async fn test_resolve_key_scenarios() {
         Err(JwtVerificationError::VerificationFailed(msg)) if msg.contains("must include fragment")
     ));
 
+    // Scenario: kid names a different DID than iss → rejected before any HTTP call, so the
+    // header cannot redirect key resolution to a document the issuer does not control.
+    assert!(matches!(
+        resolver
+            .resolve_key(&did, "did:web:attacker.example.com#key-1")
+            .await,
+        Err(JwtVerificationError::VerificationFailed(msg)) if msg.contains("does not match issuer")
+    ));
+
     // Scenario: non-existent host → network error
     assert!(
         resolver

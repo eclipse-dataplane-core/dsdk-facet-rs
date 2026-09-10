@@ -201,6 +201,16 @@ impl VerificationKeyResolver for DidWebVerificationKeyResolver {
             ));
         };
 
+        // A `kid` carrying a full DID URL must name the same DID as `iss`. Without this the
+        // header alone would decide which DID document is fetched, letting a token point at a
+        // key that has no relationship to the issuer it claims.
+        if base_did != iss {
+            return Err(JwtVerificationError::VerificationFailed(format!(
+                "kid DID {} does not match issuer {}",
+                base_did, iss
+            )));
+        }
+
         // Convert did:web to HTTP(S) URL
         let url = self.did_web_to_url(&base_did)?;
 

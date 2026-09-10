@@ -385,10 +385,11 @@ async fn test_renew_subject_mismatch() {
         .await
         .expect("generate_pair should succeed");
 
-    // Create bound token with DIFFERENT subject
-    let bound_token = create_bound_token(
+    // Create bound token signed by the recorded subject but naming a DIFFERENT subject
+    let bound_token = create_bound_token_with_iss(
         &fixture,
         &pc,
+        "did:web:consumer.com",           // Correct issuer, so the sub check is what fires
         "did:web:different-consumer.com", // Different subject!
         &original_pair.token,
         clock.clone(),
@@ -402,6 +403,53 @@ async fn test_renew_subject_mismatch() {
     match result.unwrap_err() {
         TokenError::NotAuthorized(msg) => {
             assert_eq!(msg, "Subject mismatch");
+        }
+        other => panic!("Expected NotAuthorized error, got: {:?}", other),
+    }
+}
+
+/// Regression test: a bound token signed by a key other than the recorded subject's must be
+/// rejected, even when every other claim is copied from valid material.
+///
+/// `renew` resolves the verification key from `iss`, so a caller who controls any DID can sign
+/// a bound token, set `sub` to the victim's DID and embed a stolen access token. Without the
+/// `iss` check the proof-of-possession requirement collapses to plain bearer security.
+#[tokio::test]
+async fn test_renew_issuer_mismatch() {
+    let fixed_time = DateTime::from_timestamp(1000000000, 0).unwrap();
+    let clock = Arc::new(MockClock::new(fixed_time)) as Arc<dyn Clock>;
+    let fixture = create_jwt_token_manager(clock.clone());
+
+    let pc = ParticipantContext::builder()
+        .id("12345")
+        .identifier("did:web:provider.com")
+        .audience("did:web:provider.com")
+        .build();
+
+    let original_pair = fixture
+        .manager
+        .generate_pair(&pc, "did:web:consumer.com", HashMap::new(), "test_flow".to_string())
+        .await
+        .expect("generate_pair should succeed");
+
+    // Bound token issued by an attacker DID but claiming the victim as subject, carrying the
+    // victim's access token.
+    let bound_token = create_bound_token_with_iss(
+        &fixture,
+        &pc,
+        "did:web:attacker.com", // Different issuer!
+        "did:web:consumer.com",
+        &original_pair.token,
+        clock.clone(),
+    )
+    .await;
+
+    let result = fixture.manager.renew(&bound_token, &original_pair.refresh_token).await;
+
+    assert!(result.is_err(), "Should reject issuer mismatch");
+    match result.unwrap_err() {
+        TokenError::NotAuthorized(msg) => {
+            assert_eq!(msg, "Issuer mismatch");
         }
         other => panic!("Expected NotAuthorized error, got: {:?}", other),
     }
@@ -428,7 +476,7 @@ async fn test_renew_missing_token_claim() {
 
     // Create bound token without "token" claim
     let claims = TokenClaims::builder()
-        .iss("did:web:issuer.com")
+        .iss("did:web:consumer.com")
         .sub("did:web:consumer.com")
         .aud(pc.identifier.clone())
         .exp(clock.now().timestamp() + 300)
@@ -786,7 +834,10 @@ fn create_jwt_token_manager(clock: Arc<dyn Clock>) -> TestFixture {
     }
 }
 
-/// Helper to create a bound token (JWT containing the access token)
+/// Helper to create a bound token (JWT containing the access token).
+///
+/// Mirrors what a real client sends: `iss` and `sub` both carry the client's own DID
+/// (see `OAuth2TokenClient::refresh_token`).
 async fn create_bound_token(
     fixture: &TestFixture,
     participant_context: &ParticipantContext,
@@ -794,8 +845,21 @@ async fn create_bound_token(
     access_token: &str,
     clock: Arc<dyn Clock>,
 ) -> String {
+    create_bound_token_with_iss(fixture, participant_context, subject, subject, access_token, clock).await
+}
+
+/// Helper to create a bound token with `iss` and `sub` set independently, so tests can
+/// exercise each of `renew`'s identity checks in isolation.
+async fn create_bound_token_with_iss(
+    fixture: &TestFixture,
+    participant_context: &ParticipantContext,
+    issuer: &str,
+    subject: &str,
+    access_token: &str,
+    clock: Arc<dyn Clock>,
+) -> String {
     let claims = TokenClaims::builder()
-        .iss("did:web:issuer.com")
+        .iss(issuer)
         .sub(subject)
         .aud(participant_context.identifier.clone())
         .exp(clock.now().timestamp() + 300) // 5 minutes
