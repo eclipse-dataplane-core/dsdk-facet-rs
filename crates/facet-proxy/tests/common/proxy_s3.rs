@@ -22,7 +22,7 @@ use dsdk_facet_core::jwt::JwtVerifier;
 use dsdk_facet_proxy::s3::{
     DefaultS3OperationParser, S3CredentialResolver, S3Credentials, S3OperationParser, S3Proxy, UpstreamStyle,
 };
-use dsdk_facet_testcontainers::minio::{MINIO_ACCESS_KEY, MINIO_SECRET_KEY};
+use dsdk_facet_testcontainers::s3::{S3_ACCESS_KEY, S3_SECRET_KEY};
 use pingora::server::Server;
 use pingora::server::configuration::Opt;
 use pingora_proxy::http_proxy_service;
@@ -70,8 +70,8 @@ impl ProxyConfig {
     ) -> Self {
         let credential_resolver = Arc::new(PassthroughCredentialsResolver {
             credentials: S3Credentials {
-                access_key_id: MINIO_ACCESS_KEY.to_string(),
-                secret_key: MINIO_SECRET_KEY.to_string(),
+                access_key_id: S3_ACCESS_KEY.to_string(),
+                secret_key: S3_SECRET_KEY.to_string(),
                 region: "us-east-1".to_string(),
             },
         });
@@ -111,8 +111,8 @@ impl ProxyConfig {
     ) -> Self {
         let credential_resolver = Arc::new(PassthroughCredentialsResolver {
             credentials: S3Credentials {
-                access_key_id: MINIO_ACCESS_KEY.to_string(),
-                secret_key: MINIO_SECRET_KEY.to_string(),
+                access_key_id: S3_ACCESS_KEY.to_string(),
+                secret_key: S3_SECRET_KEY.to_string(),
                 region: "us-east-1".to_string(),
             },
         });

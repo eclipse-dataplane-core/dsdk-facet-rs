@@ -224,7 +224,7 @@ fn test_build_upstream_host_path_style() {
         key: "my-key".to_string(),
     };
     let (host, port) = proxy.build_upstream_host(&parsed).unwrap();
-    assert_eq!(host, "minio");
+    assert_eq!(host, "upstream");
     assert_eq!(port, 9000);
 }
 
@@ -236,7 +236,7 @@ fn test_build_upstream_host_virtual_hosted() {
         key: "my-key".to_string(),
     };
     let (host, port) = proxy.build_upstream_host(&parsed).unwrap();
-    assert_eq!(host, "my-bucket.minio");
+    assert_eq!(host, "my-bucket.upstream");
     assert_eq!(port, 9000);
 }
 
@@ -249,7 +249,7 @@ fn test_build_upstream_uri_and_host_path_style() {
     };
     let (uri, host) = proxy.build_upstream_uri_and_host(&parsed);
     assert_eq!(uri, "/my-bucket/path/to/file.txt");
-    assert_eq!(host, "minio:9000");
+    assert_eq!(host, "upstream:9000");
 }
 
 #[test]
@@ -261,7 +261,7 @@ fn test_build_upstream_uri_and_host_path_style_empty_key() {
     };
     let (uri, host) = proxy.build_upstream_uri_and_host(&parsed);
     assert_eq!(uri, "/my-bucket");
-    assert_eq!(host, "minio:9000");
+    assert_eq!(host, "upstream:9000");
 }
 
 #[test]
@@ -273,7 +273,7 @@ fn test_build_upstream_uri_and_host_virtual_hosted() {
     };
     let (uri, host) = proxy.build_upstream_uri_and_host(&parsed);
     assert_eq!(uri, "/path/to/file.txt");
-    assert_eq!(host, "my-bucket.minio:9000");
+    assert_eq!(host, "my-bucket.upstream:9000");
 }
 
 #[test]
@@ -285,13 +285,13 @@ fn test_build_upstream_uri_and_host_virtual_hosted_empty_key() {
     };
     let (uri, host) = proxy.build_upstream_uri_and_host(&parsed);
     assert_eq!(uri, "/");
-    assert_eq!(host, "my-bucket.minio:9000");
+    assert_eq!(host, "my-bucket.upstream:9000");
 }
 
 fn create_test_proxy(upstream_style: UpstreamStyle, proxy_domain: Option<String>) -> S3Proxy {
     S3Proxy::builder()
         .use_tls(false)
-        .upstream_endpoint("minio:9000".to_string())
+        .upstream_endpoint("upstream:9000".to_string())
         .upstream_style(upstream_style)
         .maybe_proxy_domain(proxy_domain)
         .credential_resolver(Arc::new(StaticCredentialsResolver {

@@ -17,7 +17,7 @@ use aws_config::BehaviorVersion;
 use aws_sdk_s3::Client;
 use aws_sdk_s3::config::{Credentials, Region};
 use dsdk_facet_proxy::s3::UpstreamStyle;
-use dsdk_facet_testcontainers::minio::{MINIO_ACCESS_KEY, MINIO_SECRET_KEY, MinioInstance, TEST_BUCKET, TEST_KEY};
+use dsdk_facet_testcontainers::s3::{S3_ACCESS_KEY, S3_SECRET_KEY, S3Instance, TEST_BUCKET, TEST_KEY};
 
 const TEST_CONTENT: &str = "Hello from Pingora proxy test!";
 const VALID_SESSION_TOKEN: &str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c";
@@ -25,17 +25,16 @@ const INVALID_SESSION_TOKEN: &str = "invalid-token";
 
 #[tokio::test]
 async fn test_s3_proxy_with_token_validation() {
-    // Start MinIO container
-    let minio = MinioInstance::launch().await;
-    minio
-        .setup_bucket_with_file(TEST_BUCKET, TEST_KEY, TEST_CONTENT.as_bytes())
+    // Start S3 test server container
+    let s3 = S3Instance::launch().await;
+    s3.setup_bucket_with_file(TEST_BUCKET, TEST_KEY, TEST_CONTENT.as_bytes())
         .await;
 
     // Get an available port for the proxy
     let proxy_port = get_available_port();
     let config = ProxyConfig::for_token_testing(
         proxy_port,
-        minio.host.clone(),
+        s3.host.clone(),
         UpstreamStyle::PathStyle,
         None,
         VALID_SESSION_TOKEN.to_string(),
@@ -79,8 +78,8 @@ async fn test_s3_proxy_with_token_validation() {
     // Test Case 2: Invalid token fails
     let invalid_config = aws_config::defaults(BehaviorVersion::latest())
         .credentials_provider(Credentials::new(
-            MINIO_ACCESS_KEY,
-            MINIO_SECRET_KEY,
+            S3_ACCESS_KEY,
+            S3_SECRET_KEY,
             Some(INVALID_SESSION_TOKEN.to_string()), // Invalid token!
             None,
             "test",
@@ -104,8 +103,8 @@ async fn test_s3_proxy_with_token_validation() {
     // Test Case 3: Missing token fails
     let no_token_config = aws_config::defaults(BehaviorVersion::latest())
         .credentials_provider(Credentials::new(
-            MINIO_ACCESS_KEY,
-            MINIO_SECRET_KEY,
+            S3_ACCESS_KEY,
+            S3_SECRET_KEY,
             None, // No token!
             None,
             "test",
