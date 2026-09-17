@@ -33,7 +33,7 @@ ed25519-dalek = { version = "2", features = ["pkcs8"] }
 pkcs8 = { version = "0.10", features = ["encryption", "pem"] }
 rand = "0.10"
 serde_json = "1"
-rstest = "0.26"
+rstest = "0.27"
 rsa = "0.9"
 wiremock = "0.6"
 pingora = "0.8.0"
