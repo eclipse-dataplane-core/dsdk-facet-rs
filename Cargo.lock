@@ -35,6 +35,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5a15f179cd60c4584b8a8c596927aadc462e27f2ca70c04e0071964a73ba7a75"
 dependencies = [
  "cfg-if",
+ "const-random",
  "getrandom 0.3.4",
  "once_cell",
  "version_check",
@@ -364,7 +365,7 @@ dependencies = [
  "http 0.2.12",
  "http 1.4.0",
  "http-body 1.0.1",
- "lru",
+ "lru 0.16.4",
  "percent-encoding",
  "regex-lite",
  "sha2 0.10.9",
@@ -579,7 +580,7 @@ dependencies = [
  "aws-smithy-runtime-api",
  "aws-smithy-types",
  "h2 0.3.27",
- "h2 0.4.13",
+ "h2 0.4.19",
  "http 0.2.12",
  "http 1.4.0",
  "http-body 0.4.6",
@@ -1512,6 +1513,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "daemonix"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f0b747381562a10fd2104e9333ad72fe5158d79de81b64426fc9e229c6d3fb38"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "daemonize"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1630,6 +1640,19 @@ dependencies = [
  "darling_core 0.24.1",
  "quote",
  "syn 3.0.4",
+]
+
+[[package]]
+name = "dashmap"
+version = "5.5.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "978747c1d849a7d2ee5e8adc0159961c48fb7e5db2f06af6723b80123bb53856"
+dependencies = [
+ "cfg-if",
+ "hashbrown 0.14.5",
+ "lock_api",
+ "once_cell",
+ "parking_lot_core",
 ]
 
 [[package]]
@@ -1933,8 +1956,8 @@ dependencies = [
  "http 1.4.0",
  "once_cell",
  "pingora",
- "pingora-core",
- "pingora-http",
+ "pingora-core 0.8.0",
+ "pingora-http 0.8.0",
  "pingora-proxy",
  "serde_json",
  "tokio",
@@ -2200,6 +2223,18 @@ dependencies = [
  "futures-core",
  "futures-sink",
  "spin 0.9.8",
+]
+
+[[package]]
+name = "flurry"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cf5efcf77a4da27927d3ab0509dec5b0954bb3bc59da5a1de9e52642ebd4cdf9"
+dependencies = [
+ "ahash",
+ "num_cpus",
+ "parking_lot",
+ "seize",
 ]
 
 [[package]]
@@ -2481,9 +2516,9 @@ dependencies = [
 
 [[package]]
 name = "h2"
-version = "0.4.13"
+version = "0.4.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2f44da3a8150a6703ed5d34e164b875fd14c2cdab9af1252a9a1020bde2bdc54"
+checksum = "ef8e5e5a340588f4452631496976cf8636d4a7ecf600239fdc27615d2530bc16"
 dependencies = [
  "atomic-waker",
  "bytes",
@@ -2736,7 +2771,7 @@ dependencies = [
  "bytes",
  "futures-channel",
  "futures-core",
- "h2 0.4.13",
+ "h2 0.4.19",
  "http 1.4.0",
  "http-body 1.0.1",
  "httparse",
@@ -3226,9 +3261,9 @@ checksum = "09edd9e8b54e49e587e4f6295a7d29c3ea94d469cb40ab8ca70b288248a81db2"
 
 [[package]]
 name = "libc"
-version = "0.2.185"
+version = "0.2.189"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "52ff2c0fe9bc6cb6b14a0592c2ff4fa9ceb83eea9db979b0487cd054946a2b8f"
+checksum = "3eaf3ede3fee6db1a4c2ee091bf8a8b4dccdc6d17f656fb07896ee72867612f2"
 
 [[package]]
 name = "libm"
@@ -3328,6 +3363,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "lru"
+version = "0.18.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ff9840bcc50b71349309900da0ce7279aa336ae71d73250b07998932c7d97c25"
+dependencies = [
+ "hashbrown 0.17.0",
+]
+
+[[package]]
 name = "lru-slab"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3379,6 +3423,15 @@ name = "memoffset"
 version = "0.6.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5aa361d4faea93603064a027415f07bd8e1d5c88c9fbf68bf56a285428fd79ce"
+dependencies = [
+ "autocfg",
+]
+
+[[package]]
+name = "memoffset"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "488016bfae457b036d996092f6cb448677611ce4449e970ceaf42695203f218a"
 dependencies = [
  "autocfg",
 ]
@@ -3507,7 +3560,20 @@ dependencies = [
  "bitflags 1.3.2",
  "cfg-if",
  "libc",
- "memoffset",
+ "memoffset 0.6.5",
+]
+
+[[package]]
+name = "nix"
+version = "0.31.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cf20d2fde8ff38632c426f1165ed7436270b44f199fc55284c38276f9db47c3d"
+dependencies = [
+ "bitflags 2.11.1",
+ "cfg-if",
+ "cfg_aliases",
+ "libc",
+ "memoffset 0.9.1",
 ]
 
 [[package]]
@@ -3961,13 +4027,13 @@ checksum = "8b870d8c151b6f2fb93e84a13146138f05d02ed11c7e7c54f8826aaaf7c9f184"
 
 [[package]]
 name = "pingora"
-version = "0.8.0"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "844a13b16e556293f4ea96dc5ac0923ac6f36855a9dfc13b640d0da183f6b5b7"
+checksum = "fc02712a3847828d6b798ecf31f0ac64e138df26b9513e20d52319cf3cecd11e"
 dependencies = [
- "pingora-core",
- "pingora-http",
- "pingora-timeout",
+ "pingora-core 0.9.0",
+ "pingora-http 0.9.0",
+ "pingora-timeout 0.9.0",
 ]
 
 [[package]]
@@ -3989,15 +4055,15 @@ dependencies = [
  "httpdate",
  "indexmap 1.9.3",
  "log",
- "lru",
+ "lru 0.16.4",
  "once_cell",
  "parking_lot",
- "pingora-core",
- "pingora-error",
+ "pingora-core 0.8.0",
+ "pingora-error 0.8.0",
  "pingora-header-serde",
- "pingora-http",
+ "pingora-http 0.8.0",
  "pingora-lru",
- "pingora-timeout",
+ "pingora-timeout 0.8.0",
  "rand 0.8.5",
  "regex",
  "rmp",
@@ -4025,23 +4091,74 @@ dependencies = [
  "derivative",
  "flate2",
  "futures",
- "h2 0.4.13",
+ "h2 0.4.19",
  "http 1.4.0",
  "httparse",
  "httpdate",
  "libc",
  "log",
- "nix",
+ "nix 0.24.3",
  "once_cell",
  "openssl-probe 0.1.6",
  "parking_lot",
  "percent-encoding",
- "pingora-error",
- "pingora-http",
- "pingora-pool",
- "pingora-runtime",
- "pingora-timeout",
+ "pingora-error 0.8.0",
+ "pingora-http 0.8.0",
+ "pingora-pool 0.8.0",
+ "pingora-runtime 0.8.0",
+ "pingora-timeout 0.8.0",
  "prometheus",
+ "rand 0.8.5",
+ "regex",
+ "serde",
+ "serde_yaml",
+ "sfv",
+ "socket2 0.6.3",
+ "strum",
+ "strum_macros",
+ "tokio",
+ "tokio-stream",
+ "tokio-test",
+ "unicase",
+ "windows-sys 0.59.0",
+ "zstd",
+]
+
+[[package]]
+name = "pingora-core"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7fd4d1ddc6d6dbc1a97164ce13c301980c25c35422aab87b512c4c8b5123729b"
+dependencies = [
+ "ahash",
+ "async-trait",
+ "brotli",
+ "bstr",
+ "bytes",
+ "chrono",
+ "clap",
+ "daemonix",
+ "daggy",
+ "derivative",
+ "flate2",
+ "flurry",
+ "futures",
+ "h2 0.4.19",
+ "http 1.4.0",
+ "httparse",
+ "httpdate",
+ "libc",
+ "log",
+ "nix 0.31.3",
+ "once_cell",
+ "openssl-probe 0.1.6",
+ "parking_lot",
+ "percent-encoding",
+ "pingora-error 0.9.0",
+ "pingora-http 0.9.0",
+ "pingora-pool 0.9.0",
+ "pingora-runtime 0.9.0",
+ "pingora-timeout 0.9.0",
  "rand 0.8.5",
  "regex",
  "serde",
@@ -4065,6 +4182,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d9fa97a500e7e5c27a7b8609b9294c8922c9656322285268bfad9520f12feb38"
 
 [[package]]
+name = "pingora-error"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b6399da6e698035093d6b458707df5f3ea5292858816b99d4b2624d96b4f567f"
+
+[[package]]
 name = "pingora-header-serde"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4073,8 +4196,8 @@ dependencies = [
  "bytes",
  "http 1.4.0",
  "httparse",
- "pingora-error",
- "pingora-http",
+ "pingora-error 0.8.0",
+ "pingora-http 0.8.0",
  "thread_local",
  "zstd",
  "zstd-safe",
@@ -4088,7 +4211,18 @@ checksum = "fbb52d4651b687fab6abf669539cfd97b7cd94b301fde8f57c63354f9c9cc5e2"
 dependencies = [
  "bytes",
  "http 1.4.0",
- "pingora-error",
+ "pingora-error 0.8.0",
+]
+
+[[package]]
+name = "pingora-http"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ac9876e8775ebeb5d91262be4daaaf26d21a8932f53402106ed280867fe4c4f4"
+dependencies = [
+ "bytes",
+ "http 1.4.0",
+ "pingora-error 0.9.0",
 ]
 
 [[package]]
@@ -4111,10 +4245,26 @@ checksum = "67f034be36772f318370d058913db43dbd22c3763ad974c995ba2e4afb2bb52a"
 dependencies = [
  "crossbeam-queue",
  "log",
- "lru",
+ "lru 0.16.4",
  "parking_lot",
- "pingora-timeout",
+ "pingora-timeout 0.8.0",
  "thread_local",
+ "tokio",
+]
+
+[[package]]
+name = "pingora-pool"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0f9276b751bf2f908d24c73b8f23fcf05c2102fe373513457deb8868e17ef238"
+dependencies = [
+ "crossbeam-queue",
+ "dashmap",
+ "futures",
+ "log",
+ "lru 0.18.4",
+ "parking_lot",
+ "pingora-timeout 0.9.0",
  "tokio",
 ]
 
@@ -4128,14 +4278,14 @@ dependencies = [
  "bytes",
  "clap",
  "futures",
- "h2 0.4.13",
+ "h2 0.4.19",
  "http 1.4.0",
  "log",
  "once_cell",
  "pingora-cache",
- "pingora-core",
- "pingora-error",
- "pingora-http",
+ "pingora-core 0.8.0",
+ "pingora-error 0.8.0",
+ "pingora-http 0.8.0",
  "rand 0.8.5",
  "regex",
  "tokio",
@@ -4154,10 +4304,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "pingora-runtime"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "89aed2e58b34196682bdc2370c4293f908dece5741c56f5f5ba1018f55de68f2"
+dependencies = [
+ "log",
+ "once_cell",
+ "rand 0.8.5",
+ "serde",
+ "thread_local",
+ "tokio",
+]
+
+[[package]]
 name = "pingora-timeout"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6a853fee5ce510a7f5db2561f99c752724112ed13fc3820e70d462d278d704ea"
+dependencies = [
+ "once_cell",
+ "parking_lot",
+ "pin-project-lite",
+ "thread_local",
+ "tokio",
+]
+
+[[package]]
+name = "pingora-timeout"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8a1dac05d3ebf3ec1be4748d7ef391c48baa886181ce0f1b564ef8fa569243e3"
 dependencies = [
  "once_cell",
  "parking_lot",
@@ -4636,7 +4813,7 @@ dependencies = [
  "bytes",
  "encoding_rs",
  "futures-core",
- "h2 0.4.13",
+ "h2 0.4.19",
  "http 1.4.0",
  "http-body 1.0.1",
  "http-body-util",
@@ -4681,7 +4858,7 @@ dependencies = [
  "bytes",
  "encoding_rs",
  "futures-core",
- "h2 0.4.13",
+ "h2 0.4.19",
  "http 1.4.0",
  "http-body 1.0.1",
  "http-body-util",
@@ -5105,6 +5282,12 @@ dependencies = [
  "core-foundation-sys",
  "libc",
 ]
+
+[[package]]
+name = "seize"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "689224d06523904ebcc9b482c6a3f4f7fb396096645c4cd10c0d2ff7371a34d3"
 
 [[package]]
 name = "semver"
@@ -6185,7 +6368,7 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "bytes",
- "h2 0.4.13",
+ "h2 0.4.19",
  "http 1.4.0",
  "http-body 1.0.1",
  "http-body-util",
