@@ -20,15 +20,15 @@ use aws_sdk_s3::Client;
 use aws_sdk_s3::config::{Credentials, Region};
 use aws_sdk_s3::primitives::ByteStream;
 use dsdk_facet_core::auth::MemoryAuthorizationEvaluator;
-use dsdk_facet_testcontainers::minio::{MINIO_ACCESS_KEY, MINIO_SECRET_KEY, MinioInstance, TEST_BUCKET};
+use dsdk_facet_testcontainers::s3::{S3_ACCESS_KEY, S3_SECRET_KEY, S3Instance, TEST_BUCKET};
 use std::sync::Arc;
 
 // ==================== Object GET Operations - Allow ====================
 
 #[tokio::test]
 async fn test_e2e_allow_get_object() {
-    let minio = MinioInstance::launch().await;
-    minio.setup_default_bucket().await;
+    let s3 = S3Instance::launch().await;
+    s3.setup_default_bucket().await;
 
     let evaluator = Arc::new(MemoryAuthorizationEvaluator::new());
     add_auth_rule(
@@ -43,7 +43,7 @@ async fn test_e2e_allow_get_object() {
     let proxy_port = get_available_port();
     launch_s3proxy(ProxyConfig::for_auth_testing(
         proxy_port,
-        minio.host.clone(),
+        s3.host.clone(),
         evaluator.clone(),
         "user1",
         TEST_BUCKET,
@@ -62,22 +62,22 @@ async fn test_e2e_allow_get_object() {
 
     assert!(result.is_ok(), "Should allow GetObject with correct permissions");
 
-    // Verify: Check content matches what's in MinIO
+    // Verify: Check content matches what's in S3
     let body = result.unwrap().body.collect().await.unwrap();
     let content = String::from_utf8(body.to_vec()).unwrap();
-    assert_eq!(content, "test content", "Content should match MinIO data");
+    assert_eq!(content, "test content", "Content should match S3 data");
 
-    // Verify: File exists in MinIO
+    // Verify: File exists in S3
     assert!(
-        minio.verify_object_exists(TEST_BUCKET, "test-file.txt").await,
-        "File should exist in MinIO"
+        s3.verify_object_exists(TEST_BUCKET, "test-file.txt").await,
+        "File should exist in S3"
     );
 }
 
 #[tokio::test]
 async fn test_e2e_allow_get_object_with_wildcard() {
-    let minio = MinioInstance::launch().await;
-    minio.setup_default_bucket().await;
+    let s3 = S3Instance::launch().await;
+    s3.setup_default_bucket().await;
 
     let evaluator = Arc::new(MemoryAuthorizationEvaluator::new());
     add_auth_rule(
@@ -92,7 +92,7 @@ async fn test_e2e_allow_get_object_with_wildcard() {
     let proxy_port = get_available_port();
     launch_s3proxy(ProxyConfig::for_auth_testing(
         proxy_port,
-        minio.host.clone(),
+        s3.host.clone(),
         evaluator.clone(),
         "user1",
         TEST_BUCKET,
@@ -111,7 +111,7 @@ async fn test_e2e_allow_get_object_with_wildcard() {
 
     assert!(result.is_ok(), "Should allow GetObject with wildcard pattern");
 
-    // Verify: File content matches MinIO
+    // Verify: File content matches S3
     let body = result.unwrap().body.collect().await.unwrap();
     let content = String::from_utf8(body.to_vec()).unwrap();
     assert_eq!(content, "test content");
@@ -119,8 +119,8 @@ async fn test_e2e_allow_get_object_with_wildcard() {
 
 #[tokio::test]
 async fn test_e2e_allow_head_object() {
-    let minio = MinioInstance::launch().await;
-    minio.setup_default_bucket().await;
+    let s3 = S3Instance::launch().await;
+    s3.setup_default_bucket().await;
 
     let evaluator = Arc::new(MemoryAuthorizationEvaluator::new());
     add_auth_rule(
@@ -135,7 +135,7 @@ async fn test_e2e_allow_head_object() {
     let proxy_port = get_available_port();
     launch_s3proxy(ProxyConfig::for_auth_testing(
         proxy_port,
-        minio.host.clone(),
+        s3.host.clone(),
         evaluator.clone(),
         "user1",
         TEST_BUCKET,
@@ -154,10 +154,10 @@ async fn test_e2e_allow_head_object() {
 
     assert!(result.is_ok(), "HEAD should use same permission as GET");
 
-    // Verify: Object exists in MinIO
+    // Verify: Object exists in S3
     assert!(
-        minio.verify_object_exists(TEST_BUCKET, "test-file.txt").await,
-        "Object should exist in MinIO"
+        s3.verify_object_exists(TEST_BUCKET, "test-file.txt").await,
+        "Object should exist in S3"
     );
 }
 
@@ -165,8 +165,8 @@ async fn test_e2e_allow_head_object() {
 
 #[tokio::test]
 async fn test_e2e_allow_put_object() {
-    let minio = MinioInstance::launch().await;
-    minio.setup_default_bucket().await;
+    let s3 = S3Instance::launch().await;
+    s3.setup_default_bucket().await;
 
     let evaluator = Arc::new(MemoryAuthorizationEvaluator::new());
     add_auth_rule(
@@ -181,7 +181,7 @@ async fn test_e2e_allow_put_object() {
     let proxy_port = get_available_port();
     launch_s3proxy(ProxyConfig::for_auth_testing(
         proxy_port,
-        minio.host.clone(),
+        s3.host.clone(),
         evaluator.clone(),
         "user1",
         TEST_BUCKET,
@@ -201,10 +201,9 @@ async fn test_e2e_allow_put_object() {
 
     assert!(result.is_ok(), "Should allow PutObject with correct permissions");
 
-    // Verify: Object was created in MinIO with correct content
+    // Verify: Object was created in S3 with correct content
     assert!(
-        minio
-            .verify_object_content(TEST_BUCKET, "new-file.txt", b"new content")
+        s3.verify_object_content(TEST_BUCKET, "new-file.txt", b"new content")
             .await,
         "Object should exist with correct content"
     );
@@ -214,8 +213,8 @@ async fn test_e2e_allow_put_object() {
 
 #[tokio::test]
 async fn test_e2e_allow_delete_object() {
-    let minio = MinioInstance::launch().await;
-    minio.setup_default_bucket().await;
+    let s3 = S3Instance::launch().await;
+    s3.setup_default_bucket().await;
 
     let evaluator = Arc::new(MemoryAuthorizationEvaluator::new());
     add_auth_rule(
@@ -230,7 +229,7 @@ async fn test_e2e_allow_delete_object() {
     let proxy_port = get_available_port();
     launch_s3proxy(ProxyConfig::for_auth_testing(
         proxy_port,
-        minio.host.clone(),
+        s3.host.clone(),
         evaluator.clone(),
         "user1",
         TEST_BUCKET,
@@ -249,9 +248,9 @@ async fn test_e2e_allow_delete_object() {
 
     assert!(result.is_ok(), "Should allow DeleteObject with correct permissions");
 
-    // Verify: Object was deleted from MinIO
+    // Verify: Object was deleted from S3
     assert!(
-        minio.verify_object_deleted(TEST_BUCKET, "test-file.txt").await,
+        s3.verify_object_deleted(TEST_BUCKET, "test-file.txt").await,
         "Object should not exist after deletion"
     );
 }
@@ -260,8 +259,8 @@ async fn test_e2e_allow_delete_object() {
 
 #[tokio::test]
 async fn test_e2e_allow_list_bucket() {
-    let minio = MinioInstance::launch().await;
-    minio.setup_default_bucket().await;
+    let s3 = S3Instance::launch().await;
+    s3.setup_default_bucket().await;
 
     let evaluator = Arc::new(MemoryAuthorizationEvaluator::new());
     add_auth_rule(
@@ -276,7 +275,7 @@ async fn test_e2e_allow_list_bucket() {
     let proxy_port = get_available_port();
     launch_s3proxy(ProxyConfig::for_auth_testing(
         proxy_port,
-        minio.host.clone(),
+        s3.host.clone(),
         evaluator.clone(),
         "user1",
         TEST_BUCKET,
@@ -296,8 +295,8 @@ async fn test_e2e_allow_list_bucket() {
 
 #[tokio::test]
 async fn test_e2e_deny_wrong_action() {
-    let minio = MinioInstance::launch().await;
-    minio.setup_default_bucket().await;
+    let s3 = S3Instance::launch().await;
+    s3.setup_default_bucket().await;
 
     // Only allow GetObject
     let evaluator = Arc::new(MemoryAuthorizationEvaluator::new());
@@ -313,7 +312,7 @@ async fn test_e2e_deny_wrong_action() {
     let proxy_port = get_available_port();
     launch_s3proxy(ProxyConfig::for_auth_testing(
         proxy_port,
-        minio.host.clone(),
+        s3.host.clone(),
         evaluator.clone(),
         "user1",
         TEST_BUCKET,
@@ -333,17 +332,17 @@ async fn test_e2e_deny_wrong_action() {
 
     assert!(result.is_err(), "Should deny PutObject without permission");
 
-    // Verify: Object was NOT created in MinIO
+    // Verify: Object was NOT created in S3
     assert!(
-        minio.verify_object_deleted(TEST_BUCKET, "unauthorized.txt").await,
+        s3.verify_object_deleted(TEST_BUCKET, "unauthorized.txt").await,
         "Unauthorized object should not exist"
     );
 }
 
 #[tokio::test]
 async fn test_e2e_deny_wrong_resource_pattern() {
-    let minio = MinioInstance::launch().await;
-    minio.setup_default_bucket().await;
+    let s3 = S3Instance::launch().await;
+    s3.setup_default_bucket().await;
 
     // Only allow access to /public/* path
     let evaluator = Arc::new(MemoryAuthorizationEvaluator::new());
@@ -359,7 +358,7 @@ async fn test_e2e_deny_wrong_resource_pattern() {
     let proxy_port = get_available_port();
     launch_s3proxy(ProxyConfig::for_auth_testing(
         proxy_port,
-        minio.host.clone(),
+        s3.host.clone(),
         evaluator.clone(),
         "user1",
         TEST_BUCKET,
@@ -378,17 +377,17 @@ async fn test_e2e_deny_wrong_resource_pattern() {
 
     assert!(result.is_err(), "Should deny access to files outside allowed pattern");
 
-    // Verify: Original file still exists in MinIO (access was denied, not deleted)
+    // Verify: Original file still exists in S3 (access was denied, not deleted)
     assert!(
-        minio.verify_object_exists(TEST_BUCKET, "test-file.txt").await,
+        s3.verify_object_exists(TEST_BUCKET, "test-file.txt").await,
         "Original file should still exist"
     );
 }
 
 #[tokio::test]
 async fn test_e2e_deny_read_only_user_trying_to_write() {
-    let minio = MinioInstance::launch().await;
-    minio.setup_default_bucket().await;
+    let s3 = S3Instance::launch().await;
+    s3.setup_default_bucket().await;
 
     // Read-only permissions
     let evaluator = Arc::new(MemoryAuthorizationEvaluator::new());
@@ -404,7 +403,7 @@ async fn test_e2e_deny_read_only_user_trying_to_write() {
     let proxy_port = get_available_port();
     launch_s3proxy(ProxyConfig::for_auth_testing(
         proxy_port,
-        minio.host.clone(),
+        s3.host.clone(),
         evaluator.clone(),
         "readonly_user",
         TEST_BUCKET,
@@ -423,9 +422,9 @@ async fn test_e2e_deny_read_only_user_trying_to_write() {
 
     assert!(result.is_err(), "Read-only user should not be able to delete");
 
-    // Verify: File still exists in MinIO
+    // Verify: File still exists in S3
     assert!(
-        minio.verify_object_exists(TEST_BUCKET, "test-file.txt").await,
+        s3.verify_object_exists(TEST_BUCKET, "test-file.txt").await,
         "File should still exist after failed delete"
     );
 }
@@ -434,8 +433,8 @@ async fn test_e2e_deny_read_only_user_trying_to_write() {
 
 #[tokio::test]
 async fn test_e2e_multiple_actions_in_single_rule() {
-    let minio = MinioInstance::launch().await;
-    minio.setup_default_bucket().await;
+    let s3 = S3Instance::launch().await;
+    s3.setup_default_bucket().await;
 
     let evaluator = Arc::new(MemoryAuthorizationEvaluator::new());
     add_auth_rule(
@@ -450,7 +449,7 @@ async fn test_e2e_multiple_actions_in_single_rule() {
     let proxy_port = get_available_port();
     launch_s3proxy(ProxyConfig::for_auth_testing(
         proxy_port,
-        minio.host.clone(),
+        s3.host.clone(),
         evaluator.clone(),
         "user1",
         TEST_BUCKET,
@@ -487,13 +486,13 @@ async fn test_e2e_multiple_actions_in_single_rule() {
         .await;
     assert!(result.is_ok(), "Should allow DELETE");
 
-    // Verify: All operations succeeded in MinIO
+    // Verify: All operations succeeded in S3
     assert!(
-        minio.verify_object_exists(TEST_BUCKET, "new-file.txt").await,
+        s3.verify_object_exists(TEST_BUCKET, "new-file.txt").await,
         "PUT file should exist"
     );
     assert!(
-        minio.verify_object_deleted(TEST_BUCKET, "test-file.txt").await,
+        s3.verify_object_deleted(TEST_BUCKET, "test-file.txt").await,
         "Deleted file should not exist"
     );
 }
@@ -502,8 +501,8 @@ async fn test_e2e_multiple_actions_in_single_rule() {
 
 #[tokio::test]
 async fn test_e2e_readonly_access_to_entire_bucket() {
-    let minio = MinioInstance::launch().await;
-    minio.setup_default_bucket().await;
+    let s3 = S3Instance::launch().await;
+    s3.setup_default_bucket().await;
 
     let evaluator = Arc::new(MemoryAuthorizationEvaluator::new());
     add_auth_rule(
@@ -526,7 +525,7 @@ async fn test_e2e_readonly_access_to_entire_bucket() {
     let proxy_port = get_available_port();
     launch_s3proxy(ProxyConfig::for_auth_testing(
         proxy_port,
-        minio.host.clone(),
+        s3.host.clone(),
         evaluator.clone(),
         "analyst",
         TEST_BUCKET,
@@ -570,14 +569,14 @@ async fn test_e2e_readonly_access_to_entire_bucket() {
 
 #[tokio::test]
 async fn test_e2e_folder_specific_access() {
-    let minio = MinioInstance::launch().await;
-    minio.setup_default_bucket().await;
+    let s3 = S3Instance::launch().await;
+    s3.setup_default_bucket().await;
 
     // Upload files to different folders using a direct client
     let config = aws_config::defaults(BehaviorVersion::latest())
-        .credentials_provider(Credentials::new(MINIO_ACCESS_KEY, MINIO_SECRET_KEY, None, None, "test"))
+        .credentials_provider(Credentials::new(S3_ACCESS_KEY, S3_SECRET_KEY, None, None, "test"))
         .region(Region::new("us-east-1"))
-        .endpoint_url(&minio.endpoint)
+        .endpoint_url(&s3.endpoint)
         .load()
         .await;
     let setup_client = Client::new(&config);
@@ -614,7 +613,7 @@ async fn test_e2e_folder_specific_access() {
     let proxy_port = get_available_port();
     launch_s3proxy(ProxyConfig::for_auth_testing(
         proxy_port,
-        minio.host.clone(),
+        s3.host.clone(),
         evaluator.clone(),
         "user123",
         TEST_BUCKET,
@@ -644,14 +643,14 @@ async fn test_e2e_folder_specific_access() {
 
 #[tokio::test]
 async fn test_e2e_regex_pattern_with_file_extension() {
-    let minio = MinioInstance::launch().await;
-    minio.setup_default_bucket().await;
+    let s3 = S3Instance::launch().await;
+    s3.setup_default_bucket().await;
 
     // Upload files with different extensions using a direct client
     let config = aws_config::defaults(BehaviorVersion::latest())
-        .credentials_provider(Credentials::new(MINIO_ACCESS_KEY, MINIO_SECRET_KEY, None, None, "test"))
+        .credentials_provider(Credentials::new(S3_ACCESS_KEY, S3_SECRET_KEY, None, None, "test"))
         .region(Region::new("us-east-1"))
-        .endpoint_url(&minio.endpoint)
+        .endpoint_url(&s3.endpoint)
         .load()
         .await;
     let setup_client = Client::new(&config);
@@ -688,7 +687,7 @@ async fn test_e2e_regex_pattern_with_file_extension() {
     let proxy_port = get_available_port();
     launch_s3proxy(ProxyConfig::for_auth_testing(
         proxy_port,
-        minio.host.clone(),
+        s3.host.clone(),
         evaluator.clone(),
         "image-processor",
         TEST_BUCKET,

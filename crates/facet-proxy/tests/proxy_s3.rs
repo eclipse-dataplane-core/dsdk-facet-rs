@@ -23,8 +23,8 @@ use dsdk_facet_core::context::{ParticipantContext, StaticParticipantContextResol
 use dsdk_facet_postgres::auth::PostgresAuthorizationEvaluator;
 use dsdk_facet_proxy::s3::{DefaultS3OperationParser, S3Credentials, UpstreamStyle};
 use dsdk_facet_testcontainers::{
-    minio::{MINIO_ACCESS_KEY, MINIO_SECRET_KEY, MinioInstance, TEST_BUCKET},
     postgres::setup_postgres_container,
+    s3::{S3_ACCESS_KEY, S3_SECRET_KEY, S3Instance, TEST_BUCKET},
 };
 use std::sync::Arc;
 
@@ -35,13 +35,11 @@ async fn test_s3_proxy_end_to_end_with_postgres() {
     let auth_evaluator = Arc::new(PostgresAuthorizationEvaluator::new(pool));
     auth_evaluator.initialize().await.unwrap();
 
-    // Launch MinIO container as upstream S3 server
-    let minio = MinioInstance::launch().await;
-    minio
-        .setup_bucket_with_file(TEST_BUCKET, "test-file.txt", b"Hello from MinIO!")
+    // Launch S3 test server container as upstream
+    let s3 = S3Instance::launch().await;
+    s3.setup_bucket_with_file(TEST_BUCKET, "test-file.txt", b"Hello from S3!")
         .await;
-    minio
-        .setup_bucket_with_file(TEST_BUCKET, "data/document.pdf", b"PDF content here")
+    s3.setup_bucket_with_file(TEST_BUCKET, "data/document.pdf", b"PDF content here")
         .await;
 
     let participant_id = "user123";
@@ -79,13 +77,13 @@ async fn test_s3_proxy_end_to_end_with_postgres() {
     let proxy_port = get_available_port();
     let proxy_config = ProxyConfig {
         port: proxy_port,
-        upstream_endpoint: minio.host.clone(),
+        upstream_endpoint: s3.host.clone(),
         upstream_style: UpstreamStyle::PathStyle,
         proxy_domain: None,
         credential_resolver: Arc::new(PassthroughCredentialsResolver {
             credentials: S3Credentials {
-                access_key_id: MINIO_ACCESS_KEY.to_string(),
-                secret_key: MINIO_SECRET_KEY.to_string(),
+                access_key_id: S3_ACCESS_KEY.to_string(),
+                secret_key: S3_SECRET_KEY.to_string(),
                 region: "us-east-1".to_string(),
             },
         }),
@@ -118,7 +116,7 @@ async fn test_s3_proxy_end_to_end_with_postgres() {
         get_response.as_ref().err()
     );
     let body = get_response.unwrap().body.collect().await.unwrap();
-    assert_eq!(body.to_vec(), b"Hello from MinIO!");
+    assert_eq!(body.to_vec(), b"Hello from S3!");
 
     // Test 2: GET another file - should succeed (authorized by get_rule)
     let get_response2 = client
@@ -146,14 +144,13 @@ async fn test_s3_proxy_end_to_end_with_postgres() {
     assert!(put_response.is_ok(), "PutObject should succeed in uploads/ path");
 
     assert!(
-        minio
-            .verify_object_content(
-                TEST_BUCKET,
-                "uploads/new-file.txt",
-                b"New content uploaded through proxy"
-            )
-            .await,
-        "Uploaded file should exist in MinIO with correct content"
+        s3.verify_object_content(
+            TEST_BUCKET,
+            "uploads/new-file.txt",
+            b"New content uploaded through proxy"
+        )
+        .await,
+        "Uploaded file should exist in S3 with correct content"
     );
 
     // Test 5: Verify authorization decisions are persisted in Postgres
