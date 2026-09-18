@@ -3,11 +3,11 @@ name: Release Siglet
 # Manual release for the siglet Docker image. siglet is `publish = false`, so release-plz
 # never tags or releases it — this workflow owns its lifecycle.
 #
-# Ordering is deliberate: validate -> test -> build+push the image -> only then create the
-# `siglet-v<version>` tag + GitHub Release. The Release is the human-facing "this version is
-# out" marker, so it must not appear before the image actually exists in GHCR. Because the
-# image build is a reusable-workflow call (`needs: build`), the release step can't run unless
-# the build succeeded — no polling, no draft/un-draft dance.
+# Ordering is deliberate: validate -> test + license check -> build+push the image -> only then
+# create the `siglet-v<version>` tag + GitHub Release. The Release is the human-facing "this
+# version is out" marker, so it must not appear before the image actually exists in GHCR.
+# Because the image build is a reusable-workflow call (`needs: build`), the release step can't
+# run unless the build succeeded — no polling, no draft/un-draft dance.
 
 on:
   workflow_dispatch:
@@ -74,10 +74,34 @@ jobs:
       - name: Run tests
         run: cargo test --all-features --verbose
 
+  # Gate: the image ships every dependency, so all of them must be vetted by the Eclipse IP Team.
+  # Runs the Eclipse Dash License Tool (scripts/check-dependencies.sh) and fails on any restricted
+  # or rejected dependency. Nothing is committed here; DEPENDENCIES.txt is refreshed by
+  # release-plz-prepare.yml.
+  licenses:
+    name: Check dependency licenses
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Java (for Eclipse Dash License Tool)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Check dependency licenses (Eclipse Dash)
+        run: scripts/check-dependencies.sh
+
   # Build+push the image first (latest + version tags) via the reusable publish workflow.
   build:
     name: Build and publish image
-    needs: [validate, test]
+    needs: [validate, test, licenses]
     permissions:
       contents: read
       packages: write

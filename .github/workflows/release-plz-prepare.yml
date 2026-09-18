@@ -4,6 +4,11 @@ name: Prepare Release
 # branch. A human then opens the PR from that branch — pushing a branch is allowed for
 # GITHUB_TOKEN even when the org forbids Actions from *creating* PRs, and a human-opened PR
 # also gets normal CI. Merging that PR triggers release-plz.yml to publish (publish-on-merge).
+#
+# Before computing the release, the Eclipse Dash License Tool is run over the dependency tree
+# (scripts/check-dependencies.sh). The run aborts if any dependency is restricted or rejected,
+# i.e. still needs an Eclipse IP Team review. The regenerated DEPENDENCIES.txt is committed to
+# the release branch.
 
 on:
   workflow_dispatch:
@@ -30,6 +35,15 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Java (for Eclipse Dash License Tool)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Check dependency licenses (Eclipse Dash)
+        run: scripts/check-dependencies.sh
 
       - name: Install release-plz
         uses: taiki-e/install-action@v2
