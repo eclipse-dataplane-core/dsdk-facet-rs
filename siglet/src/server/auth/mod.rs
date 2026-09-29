@@ -51,8 +51,8 @@
 //! The `kid` header is required so the middleware can pick the right key from the JWKS.
 //! The `scope` claim follows the OAuth2 convention (RFC 6749 §3.3): a single string of
 //! space-delimited scope tokens. A token may carry other scopes alongside the required
-//! one (e.g. `"read:data dplane-signaling"`). `aud` and `iss` are not validated here —
-//! add a separate check downstream if needed.
+//! one (e.g. `"read:data dplane-signaling"`). `aud` must match the configured audience;
+//! `iss` is checked only when an issuer is configured (`*_auth.issuer`).
 
 #[cfg(test)]
 mod tests;
@@ -150,6 +150,7 @@ impl AuthLayer {
             required_scope,
             None,
             NoParticipantContext::PassThrough,
+            None,
         )
     }
 
@@ -161,12 +162,15 @@ impl AuthLayer {
     /// `admin_scope` is the optional scope that waives subject binding on participant-scoped
     /// routes (`token_api_auth.admin_scope`). Pass `None` — the default — to keep `sub`
     /// bound for every caller.
+    ///
+    /// `issuer`, when set, is the value the JWT's `iss` claim must equal.
     pub fn enabled_http_require_token(
         jwks_url: impl Into<String>,
         cache_ttl: Duration,
         expected_audience: impl Into<String>,
         required_scope: impl Into<String>,
         admin_scope: Option<String>,
+        issuer: Option<String>,
         client: reqwest::Client,
     ) -> Self {
         let provider = HttpKeyProvider::new(jwks_url.into(), cache_ttl, client);
@@ -176,6 +180,7 @@ impl AuthLayer {
             required_scope,
             admin_scope,
             NoParticipantContext::RequireToken,
+            issuer,
         )
     }
 
@@ -193,6 +198,7 @@ impl AuthLayer {
             required_scope,
             None,
             NoParticipantContext::PassThrough,
+            None,
         )
     }
 
@@ -212,6 +218,7 @@ impl AuthLayer {
             required_scope,
             admin_scope,
             no_participant_context,
+            None,
         )
     }
 
@@ -221,6 +228,7 @@ impl AuthLayer {
         required_scope: impl Into<String>,
         admin_scope: Option<String>,
         no_participant_context: NoParticipantContext,
+        issuer: Option<String>,
     ) -> Self {
         Self::Enabled(Arc::new(AuthState {
             key_provider: provider,
@@ -228,6 +236,7 @@ impl AuthLayer {
             required_scope: required_scope.into(),
             admin_scope,
             no_participant_context,
+            issuer,
         }))
     }
 }
@@ -252,6 +261,20 @@ pub struct AuthState {
     admin_scope: Option<String>,
     /// How to handle an enabled-mode request whose path carries no participant context.
     no_participant_context: NoParticipantContext,
+    /// The value the JWT's `iss` claim must equal, if configured (`*_auth.issuer`). `None` leaves
+    /// the issuer unchecked.
+    issuer: Option<String>,
+}
+
+/// The verified caller of an enabled-mode request, inserted into the request extensions once the
+/// JWT has been accepted. Handlers of pathless routes (which get no subject binding from the
+/// middleware) use it to scope what the caller may see.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AuthenticatedCaller {
+    /// The token's `sub` claim — the caller's participant context id.
+    pub subject: String,
+    /// Whether the token carries the configured admin scope.
+    pub is_admin: bool,
 }
 
 /// Resolves the verifying key for a given JWT `kid`.
@@ -473,10 +496,12 @@ where
                 // Enabled mode, participant-scoped route: verify the token and bind
                 // `sub` to the path id, then inject the participant context.
                 (AuthLayer::Enabled(state), Some(pc_id)) => {
-                    if let Err(err) = verify_jwt(state.as_ref(), &parts.headers, Some(&pc_id)).await {
-                        return Ok(err.into_response());
-                    }
+                    let caller = match verify_jwt(state.as_ref(), &parts.headers, Some(&pc_id)).await {
+                        Ok(caller) => caller,
+                        Err(err) => return Ok(err.into_response()),
+                    };
                     let mut req = Request::from_parts(parts, body);
+                    req.extensions_mut().insert(caller);
                     req.extensions_mut()
                         .insert(ParticipantContext::builder().id(&pc_id).build());
                     req.extensions_mut()
@@ -493,10 +518,12 @@ where
                     NoParticipantContext::RequireToken => {
                         // Require a valid, correctly-scoped token, but with no subject to
                         // bind against.
-                        if let Err(err) = verify_jwt(state.as_ref(), &parts.headers, None).await {
-                            return Ok(err.into_response());
-                        }
-                        let req = Request::from_parts(parts, body);
+                        let caller = match verify_jwt(state.as_ref(), &parts.headers, None).await {
+                            Ok(caller) => caller,
+                            Err(err) => return Ok(err.into_response()),
+                        };
+                        let mut req = Request::from_parts(parts, body);
+                        req.extensions_mut().insert(caller);
                         inner.call(req).await
                     }
                 },
@@ -514,7 +541,7 @@ async fn verify_jwt(
     state: &AuthState,
     headers: &axum::http::HeaderMap,
     expected_pc_id: Option<&str>,
-) -> Result<(), AuthError> {
+) -> Result<AuthenticatedCaller, AuthError> {
     let token = extract_bearer(headers)?;
 
     let header = decode_header(token).map_err(|e| AuthError::InvalidSignature(format!("bad JWT header: {}", e)))?;
@@ -555,12 +582,16 @@ async fn verify_jwt(
     validation.algorithms = vec![header.alg];
     // Audience binding: only accept tokens whose `aud` matches the configured
     // value. This is what stops a JWT minted for some other recipient (off the
-    // same JWKS) from being replayed against this siglet. Issuer/`iss` is still
-    // unchecked at this layer — downstream code can enforce it if needed.
+    // same JWKS) from being replayed against this siglet. `iss` is checked below when an
+    // issuer is configured.
     validation.aud = Some(std::collections::HashSet::from([state.expected_audience.clone()]));
     validation.validate_aud = true;
     validation.validate_nbf = true;
     validation.required_spec_claims = std::collections::HashSet::from(["exp".to_string(), "aud".to_string()]);
+    if let Some(issuer) = &state.issuer {
+        validation.set_issuer(&[issuer]);
+        validation.required_spec_claims.insert("iss".to_string());
+    }
 
     let token_data =
         decode::<Claims>(token, &decoding_key, &validation).map_err(|e| AuthError::InvalidSignature(e.to_string()))?;
@@ -602,7 +633,10 @@ async fn verify_jwt(
         }
     }
 
-    Ok(())
+    Ok(AuthenticatedCaller {
+        subject: token_data.claims.sub,
+        is_admin,
+    })
 }
 
 /// Returns true if `scope` (an OAuth2 space-delimited scope string) contains

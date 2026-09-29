@@ -18,6 +18,7 @@ use base64::Engine;
 use dsdk_facet_core::context::ParticipantContext;
 use dsdk_facet_core::util::clock::Clock;
 use dsdk_facet_core::util::crypto;
+use dsdk_facet_core::util::path::{validate_path, validate_path_segment};
 use dsdk_facet_core::vault::{KeyMetadata, PublicKeyFormat, VaultClient, VaultError, VaultSigningClient};
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
@@ -107,30 +108,37 @@ impl HashicorpVaultClient {
     }
 
     /// Constructs the URL for KV v2 operations.
-    fn kv_url(&self, participant_context: &ParticipantContext, path: &str) -> String {
-        format!(
+    ///
+    /// The participant context id and `path` are validated so that neither can step outside the
+    /// participant context's own subtree (e.g. `../other-context/flow`); see [`checked_kv_path`].
+    fn kv_url(&self, participant_context: &ParticipantContext, path: &str) -> Result<String, VaultError> {
+        let (pc_id, path) = checked_kv_path(participant_context, path)?;
+        Ok(format!(
             "{}/v1/{}/data/{}/{}",
             self.config.vault_url,
             self.config.mount_path.as_deref().unwrap_or("secret"),
-            participant_context.id,
+            pc_id,
             path
-        )
+        ))
     }
 
-    /// Constructs the URL for KV v2 metadata operations.
-    fn kv_metadata_url(&self, participant_context: &ParticipantContext, path: &str) -> String {
-        format!(
+    /// Constructs the URL for KV v2 metadata operations. Validated like [`Self::kv_url`].
+    fn kv_metadata_url(&self, participant_context: &ParticipantContext, path: &str) -> Result<String, VaultError> {
+        let (pc_id, path) = checked_kv_path(participant_context, path)?;
+        Ok(format!(
             "{}/v1/{}/metadata/{}/{}",
             self.config.vault_url,
             self.config.mount_path.as_deref().unwrap_or("secret"),
-            participant_context.id,
+            pc_id,
             path
-        )
+        ))
     }
 
-    /// Constructs the URL for Transit sign operations using an explicit key name.
-    fn transit_sign_url_for_key(&self, key_name: &str) -> String {
-        format!(
+    /// Constructs the URL for Transit sign operations using an explicit key name. The key name
+    /// must be a single path segment, so it cannot address another Transit endpoint.
+    fn transit_sign_url_for_key(&self, key_name: &str) -> Result<String, VaultError> {
+        checked_key_name(key_name)?;
+        Ok(format!(
             "{}/v1/{}/sign/{}",
             self.config.vault_url,
             self.config
@@ -138,12 +146,14 @@ impl HashicorpVaultClient {
                 .as_deref()
                 .unwrap_or(DEFAULT_TRANSIT_MOUNT_PATH),
             key_name
-        )
+        ))
     }
 
-    /// Constructs the URL for Transit key operations.
-    fn transit_key_url(&self, key_name: &str) -> String {
-        format!(
+    /// Constructs the URL for Transit key operations. Validated like
+    /// [`Self::transit_sign_url_for_key`].
+    fn transit_key_url(&self, key_name: &str) -> Result<String, VaultError> {
+        checked_key_name(key_name)?;
+        Ok(format!(
             "{}/v1/{}/keys/{}",
             self.config.vault_url,
             self.config
@@ -151,7 +161,7 @@ impl HashicorpVaultClient {
                 .as_deref()
                 .unwrap_or(DEFAULT_TRANSIT_MOUNT_PATH),
             key_name
-        )
+        ))
     }
 
     /// Checks if a transit signing key exists and creates it if it doesn't.
@@ -161,7 +171,7 @@ impl HashicorpVaultClient {
             None => return Ok(()),
         };
 
-        let url = self.transit_key_url(key_name);
+        let url = self.transit_key_url(key_name)?;
 
         // Try to read the key
         let response = self
@@ -184,7 +194,7 @@ impl HashicorpVaultClient {
 
     /// Creates a new transit signing key.
     async fn create_signing_key(&self, token: &str, key_name: &str) -> Result<(), VaultError> {
-        let url = self.transit_key_url(key_name);
+        let url = self.transit_key_url(key_name)?;
 
         let request = TransitCreateKeyRequest {
             r#type: "ed25519".to_string(),
@@ -218,7 +228,7 @@ impl HashicorpVaultClient {
 impl VaultClient for HashicorpVaultClient {
     async fn resolve_secret(&self, participant_context: &ParticipantContext, path: &str) -> Result<String, VaultError> {
         let token = self.token_provider()?.token(participant_context).await?;
-        let url = self.kv_url(participant_context, path);
+        let url = self.kv_url(participant_context, path)?;
 
         let response = self
             .http_client
@@ -257,7 +267,7 @@ impl VaultClient for HashicorpVaultClient {
         secret: &str,
     ) -> Result<(), VaultError> {
         let token = self.token_provider()?.token(participant_context).await?;
-        let url = self.kv_url(participant_context, path);
+        let url = self.kv_url(participant_context, path)?;
 
         let mut data = serde_json::Map::new();
         data.insert(CONTENT_KEY.to_string(), serde_json::Value::String(secret.to_string()));
@@ -287,10 +297,10 @@ impl VaultClient for HashicorpVaultClient {
 
         let url = if self.config.soft_delete {
             // Soft delete - delete the latest version
-            self.kv_url(participant_context, path)
+            self.kv_url(participant_context, path)?
         } else {
             // Hard delete - remove all versions and metadata
-            self.kv_metadata_url(participant_context, path)
+            self.kv_metadata_url(participant_context, path)?
         };
 
         let response = self
@@ -331,7 +341,7 @@ impl VaultSigningClient for HashicorpVaultClient {
         format: PublicKeyFormat,
     ) -> Result<KeyMetadata, VaultError> {
         let token = self.token_provider()?.token(participant_context).await?;
-        let url = self.transit_key_url(key_name);
+        let url = self.transit_key_url(key_name)?;
 
         let response = self
             .http_client
@@ -389,7 +399,7 @@ impl VaultSigningClient for HashicorpVaultClient {
         key_name: &str,
         content: &[u8],
     ) -> Result<Vec<u8>, VaultError> {
-        let url = self.transit_sign_url_for_key(key_name);
+        let url = self.transit_sign_url_for_key(key_name)?;
         let token = self.token_provider()?.token(participant_context).await?;
 
         let encoded_content = base64::engine::general_purpose::STANDARD.encode(content);
@@ -483,4 +493,21 @@ struct TransitKeyData {
 #[derive(Debug, Deserialize)]
 struct TransitKeyVersionInfo {
     public_key: String,
+}
+
+/// Validates the participant-context id (one segment) and the KV `path` (one or more segments)
+/// that make up a KV v2 location, returning them unchanged when both are safe.
+pub(crate) fn checked_kv_path<'a>(
+    participant_context: &'a ParticipantContext,
+    path: &'a str,
+) -> Result<(&'a str, &'a str), VaultError> {
+    validate_path_segment(&participant_context.id)
+        .map_err(|e| VaultError::InvalidData(format!("participant context id: {}", e)))?;
+    validate_path(path).map_err(|e| VaultError::InvalidData(format!("secret path: {}", e)))?;
+    Ok((&participant_context.id, path))
+}
+
+/// Validates a Transit key name as a single path segment.
+pub(crate) fn checked_key_name(key_name: &str) -> Result<(), VaultError> {
+    validate_path_segment(key_name).map_err(|e| VaultError::InvalidData(format!("transit key name: {}", e)))
 }

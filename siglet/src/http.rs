@@ -24,8 +24,13 @@ use std::time::Duration;
 /// `SigletConfig::validate` (which rejects zero-valued timeouts). We don't
 /// re-validate here; this function is infallible by design so the runtime
 /// can construct the client at startup without an extra error path.
+///
+/// Redirects are never followed. The client carries credentials to counterparty-supplied URLs
+/// (token refresh), and following a redirect would send them to a location the refresh-endpoint
+/// policy never checked.
 pub fn build_http_client(cfg: &HttpClientConfig) -> Client {
     Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(Duration::from_secs(cfg.connect_timeout_seconds))
         .timeout(Duration::from_secs(cfg.request_timeout_seconds))
         .build()

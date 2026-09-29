@@ -60,7 +60,7 @@ impl PostgresRenewableTokenStore {
     /// indexes to optimize token operations:
     /// - Primary key on `id`
     /// - `idx_renewable_tokens_hash`: For efficient hash-based lookups during token renewal
-    /// - `idx_renewable_tokens_flow_id`: For efficient flow_id-based lookups
+    /// - `idx_renewable_tokens_pc_flow_id`: For efficient (participant context, flow_id) lookups
     /// - `idx_renewable_tokens_expires_at`: For efficient expiration-based cleanup
     ///
     /// # Errors
@@ -99,8 +99,8 @@ impl PostgresRenewableTokenStore {
         .map_err(|e| TokenError::database_error(format!("Failed to create hash index: {}", e)))?;
 
         sqlx::query(
-            "CREATE INDEX IF NOT EXISTS idx_renewable_tokens_flow_id
-             ON renewable_tokens(flow_id)",
+            "CREATE INDEX IF NOT EXISTS idx_renewable_tokens_pc_flow_id
+             ON renewable_tokens(participant_context_id, flow_id)",
         )
         .execute(&mut *tx)
         .await
@@ -253,12 +253,19 @@ impl RenewableTokenStore for PostgresRenewableTokenStore {
         Ok(())
     }
 
-    async fn find_by_flow_id(&self, flow_id: &str) -> Result<RenewableTokenEntry, TokenError> {
+    async fn find_by_flow_id(
+        &self,
+        participant_context_id: &str,
+        flow_id: &str,
+    ) -> Result<RenewableTokenEntry, TokenError> {
         let record: RenewableTokenRecord = sqlx::query_as(
             "SELECT id, token, hashed_refresh_token, expires_at, subject, claims, participant_context_id, audience, flow_id
              FROM renewable_tokens
-             WHERE flow_id = $1",
+             WHERE participant_context_id = $1 AND flow_id = $2
+             ORDER BY expires_at DESC
+             LIMIT 1",
         )
+        .bind(participant_context_id)
         .bind(flow_id)
         .fetch_optional(&self.pool)
         .await
@@ -281,11 +288,12 @@ impl RenewableTokenStore for PostgresRenewableTokenStore {
             .build())
     }
 
-    async fn remove_by_flow_id(&self, flow_id: &str) -> Result<(), TokenError> {
+    async fn remove_by_flow_id(&self, participant_context_id: &str, flow_id: &str) -> Result<(), TokenError> {
         let rows_affected = sqlx::query(
             "DELETE FROM renewable_tokens
-             WHERE flow_id = $1",
+             WHERE participant_context_id = $1 AND flow_id = $2",
         )
+        .bind(participant_context_id)
         .bind(flow_id)
         .execute(&self.pool)
         .await

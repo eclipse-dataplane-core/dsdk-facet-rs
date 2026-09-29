@@ -18,7 +18,7 @@ use dsdk_facet_core::jwt::test_fixtures::{
 use dsdk_facet_core::jwt::{JwtVerifier, LocalJwtGenerator, LocalJwtVerifier};
 use dsdk_facet_core::lock::MemoryLockManager;
 use dsdk_facet_core::token::client::oauth::OAuth2TokenClient;
-use dsdk_facet_core::token::client::{MemoryTokenStore, TokenClientApi, TokenData, TokenStore};
+use dsdk_facet_core::token::client::{MemoryTokenStore, RefreshEndpointPolicy, TokenClientApi, TokenData, TokenStore};
 use dsdk_facet_core::util::clock::default_clock;
 use std::sync::Arc;
 use wiremock::matchers::{body_string_contains, method, path};
@@ -43,7 +43,13 @@ async fn test_api_end_to_end_with_refresh() {
     let generator = LocalJwtGenerator::builder()
         .signing_key_resolver(signing_key_resolver)
         .build();
-    let token_client = Arc::new(OAuth2TokenClient::builder().jwt_generator(Arc::new(generator)).build());
+    // The mock refresh server speaks plain HTTP.
+    let token_client = Arc::new(
+        OAuth2TokenClient::builder()
+            .endpoint_policy(RefreshEndpointPolicy::permissive())
+            .jwt_generator(Arc::new(generator))
+            .build(),
+    );
 
     let mock_server = MockServer::start().await;
 

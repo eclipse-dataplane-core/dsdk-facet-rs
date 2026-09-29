@@ -30,8 +30,8 @@ use dsdk_facet_core::jwt::{
     JwkSet, JwtGenerator, KeyFormat, LocalJwtGenerator, PrefixTransitKeyResolver, SigningAlgorithm,
     StaticSigningKeyResolver, TokenClaims, VaultJwtGenerator,
 };
-use dsdk_facet_core::token::client::TokenClient;
 use dsdk_facet_core::token::client::oauth::OAuth2TokenClient;
+use dsdk_facet_core::token::client::{RefreshEndpointPolicy, TokenClient};
 use dsdk_facet_core::vault::VaultSigningClient;
 use jsonwebtoken::Algorithm;
 use reqwest::Client;
@@ -793,7 +793,11 @@ async fn do_refresh(ctx: &TestCtx, api_token: &str, refresh_token: &str) -> Resu
             .build(),
     );
 
-    let oauth_client = OAuth2TokenClient::builder().jwt_generator(client_jwt_generator).build();
+    // The refresh API is reached over a plain-HTTP port-forward.
+    let oauth_client = OAuth2TokenClient::builder()
+        .endpoint_policy(RefreshEndpointPolicy::permissive())
+        .jwt_generator(client_jwt_generator)
+        .build();
 
     // PC id drives the transit key lookup: key = "client-signing-{pc.id}"
     // PC identifier becomes iss/sub in the proof JWT; must match the DID document issuer.

@@ -16,9 +16,9 @@ dsdk-facet-postgres = { path = "../crates/facet-postgres", version = "0.1.0" }
 dsdk-facet-hashicorp-vault = { path = "../crates/facet-hashicorp-vault", version = "0.1.0" }
 
 # Eclipse Data Plane SDK
-dataplane-sdk = "0.1.2"
-dataplane-sdk-axum = "0.1.2"
-dataplane-sdk-postgres = "0.1.2"
+dataplane-sdk = "0.1.3"
+dataplane-sdk-axum = "0.1.3"
+dataplane-sdk-postgres = "0.1.3"
 
 # Runtime dependencies
 tokio = { workspace = true }
@@ -46,6 +46,7 @@ jsonwebtoken = { workspace = true, features = ["rust_crypto"] }
 rand = { workspace = true }
 reqwest = "0.12"
 sqlx = { workspace = true }
+uuid = { workspace = true }
 
 [dev-dependencies]
 base64 = { workspace = true }

@@ -1,5 +1,6 @@
 use axum::{Json, http::StatusCode, response::IntoResponse};
 use dsdk_facet_core::token::TokenError;
+use dsdk_facet_core::util::path::InvalidPathSegment;
 use serde_json::json;
 use thiserror::Error;
 
@@ -7,11 +8,14 @@ use thiserror::Error;
 pub enum TokenApiError {
     #[error(transparent)]
     Token(#[from] TokenError),
+    #[error(transparent)]
+    InvalidIdentifier(#[from] InvalidPathSegment),
 }
 
 impl IntoResponse for TokenApiError {
     fn into_response(self) -> axum::response::Response {
         let (status, error_message) = match self {
+            TokenApiError::InvalidIdentifier(e) => (StatusCode::BAD_REQUEST, e.to_string()),
             TokenApiError::Token(TokenError::TokenNotFound { .. }) => {
                 (StatusCode::NOT_FOUND, "Token not found".to_string())
             }

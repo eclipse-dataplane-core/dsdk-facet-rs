@@ -30,6 +30,7 @@ use dsdk_facet_core::jwt::{
     SigningKeyMappingRepository, VaultJwtGenerator, VaultVerificationKeyResolver,
 };
 use dsdk_facet_core::lock::{LockManager, MemoryLockManager};
+use dsdk_facet_core::token::client::RefreshEndpointPolicy;
 use dsdk_facet_core::token::client::oauth::OAuth2TokenClient;
 use dsdk_facet_core::token::client::{MemoryTokenStore, TokenClientApi, TokenStore, VaultTokenStore};
 use dsdk_facet_core::token::manager::{
@@ -140,6 +141,7 @@ pub async fn assemble_memory(
         mapping_repo,
         transfer_type_repo,
         http_client,
+        cfg.token.refresh_endpoint_policy.clone(),
     ))
 }
 
@@ -209,6 +211,7 @@ pub async fn assemble_postgres(
         mapping_repo,
         transfer_type_repo,
         http_client,
+        cfg.token.refresh_endpoint_policy.clone(),
     ))
 }
 
@@ -336,6 +339,7 @@ pub fn assemble_refresh_api(token_manager: Arc<dyn TokenManager>) -> TokenRefres
 /// through the management API (see [`MappingTransitKeyResolver`]); a missing mapping is a hard
 /// error at renewal time. The transit key must be provisioned out-of-band and its public key
 /// published so the server-side verifier can validate the JWT.
+#[allow(clippy::too_many_arguments)]
 pub fn assemble_token_api(
     token_store: Arc<dyn TokenStore>,
     lock_manager: Arc<dyn LockManager>,
@@ -343,6 +347,7 @@ pub fn assemble_token_api(
     token_manager: Arc<dyn TokenManager>,
     mapping_repo: Arc<dyn SigningKeyMappingRepository>,
     http_client: Client,
+    endpoint_policy: RefreshEndpointPolicy,
 ) -> TokenApiHandler {
     let client_jwt_generator = Arc::new(
         VaultJwtGenerator::builder()
@@ -356,6 +361,7 @@ pub fn assemble_token_api(
         OAuth2TokenClient::builder()
             .jwt_generator(client_jwt_generator)
             .http_client(http_client)
+            .endpoint_policy(endpoint_policy)
             .expiration_seconds(3600)
             .build(),
     );
@@ -410,6 +416,7 @@ fn build_runtime<C: TransactionalContext>(
     mapping_repo: Arc<dyn SigningKeyMappingRepository>,
     transfer_type_repo: Arc<dyn TransferTypeMappingRepository>,
     http_client: Client,
+    endpoint_policy: RefreshEndpointPolicy,
 ) -> SigletRuntime<C> {
     let refresh_handler = assemble_refresh_api(token_manager.clone());
     let token_api_handler = assemble_token_api(
@@ -419,6 +426,7 @@ fn build_runtime<C: TransactionalContext>(
         token_manager,
         mapping_repo.clone(),
         http_client,
+        endpoint_policy,
     );
     let management_handler = ManagementApiHandler::builder()
         .repo(mapping_repo)
@@ -557,6 +565,7 @@ fn create_siglet_handler<Tx: Send + 'static>(
         .dataplane_id(DEFAULT_DATAPLANE_ID)
         .transfer_type_repo(transfer_type_repo)
         .transfer_type_mappings(transfer_type_mappings)
+        .refresh_endpoint_policy(cfg.token.refresh_endpoint_policy.clone())
         .build()
 }
 

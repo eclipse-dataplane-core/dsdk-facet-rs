@@ -10,7 +10,7 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
-use super::{RefreshedTokenData, TokenClient};
+use super::{RefreshEndpointPolicy, RefreshedTokenData, TokenClient};
 use crate::context::ParticipantContext;
 use crate::jwt::{JwtGenerator, TokenClaims};
 use crate::token::TokenError;
@@ -26,15 +26,34 @@ use uuid::Uuid;
 
 const DEFAULT_EXPIRATION_SECONDS: i64 = 300; // 5 minutes
 
+/// Upper bound on a counterparty-supplied `expires_in` (30 days). Larger values are clamped rather
+/// than trusted: they would otherwise overflow the expiry computation.
+const MAX_EXPIRES_IN_SECONDS: i64 = 30 * 24 * 3600;
+
+/// How much of an error response body is kept for debug logging.
+const MAX_LOGGED_BODY_BYTES: usize = 512;
+
 #[derive(Clone, Builder)]
 pub struct OAuth2TokenClient {
     #[builder(default = default_clock())]
     clock: Arc<dyn Clock>,
-    #[builder(default = Client::new())]
+    /// Must not follow redirects: a redirect would re-send the refresh token and proof JWT to a
+    /// location the endpoint policy never checked. The default client is built that way.
+    #[builder(default = no_redirect_client())]
     http_client: Client,
     jwt_generator: Arc<dyn JwtGenerator>,
     #[builder(default = DEFAULT_EXPIRATION_SECONDS)]
     expiration_seconds: i64,
+    /// Which refresh endpoints may be called. Defaults to HTTPS-only.
+    #[builder(default)]
+    endpoint_policy: RefreshEndpointPolicy,
+}
+
+fn no_redirect_client() -> Client {
+    Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .unwrap_or_default()
 }
 
 #[derive(Deserialize)]
@@ -54,6 +73,9 @@ impl TokenClient for OAuth2TokenClient {
         refresh_token: &str,
         refresh_endpoint: &str,
     ) -> Result<RefreshedTokenData, TokenError> {
+        // Checked before anything is signed: the endpoint came from the counterparty.
+        let url = self.endpoint_policy.check(refresh_endpoint)?;
+
         let now = self.clock.now().timestamp();
         let mut custom_claims = Map::new();
         custom_claims.insert("token".to_string(), Value::String(access_token.to_string()));
@@ -70,7 +92,7 @@ impl TokenClient for OAuth2TokenClient {
 
         let response = self
             .http_client
-            .post(refresh_endpoint)
+            .post(url)
             .form(&[("grant_type", "refresh_token"), ("refresh_token", refresh_token)])
             .header("Authorization", format!("Bearer {}", jwt))
             .send()
@@ -78,14 +100,17 @@ impl TokenClient for OAuth2TokenClient {
             .map_err(|e| TokenError::network_error(format!("Failed to send refresh request: {}", e)))?;
 
         if !response.status().is_success() {
+            // The body is written by the remote endpoint; keep it out of the error (which is
+            // logged at error level) and only log a bounded prefix at debug level.
             let status = response.status();
-            let body = response
-                .text()
-                .await
-                .unwrap_or_else(|e| format!("<failed to read body: {}>", e));
+            if log::log_enabled!(log::Level::Debug) {
+                let body = response.text().await.unwrap_or_default();
+                let end = body.floor_char_boundary(MAX_LOGGED_BODY_BYTES);
+                log::debug!("Token refresh failed with status {}: {}", status, &body[..end]);
+            }
             return Err(TokenError::network_error(format!(
-                "Token refresh failed with status {}: {}",
-                status, body
+                "Token refresh failed with status {}",
+                status
             )));
         }
 
@@ -94,7 +119,8 @@ impl TokenClient for OAuth2TokenClient {
             .await
             .map_err(|e| TokenError::network_error(format!("Failed to parse token response: {}", e)))?;
 
-        let expires_at = self.clock.now() + TimeDelta::seconds(token_response.expires_in);
+        let expires_in = token_response.expires_in.clamp(0, MAX_EXPIRES_IN_SECONDS);
+        let expires_at = self.clock.now() + TimeDelta::seconds(expires_in);
         let new_refresh_token = token_response
             .refresh_token
             .unwrap_or_else(|| refresh_token.to_string());

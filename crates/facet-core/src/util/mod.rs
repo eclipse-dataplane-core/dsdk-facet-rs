@@ -16,6 +16,7 @@ pub mod backoff;
 pub mod clock;
 pub mod crypto;
 pub mod encryption;
+pub mod path;
 pub mod task;
 
 #[cfg(test)]

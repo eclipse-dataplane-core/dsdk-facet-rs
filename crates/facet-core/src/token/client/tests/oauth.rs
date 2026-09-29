@@ -14,8 +14,9 @@ use crate::context::ParticipantContext;
 use crate::jwt::LocalJwtGenerator;
 use crate::jwt::test_fixtures::StaticSigningKeyResolver;
 use crate::jwt::test_fixtures::generate_ed25519_keypair_pem;
-use crate::token::client::TokenClient;
+use crate::token::TokenError;
 use crate::token::client::oauth::OAuth2TokenClient;
+use crate::token::client::{RefreshEndpointPolicy, TokenClient};
 use base64::Engine;
 use std::sync::Arc;
 use wiremock::matchers::{body_string_contains, header_regex, method, path};
@@ -41,7 +42,10 @@ async fn test_refresh_token_success() {
             .build(),
     );
 
-    let client = OAuth2TokenClient::builder().jwt_generator(jwt_generator).build();
+    let client = OAuth2TokenClient::builder()
+        .endpoint_policy(RefreshEndpointPolicy::permissive())
+        .jwt_generator(jwt_generator)
+        .build();
 
     Mock::given(method("POST"))
         .and(path("/token"))
@@ -96,7 +100,10 @@ async fn test_proof_jwt_sub_is_participant_context_identifier() {
             .build(),
     );
 
-    let client = OAuth2TokenClient::builder().jwt_generator(jwt_generator).build();
+    let client = OAuth2TokenClient::builder()
+        .endpoint_policy(RefreshEndpointPolicy::permissive())
+        .jwt_generator(jwt_generator)
+        .build();
 
     Mock::given(method("POST"))
         .and(path("/token"))
@@ -136,4 +143,113 @@ async fn test_proof_jwt_sub_is_participant_context_identifier() {
     let claims: serde_json::Value = serde_json::from_slice(&payload_bytes).unwrap();
 
     assert_eq!(claims["sub"], "did:web:consumer.example.com");
+}
+
+fn test_client(policy: RefreshEndpointPolicy) -> OAuth2TokenClient {
+    let keypair = generate_ed25519_keypair_pem().expect("Failed to generate keypair");
+    let signing_resolver = Arc::new(
+        StaticSigningKeyResolver::builder()
+            .key(keypair.private_key.clone())
+            .kid("did:web:example.com#key-1")
+            .build(),
+    );
+    let jwt_generator = Arc::new(
+        LocalJwtGenerator::builder()
+            .signing_key_resolver(signing_resolver)
+            .build(),
+    );
+    OAuth2TokenClient::builder()
+        .endpoint_policy(policy)
+        .jwt_generator(jwt_generator)
+        .build()
+}
+
+fn test_pc() -> ParticipantContext {
+    ParticipantContext::builder()
+        .id("test-participant")
+        .audience("test-audience")
+        .build()
+}
+
+#[tokio::test]
+async fn test_refresh_token_rejects_endpoint_outside_policy() {
+    let mock_server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(0)
+        .mount(&mock_server)
+        .await;
+
+    // Default policy is HTTPS-only; the mock server speaks plain HTTP.
+    let client = test_client(RefreshEndpointPolicy::default());
+    let result = client
+        .refresh_token(
+            &test_pc(),
+            "test-identifier",
+            "access",
+            "refresh",
+            &format!("{}/token", mock_server.uri()),
+        )
+        .await;
+
+    assert!(matches!(result, Err(TokenError::NotAuthorized(_))), "{result:?}");
+}
+
+#[tokio::test]
+async fn test_refresh_token_does_not_follow_redirects() {
+    let mock_server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/token"))
+        .respond_with(ResponseTemplate::new(307).insert_header("Location", format!("{}/internal", mock_server.uri())))
+        .mount(&mock_server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/internal"))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(0)
+        .mount(&mock_server)
+        .await;
+
+    let client = test_client(RefreshEndpointPolicy::permissive());
+    let result = client
+        .refresh_token(
+            &test_pc(),
+            "test-identifier",
+            "access",
+            "refresh",
+            &format!("{}/token", mock_server.uri()),
+        )
+        .await;
+
+    match result {
+        Err(TokenError::NetworkError(msg)) => assert!(!msg.contains("<"), "{msg}"),
+        other => panic!("expected NetworkError, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_refresh_token_clamps_huge_expires_in() {
+    let mock_server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/token"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "access_token": "new_access_token",
+            "expires_in": i64::MAX
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let client = test_client(RefreshEndpointPolicy::permissive());
+    let token_data = client
+        .refresh_token(
+            &test_pc(),
+            "test-identifier",
+            "access",
+            "refresh",
+            &format!("{}/token", mock_server.uri()),
+        )
+        .await
+        .expect("refresh should succeed with a clamped expiry");
+
+    assert!(token_data.expires_at <= chrono::Utc::now() + chrono::TimeDelta::days(31));
 }

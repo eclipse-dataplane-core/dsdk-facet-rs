@@ -518,7 +518,7 @@ async fn test_postgres_find_by_flow_id_success() {
     );
     store.save(entry.clone()).await.unwrap();
 
-    let retrieved = store.find_by_flow_id("flow_123").await.unwrap();
+    let retrieved = store.find_by_flow_id("participant1", "flow_123").await.unwrap();
     assert_eq!(retrieved.id, "test_id");
     assert_eq!(retrieved.token, "test_token");
     assert_eq!(retrieved.flow_id, "flow_123");
@@ -530,7 +530,7 @@ async fn test_postgres_find_by_flow_id_not_found() {
     let store = PostgresRenewableTokenStore::new(pool);
     store.initialize().await.unwrap();
 
-    let result = store.find_by_flow_id("nonexistent_flow").await;
+    let result = store.find_by_flow_id("participant1", "nonexistent_flow").await;
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("Token not found"));
 }
@@ -555,12 +555,53 @@ async fn test_postgres_remove_by_flow_id_success() {
     );
     store.save(entry.clone()).await.unwrap();
 
-    let found = store.find_by_flow_id("flow_to_remove").await.unwrap();
+    let found = store.find_by_flow_id("participant1", "flow_to_remove").await.unwrap();
     assert_eq!(found.id, "test_id");
 
-    let result = store.remove_by_flow_id("flow_to_remove").await;
+    let result = store.remove_by_flow_id("participant1", "flow_to_remove").await;
     assert!(result.is_ok());
 
-    let not_found_by_flow = store.find_by_flow_id("flow_to_remove").await;
+    let not_found_by_flow = store.find_by_flow_id("participant1", "flow_to_remove").await;
     assert!(not_found_by_flow.is_err());
+}
+
+#[tokio::test]
+async fn test_postgres_remove_by_flow_id_is_scoped_to_participant_context() {
+    let (pool, _container) = setup_postgres_container().await;
+    let store = PostgresRenewableTokenStore::new(pool);
+    store.initialize().await.unwrap();
+
+    let expires_at = Utc::now() + TimeDelta::seconds(3600);
+    let entry_a = make_entry(
+        "id_a",
+        "token_a",
+        "hash_a",
+        "shared_flow",
+        "test_subject",
+        HashMap::new(),
+        expires_at,
+    );
+    let mut entry_b = make_entry(
+        "id_b",
+        "token_b",
+        "hash_b",
+        "shared_flow",
+        "test_subject",
+        HashMap::new(),
+        expires_at,
+    );
+    entry_b.participant_context_id = "participant2".to_string();
+    store.save(entry_a).await.unwrap();
+    store.save(entry_b).await.unwrap();
+
+    assert!(matches!(
+        store.remove_by_flow_id("participant3", "shared_flow").await,
+        Err(TokenError::TokenNotFound { .. })
+    ));
+
+    store.remove_by_flow_id("participant1", "shared_flow").await.unwrap();
+
+    assert!(store.find_by_renewal("hash_a").await.is_err());
+    let remaining = store.find_by_flow_id("participant2", "shared_flow").await.unwrap();
+    assert_eq!(remaining.id, "id_b");
 }

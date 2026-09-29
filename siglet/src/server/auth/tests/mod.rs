@@ -40,7 +40,7 @@ use rand::Rng;
 use serde_json::{Value, json};
 use tower::ServiceExt;
 
-use crate::server::auth::{AuthError, AuthLayer, KeyProvider, NoParticipantContext};
+use crate::server::auth::{AuthError, AuthLayer, AuthState, AuthenticatedCaller, KeyProvider, NoParticipantContext};
 
 // ============================================================================
 // Test Fixtures
@@ -1320,6 +1320,7 @@ fn build_token_api_auth_layer_uses_configured_scope_and_audience() {
             audience: "token-api-audience".to_string(),
             required_scope: "custom:token-api".to_string(),
             admin_scope: None,
+            issuer: None,
         },
         reqwest::Client::new(),
     );
@@ -1346,6 +1347,7 @@ fn build_token_api_auth_layer_passes_admin_scope_through() {
             audience: "token-api-audience".to_string(),
             required_scope: TOKEN_API_SCOPE.to_string(),
             admin_scope: Some(TOKEN_API_ADMIN_SCOPE.to_string()),
+            issuer: None,
         },
         reqwest::Client::new(),
     );
@@ -1370,6 +1372,7 @@ fn build_signaling_auth_layer_never_sets_an_admin_scope() {
             cache_ttl_seconds: 300,
             audience: TEST_AUDIENCE.to_string(),
             required_scope: REQUIRED_SCOPE.to_string(),
+            issuer: None,
         },
         reqwest::Client::new(),
     );
@@ -1390,6 +1393,98 @@ fn build_token_api_auth_layer_disabled_yields_disabled_layer() {
 // ============================================================================
 // Helpers
 // ============================================================================
+
+// ============================================================================
+// Issuer binding and caller identity
+// ============================================================================
+
+const TEST_ISSUER: &str = "https://idp.example.com";
+
+/// Token-API layer that additionally requires `iss == TEST_ISSUER`.
+fn token_api_layer_with_issuer(jwk_set: JwkSet) -> AuthLayer {
+    AuthLayer::Enabled(std::sync::Arc::new(AuthState {
+        key_provider: Box::new(StaticKeyProvider::new(jwk_set)),
+        expected_audience: TEST_AUDIENCE.to_string(),
+        required_scope: TOKEN_API_SCOPE.to_string(),
+        admin_scope: None,
+        no_participant_context: NoParticipantContext::RequireToken,
+        issuer: Some(TEST_ISSUER.to_string()),
+    }))
+}
+
+async fn call_pathless(app: Router, token: &str) -> axum::http::Response<Body> {
+    app.oneshot(
+        Request::builder()
+            .uri("/tokens/verify")
+            .header("authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn configured_issuer_accepts_matching_iss() {
+    let key = TestKey::new("kid-1");
+    let mut claims = token_api_claims("ctx-a");
+    claims["iss"] = json!(TEST_ISSUER);
+
+    let response = call_pathless(
+        pathless_router(token_api_layer_with_issuer(key.jwk_set.clone())),
+        &key.issue(claims),
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn configured_issuer_rejects_other_or_missing_iss() {
+    let key = TestKey::new("kid-1");
+
+    let mut other = token_api_claims("ctx-a");
+    other["iss"] = json!("https://other-idp.example.com");
+    let missing = token_api_claims("ctx-a");
+
+    for claims in [other, missing] {
+        let response = call_pathless(
+            pathless_router(token_api_layer_with_issuer(key.jwk_set.clone())),
+            &key.issue(claims),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+}
+
+/// Router with a pathless protected route whose handler echoes the injected caller.
+fn caller_router(layer: AuthLayer) -> Router {
+    async fn handler(Extension(caller): Extension<AuthenticatedCaller>) -> String {
+        format!("{}:{}", caller.subject, caller.is_admin)
+    }
+    Router::new().route("/tokens/verify", get(handler)).layer(layer)
+}
+
+#[tokio::test]
+async fn enabled_mode_injects_authenticated_caller() {
+    let key = TestKey::new("kid-1");
+
+    let response = call_pathless(
+        caller_router(token_api_layer_with_admin(key.jwk_set.clone())),
+        &key.issue(token_api_claims("ctx-a")),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response_text(response).await, "ctx-a:false");
+
+    let response = call_pathless(
+        caller_router(token_api_layer_with_admin(key.jwk_set.clone())),
+        &key.issue(admin_claims("ctx-admin")),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response_text(response).await, "ctx-admin:true");
+}
 
 async fn response_text(response: axum::http::Response<Body>) -> String {
     let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();

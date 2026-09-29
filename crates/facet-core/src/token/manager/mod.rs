@@ -115,7 +115,17 @@ pub trait TokenManager: Send + Sync {
 
     async fn revoke_token(&self, participant_context: &ParticipantContext, flow_id: &str) -> Result<(), TokenError>;
 
-    async fn validate_token(&self, audience: &str, token: &str) -> Result<TokenClaims, TokenError>;
+    /// Validates a token this manager issued for `audience` and returns its claims.
+    ///
+    /// When `participant_context_id` is set, the token must also have been issued for that
+    /// participant context; a token of another context is reported exactly like an unknown one,
+    /// so the caller learns nothing about other contexts' tokens.
+    async fn validate_token(
+        &self,
+        participant_context_id: Option<&str>,
+        audience: &str,
+        token: &str,
+    ) -> Result<TokenClaims, TokenError>;
 
     async fn jwk_set(&self) -> Result<JwkSet, TokenError>;
 }
@@ -129,11 +139,11 @@ pub trait TokenManager: Send + Sync {
 ///
 /// * `token` (`String`): The primary token used for authentication.
 /// * `refresh_token` (`String`): A token used to obtain a new primary token when the current one expires.
-/// * `expires_at` (`DateTime<Utc>`): The timestamp indicating when the primary token will expire.
-///   This is represented in UTC time.
+/// * `expires_at` (`DateTime<Utc>`): The timestamp indicating when the primary (access) token will
+///   expire, i.e. its `exp` claim. The refresh token lives longer and its expiry is not exposed.
 /// * `refresh_endpoint` (`String`): The URL endpoint where the refresh token can be exchanged for a new token pair.
 ///
-#[derive(Builder, Debug, Clone, PartialEq, Eq)]
+#[derive(Builder, Clone, PartialEq, Eq)]
 pub struct RenewableTokenPair {
     pub token: String,
     pub refresh_token: String,
@@ -169,7 +179,7 @@ pub struct RenewableTokenPair {
 ///
 /// - `flow_id`:
 ///   An identifier for the flow or session associated with this token.
-#[derive(Clone, Debug, Builder)]
+#[derive(Clone, Builder)]
 pub struct RenewableTokenEntry {
     #[builder(into)]
     pub id: String,
@@ -189,6 +199,38 @@ pub struct RenewableTokenEntry {
     pub flow_id: String,
 }
 
+/// Placeholder printed instead of a secret in `Debug` output.
+pub(crate) const REDACTED: &str = "[REDACTED]";
+
+// Tokens are bearer credentials: `Debug` never prints them, so a stray `{:?}` in a log line cannot
+// leak one.
+impl std::fmt::Debug for RenewableTokenPair {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RenewableTokenPair")
+            .field("token", &REDACTED)
+            .field("refresh_token", &REDACTED)
+            .field("expires_at", &self.expires_at)
+            .field("refresh_endpoint", &self.refresh_endpoint)
+            .finish()
+    }
+}
+
+impl std::fmt::Debug for RenewableTokenEntry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RenewableTokenEntry")
+            .field("id", &self.id)
+            .field("token", &REDACTED)
+            .field("hashed_refresh_token", &REDACTED)
+            .field("expires_at", &self.expires_at)
+            .field("subject", &self.subject)
+            .field("claims", &self.claims)
+            .field("participant_context_id", &self.participant_context_id)
+            .field("audience", &self.audience)
+            .field("flow_id", &self.flow_id)
+            .finish()
+    }
+}
+
 /// Stores renewable token pairs.
 #[async_trait]
 pub trait RenewableTokenStore: Send + Sync {
@@ -198,9 +240,16 @@ pub trait RenewableTokenStore: Send + Sync {
 
     async fn find_by_id(&self, id: &str) -> Result<RenewableTokenEntry, TokenError>;
 
-    async fn find_by_flow_id(&self, flow_id: &str) -> Result<RenewableTokenEntry, TokenError>;
+    /// Finds the most recent entry issued for `flow_id` within `participant_context_id`.
+    async fn find_by_flow_id(
+        &self,
+        participant_context_id: &str,
+        flow_id: &str,
+    ) -> Result<RenewableTokenEntry, TokenError>;
 
-    async fn remove_by_flow_id(&self, flow_id: &str) -> Result<(), TokenError>;
+    /// Removes every entry issued for `flow_id` within `participant_context_id`. Entries of other
+    /// participant contexts that share the flow id are left untouched.
+    async fn remove_by_flow_id(&self, participant_context_id: &str, flow_id: &str) -> Result<(), TokenError>;
 
     async fn update(&self, old_hash: &str, new_entry: RenewableTokenEntry) -> Result<(), TokenError>;
 }
@@ -282,6 +331,13 @@ impl JwtTokenManager {
         ParticipantContext::builder().id(id).identifier(&self.issuer).build()
     }
 
+    /// Expiry of an access token minted now; matches the `exp` claim set by `create_claims`.
+    fn access_expiration(&self) -> Result<DateTime<Utc>, TokenError> {
+        DateTime::from_timestamp(self.clock.now().timestamp() + self.token_duration, 0).ok_or_else(|| {
+            TokenError::general_error("Failed to calculate token expiration time - timestamp is out of valid range")
+        })
+    }
+
     fn renewal_expiration(&self) -> Result<DateTime<Utc>, TokenError> {
         let expires_at = DateTime::from_timestamp(self.clock.now().timestamp() + self.renewal_token_duration, 0)
             .ok_or_else(|| {
@@ -336,7 +392,7 @@ impl TokenManager for JwtTokenManager {
         Ok(RenewableTokenPair {
             token,
             refresh_token,
-            expires_at,
+            expires_at: self.access_expiration()?,
             refresh_endpoint: self.refresh_endpoint.clone(),
         })
     }
@@ -348,6 +404,12 @@ impl TokenManager for JwtTokenManager {
             .find_by_renewal(&hashed)
             .await
             .map_err(|_| TokenError::NotAuthorized("Invalid refresh token".to_string()))?;
+
+        // The entry's expiry is the refresh token's lifetime (`renewal_token_duration`); past it the
+        // refresh token is dead even though the row may not have been cleaned up yet.
+        if entry.expires_at <= self.clock.now() {
+            return Err(TokenError::NotAuthorized("Refresh token expired".to_string()));
+        }
 
         let verified_claims = self.client_verifier.verify_token(&entry.audience, bound_token).await?;
 
@@ -399,26 +461,37 @@ impl TokenManager for JwtTokenManager {
         Ok(RenewableTokenPair {
             token,
             refresh_token: new_refresh_token,
-            expires_at: new_expires_at,
+            expires_at: self.access_expiration()?,
             refresh_endpoint: self.refresh_endpoint.clone(),
         })
     }
 
-    async fn revoke_token(&self, _participant_context: &ParticipantContext, flow_id: &str) -> Result<(), TokenError> {
-        self.token_store.remove_by_flow_id(flow_id).await
+    async fn revoke_token(&self, participant_context: &ParticipantContext, flow_id: &str) -> Result<(), TokenError> {
+        self.token_store
+            .remove_by_flow_id(&participant_context.id, flow_id)
+            .await
     }
 
-    async fn validate_token(&self, audience: &str, token: &str) -> Result<TokenClaims, TokenError> {
+    async fn validate_token(
+        &self,
+        participant_context_id: Option<&str>,
+        audience: &str,
+        token: &str,
+    ) -> Result<TokenClaims, TokenError> {
         let claims = self.provider_verifier.verify_token(audience, token).await?;
         let jti = claims
             .custom
             .get("jti")
             .and_then(|v| v.as_str())
             .ok_or(TokenError::Invalid)?;
-        self.token_store
+        let entry = self
+            .token_store
             .find_by_id(jti)
             .await
             .map_err(|_| TokenError::NotAuthorized("Token not found".to_string()))?;
+        if participant_context_id.is_some_and(|pc| pc != entry.participant_context_id) {
+            return Err(TokenError::NotAuthorized("Token not found".to_string()));
+        }
         Ok(claims)
     }
 

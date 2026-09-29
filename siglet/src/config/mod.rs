@@ -11,6 +11,7 @@
 //
 use bon::Builder;
 use config::{Config, Environment, File};
+pub use dsdk_facet_core::token::client::RefreshEndpointPolicy;
 use dsdk_facet_core::token::manager::RESERVED_CLAIMS;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -146,6 +147,11 @@ pub enum SignalingAuthConfig {
         /// explicitly. Must be non-empty when auth is enabled.
         #[serde(default = "default_signaling_scope")]
         required_scope: String,
+        /// Expected JWT `iss` claim. When set, tokens from any other issuer are rejected — use it
+        /// whenever the JWKS is shared with other issuers or tenants of the same IdP. Unset by
+        /// default (issuer not checked).
+        #[serde(default)]
+        issuer: Option<String>,
     },
 }
 
@@ -159,6 +165,7 @@ impl Default for SignalingAuthConfig {
             cache_ttl_seconds: DEFAULT_JWKS_CACHE_TTL_SECONDS,
             audience: DEFAULT_SIGNALING_AUDIENCE.to_string(),
             required_scope: DEFAULT_SIGNALING_SCOPE.to_string(),
+            issuer: None,
         }
     }
 }
@@ -188,6 +195,11 @@ pub enum ManagementApiAuthConfig {
         /// Expected JWT `aud` claim on management-API tokens. Defaults to `"siglet"`.
         #[serde(default = "default_management_audience")]
         audience: String,
+        /// Expected JWT `iss` claim. When set, tokens from any other issuer are rejected — use it
+        /// whenever the JWKS is shared with other issuers or tenants of the same IdP. Unset by
+        /// default (issuer not checked).
+        #[serde(default)]
+        issuer: Option<String>,
     },
 }
 
@@ -200,6 +212,7 @@ impl Default for ManagementApiAuthConfig {
             jwks_url: String::new(),
             cache_ttl_seconds: DEFAULT_JWKS_CACHE_TTL_SECONDS,
             audience: DEFAULT_MANAGEMENT_AUDIENCE.to_string(),
+            issuer: None,
         }
     }
 }
@@ -258,6 +271,11 @@ pub enum TokenApiAuthConfig {
         /// demo and debugging deployments, never production.
         #[serde(default)]
         admin_scope: Option<String>,
+        /// Expected JWT `iss` claim. When set, tokens from any other issuer are rejected — use it
+        /// whenever the JWKS is shared with other issuers or tenants of the same IdP. Unset by
+        /// default (issuer not checked).
+        #[serde(default)]
+        issuer: Option<String>,
     },
 }
 
@@ -272,6 +290,7 @@ impl Default for TokenApiAuthConfig {
             audience: DEFAULT_TOKEN_API_AUDIENCE.to_string(),
             required_scope: DEFAULT_TOKEN_API_SCOPE.to_string(),
             admin_scope: None,
+            issuer: None,
         }
     }
 }
@@ -480,6 +499,15 @@ pub struct TokenConfig {
     pub issuer: Option<String>,
     pub refresh_endpoint: Option<String>,
     pub server_secret: Option<String>,
+    /// Which counterparty refresh endpoints Siglet accepts in a data address and calls to refresh
+    /// a token. HTTPS-only by default; see [`RefreshEndpointPolicy`].
+    ///
+    /// ```text
+    /// [token.refresh_endpoint_policy]
+    /// allow_http = false
+    /// allowed_hosts = ["provider.example.com", "*.dataspace.example"]
+    /// ```
+    pub refresh_endpoint_policy: RefreshEndpointPolicy,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -698,6 +726,18 @@ impl SigletConfig {
             errors.push("vault_signing_key_name cannot be empty".to_string());
         }
 
+        // A blank allowed host would never match anything, which almost certainly means a typo
+        // rather than an intent to block every refresh endpoint.
+        if self
+            .token
+            .refresh_endpoint_policy
+            .allowed_hosts
+            .iter()
+            .any(|h| h.trim().is_empty() || h.trim() == "*.")
+        {
+            errors.push("token.refresh_endpoint_policy.allowed_hosts entries cannot be empty".to_string());
+        }
+
         // Validate optional vault mount path / token subpath: when supplied they must be
         // meaningful. A blank value would produce a malformed Vault path, so reject it rather
         // than silently collapsing to the default. Omitting the key entirely (None) is valid.
@@ -727,8 +767,12 @@ impl SigletConfig {
             cache_ttl_seconds,
             audience,
             required_scope,
+            issuer,
         } = &self.signaling_auth
         {
+            if issuer.as_deref().is_some_and(|i| i.trim().is_empty()) {
+                errors.push("signaling_auth.issuer cannot be empty when set".to_string());
+            }
             if jwks_url.is_empty() {
                 errors.push(
                     "signaling_auth.jwks_url is required when signaling_auth.mode = \"enabled\" \
@@ -761,8 +805,12 @@ impl SigletConfig {
             audience,
             required_scope,
             admin_scope,
+            issuer,
         } = &self.token_api_auth
         {
+            if issuer.as_deref().is_some_and(|i| i.trim().is_empty()) {
+                errors.push("token_api_auth.issuer cannot be empty when set".to_string());
+            }
             if jwks_url.is_empty() {
                 errors.push(
                     "token_api_auth.jwks_url is required when token_api_auth.mode = \"enabled\" \
@@ -808,8 +856,12 @@ impl SigletConfig {
             jwks_url,
             cache_ttl_seconds,
             audience,
+            issuer,
         } = &self.management_api_auth
         {
+            if issuer.as_deref().is_some_and(|i| i.trim().is_empty()) {
+                errors.push("management_api_auth.issuer cannot be empty when set".to_string());
+            }
             if jwks_url.is_empty() {
                 errors.push(
                     "management_api_auth.jwks_url is required when management_api_auth.mode = \"enabled\" \

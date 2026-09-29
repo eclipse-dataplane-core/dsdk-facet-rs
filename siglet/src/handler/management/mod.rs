@@ -30,6 +30,7 @@ use axum::{
 };
 use bon::Builder;
 use dsdk_facet_core::jwt::{SigningKeyMapping, SigningKeyMappingRepository};
+use dsdk_facet_core::util::path::validate_path_segment;
 use reqwest::StatusCode;
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -95,10 +96,32 @@ impl ManagementApiHandler {
     }
 }
 
+/// Validates a participant context id or Vault key name taken from the path or body.
+///
+/// Both end up as Vault path segments (a key name in `/v1/transit/sign/{key_name}`), so a value
+/// such as `../keys/other` must be rejected before it is stored.
+fn validate_segment(field: &str, value: &str) -> Result<(), ManagementApiError> {
+    validate_path_segment(value).map_err(|e| ManagementApiError::Validation(vec![format!("{}: {}", field, e)]))
+}
+
+/// Validates the fields of a signing-key mapping. `kid` is only a JWT header value, never a path,
+/// so it just has to be present.
+fn validate_key_mapping(mapping: &SigningKeyMapping) -> Result<(), ManagementApiError> {
+    validate_segment("participantContextId", &mapping.participant_context_id)?;
+    validate_segment("keyName", &mapping.key_name)?;
+    if mapping.kid.trim().is_empty() {
+        return Err(ManagementApiError::Validation(vec![
+            "kid: must not be empty".to_string(),
+        ]));
+    }
+    Ok(())
+}
+
 async fn get_key_mapping(
     State(ManagementApiHandler { repo, .. }): State<ManagementApiHandler>,
     Path(id): Path<String>,
 ) -> Result<Json<SigningKeyMapping>, ManagementApiError> {
+    validate_segment("id", &id)?;
     Ok(Json(repo.find(&id).await?))
 }
 
@@ -106,6 +129,7 @@ async fn create_key_mapping(
     State(ManagementApiHandler { repo, .. }): State<ManagementApiHandler>,
     Json(key_mapping): Json<SigningKeyMapping>,
 ) -> Result<StatusCode, ManagementApiError> {
+    validate_key_mapping(&key_mapping)?;
     repo.create(key_mapping).await?;
     Ok(StatusCode::CREATED)
 }
@@ -115,14 +139,13 @@ async fn update_key_mapping(
     Path(id): Path<String>,
     Json(body): Json<KeyMappingRequest>,
 ) -> Result<StatusCode, ManagementApiError> {
-    repo.update(
-        SigningKeyMapping::builder()
-            .participant_context_id(&id)
-            .key_name(body.key_name)
-            .kid(body.kid)
-            .build(),
-    )
-    .await?;
+    let mapping = SigningKeyMapping::builder()
+        .participant_context_id(&id)
+        .key_name(body.key_name)
+        .kid(body.kid)
+        .build();
+    validate_key_mapping(&mapping)?;
+    repo.update(mapping).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -130,6 +153,7 @@ async fn delete_key_mapping(
     State(ManagementApiHandler { repo, .. }): State<ManagementApiHandler>,
     Path(id): Path<String>,
 ) -> Result<StatusCode, ManagementApiError> {
+    validate_segment("id", &id)?;
     repo.delete(&id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -138,6 +162,7 @@ async fn get_transfer_type_mapping(
     State(ManagementApiHandler { transfer_type_repo, .. }): State<ManagementApiHandler>,
     Path(id): Path<String>,
 ) -> Result<Json<TransferTypeMapping>, ManagementApiError> {
+    validate_segment("id", &id)?;
     Ok(Json(transfer_type_repo.find(&id).await?))
 }
 
@@ -175,6 +200,7 @@ async fn create_transfer_type_mapping(
     State(ManagementApiHandler { transfer_type_repo, .. }): State<ManagementApiHandler>,
     Json(mapping): Json<TransferTypeMapping>,
 ) -> Result<StatusCode, ManagementApiError> {
+    validate_segment("participantContextId", &mapping.participant_context_id)?;
     validate_transfer_types(&mapping.mappings)?;
     transfer_type_repo.create(mapping).await?;
     Ok(StatusCode::CREATED)
@@ -186,6 +212,7 @@ async fn update_transfer_type_mapping(
     Path(id): Path<String>,
     Json(mappings): Json<HashMap<String, TransferType>>,
 ) -> Result<StatusCode, ManagementApiError> {
+    validate_segment("id", &id)?;
     validate_transfer_types(&mappings)?;
     transfer_type_repo
         .update(
@@ -202,6 +229,7 @@ async fn delete_transfer_type_mapping(
     State(ManagementApiHandler { transfer_type_repo, .. }): State<ManagementApiHandler>,
     Path(id): Path<String>,
 ) -> Result<StatusCode, ManagementApiError> {
+    validate_segment("id", &id)?;
     transfer_type_repo.delete(&id).await?;
     Ok(StatusCode::NO_CONTENT)
 }

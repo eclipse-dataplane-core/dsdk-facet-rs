@@ -54,7 +54,12 @@ impl TokenManager for NoOpTokenManager {
         unimplemented!("not needed for this test")
     }
 
-    async fn validate_token(&self, _audience: &str, _token: &str) -> Result<TokenClaims, TokenError> {
+    async fn validate_token(
+        &self,
+        _participant_context_id: Option<&str>,
+        _audience: &str,
+        _token: &str,
+    ) -> Result<TokenClaims, TokenError> {
         unimplemented!("not needed for this test")
     }
 

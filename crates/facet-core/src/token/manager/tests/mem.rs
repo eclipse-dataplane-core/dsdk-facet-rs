@@ -396,7 +396,7 @@ async fn test_find_by_flow_id_success() {
         .await
         .unwrap();
 
-    let retrieved = store.find_by_flow_id("flow_123").await.unwrap();
+    let retrieved = store.find_by_flow_id("participant1", "flow_123").await.unwrap();
     assert_eq!(retrieved.id, "test_id");
     assert_eq!(retrieved.token, "test_token");
     assert_eq!(retrieved.flow_id, "flow_123");
@@ -406,7 +406,7 @@ async fn test_find_by_flow_id_success() {
 async fn test_find_by_flow_id_not_found() {
     let store = MemoryRenewableTokenStore::new();
 
-    let result = store.find_by_flow_id("nonexistent_flow").await;
+    let result = store.find_by_flow_id("participant1", "nonexistent_flow").await;
     assert!(result.is_err());
     assert!(matches!(result.unwrap_err(), TokenError::TokenNotFound { .. }));
 }
@@ -427,11 +427,11 @@ async fn test_remove_by_flow_id_success() {
         .await
         .unwrap();
 
-    let found = store.find_by_flow_id("flow_to_remove").await.unwrap();
+    let found = store.find_by_flow_id("participant1", "flow_to_remove").await.unwrap();
     assert_eq!(found.id, "test_id");
 
-    assert!(store.remove_by_flow_id("flow_to_remove").await.is_ok());
-    assert!(store.find_by_flow_id("flow_to_remove").await.is_err());
+    assert!(store.remove_by_flow_id("participant1", "flow_to_remove").await.is_ok());
+    assert!(store.find_by_flow_id("participant1", "flow_to_remove").await.is_err());
     assert!(store.find_by_renewal("test_hash").await.is_err());
     assert!(store.find_by_id("test_id").await.is_err());
 }
@@ -440,7 +440,59 @@ async fn test_remove_by_flow_id_success() {
 async fn test_delete_by_flow_id_not_found() {
     let store = MemoryRenewableTokenStore::new();
 
-    let result = store.remove_by_flow_id("nonexistent_flow").await;
+    let result = store.remove_by_flow_id("participant1", "nonexistent_flow").await;
     assert!(result.is_err());
     assert!(matches!(result.unwrap_err(), TokenError::TokenNotFound { .. }));
+}
+
+#[tokio::test]
+async fn test_remove_by_flow_id_is_scoped_to_participant_context() {
+    let store = MemoryRenewableTokenStore::new();
+    let expiration = Utc::now() + TimeDelta::seconds(3600);
+
+    store
+        .save(make_entry("id_a", "token_a", "hash_a", "shared_flow", expiration))
+        .await
+        .unwrap();
+    let mut other = make_entry("id_b", "token_b", "hash_b", "shared_flow", expiration);
+    other.participant_context_id = "participant2".to_string();
+    store.save(other).await.unwrap();
+
+    assert!(matches!(
+        store.remove_by_flow_id("participant3", "shared_flow").await,
+        Err(TokenError::TokenNotFound { .. })
+    ));
+
+    store.remove_by_flow_id("participant1", "shared_flow").await.unwrap();
+
+    assert!(store.find_by_renewal("hash_a").await.is_err());
+    let remaining = store.find_by_flow_id("participant2", "shared_flow").await.unwrap();
+    assert_eq!(remaining.id, "id_b");
+    assert!(store.find_by_renewal("hash_b").await.is_ok());
+}
+
+#[tokio::test]
+async fn test_remove_by_flow_id_removes_every_entry_of_the_flow() {
+    let store = MemoryRenewableTokenStore::new();
+    let expiration = Utc::now() + TimeDelta::seconds(3600);
+
+    store
+        .save(make_entry("id_1", "token_1", "hash_1", "flow_twice", expiration))
+        .await
+        .unwrap();
+    store
+        .save(make_entry("id_2", "token_2", "hash_2", "flow_twice", expiration))
+        .await
+        .unwrap();
+
+    assert_eq!(
+        store.find_by_flow_id("participant1", "flow_twice").await.unwrap().id,
+        "id_2"
+    );
+
+    store.remove_by_flow_id("participant1", "flow_twice").await.unwrap();
+
+    assert!(store.find_by_renewal("hash_1").await.is_err());
+    assert!(store.find_by_renewal("hash_2").await.is_err());
+    assert!(store.find_by_id("id_1").await.is_err());
 }

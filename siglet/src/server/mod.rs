@@ -54,6 +54,7 @@ pub fn build_signaling_auth_layer(cfg: &SignalingAuthConfig, http_client: reqwes
             cache_ttl_seconds,
             audience,
             required_scope,
+            issuer,
         } => AuthLayer::enabled_http_require_token(
             jwks_url,
             Duration::from_secs(*cache_ttl_seconds),
@@ -62,6 +63,7 @@ pub fn build_signaling_auth_layer(cfg: &SignalingAuthConfig, http_client: reqwes
             // No admin bypass on the signaling API: subject binding is the protocol's
             // participant isolation, not a convenience.
             None,
+            issuer.clone(),
             http_client,
         ),
     }
@@ -94,6 +96,7 @@ pub fn build_token_api_auth_layer(cfg: &TokenApiAuthConfig, http_client: reqwest
             audience,
             required_scope,
             admin_scope,
+            issuer,
         } => {
             if let Some(admin_scope) = admin_scope {
                 warn!(
@@ -108,6 +111,7 @@ pub fn build_token_api_auth_layer(cfg: &TokenApiAuthConfig, http_client: reqwest
                 audience,
                 required_scope,
                 admin_scope.clone(),
+                issuer.clone(),
                 http_client,
             )
         }
@@ -141,6 +145,7 @@ pub fn build_management_api_auth_layers(
             jwks_url,
             cache_ttl_seconds,
             audience,
+            issuer,
         } => {
             let ttl = Duration::from_secs(*cache_ttl_seconds);
             // The management routes are keyed on a generic `{id}`, so `sub` is never bound
@@ -151,6 +156,7 @@ pub fn build_management_api_auth_layers(
                 audience,
                 MANAGEMENT_API_READ_SCOPE,
                 None,
+                issuer.clone(),
                 http_client.clone(),
             );
             let write = AuthLayer::enabled_http_require_token(
@@ -159,6 +165,7 @@ pub fn build_management_api_auth_layers(
                 audience,
                 MANAGEMENT_API_WRITE_SCOPE,
                 None,
+                issuer.clone(),
                 http_client,
             );
             (read, write)
