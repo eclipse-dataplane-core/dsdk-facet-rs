@@ -24,7 +24,7 @@ async fn test_create_token_success() {
     lock_manager
         .expect_lock()
         .once()
-        .with(eq("test_identifier"), eq("owner1"))
+        .with(eq("participant1/test_identifier"), eq("owner1"))
         .returning(|identifier, owner| Ok(create_dummy_lock_guard(identifier, owner)));
 
     let mut token_store = MockTokenStore::new();
@@ -124,7 +124,7 @@ async fn test_create_token_acquires_lock() {
     let _ = lock_manager
         .expect_lock()
         .once()
-        .with(eq("critical_token"), eq("service_owner"))
+        .with(eq("participant1/critical_token"), eq("service_owner"))
         .returning(|identifier, owner| Ok(create_dummy_lock_guard(identifier, owner)));
 
     let mut token_store = MockTokenStore::new();
@@ -164,7 +164,7 @@ async fn test_create_token_lock_failure() {
     lock_manager
         .expect_lock()
         .once()
-        .with(eq("test"), eq("owner1"))
+        .with(eq("participant1/test"), eq("owner1"))
         .returning(|_, _| {
             Err(crate::lock::LockError::lock_already_held(
                 "test",
@@ -267,14 +267,14 @@ async fn test_create_token_with_different_owners() {
         .expect_lock()
         .once()
         .in_sequence(&mut seq)
-        .with(eq("token1"), eq("owner_a"))
+        .with(eq("participant1/token1"), eq("owner_a"))
         .returning(|identifier, owner| Ok(create_dummy_lock_guard(identifier, owner)));
 
     lock_manager
         .expect_lock()
         .once()
         .in_sequence(&mut seq)
-        .with(eq("token1"), eq("owner_b"))
+        .with(eq("participant1/token1"), eq("owner_b"))
         .returning(|identifier, owner| Ok(create_dummy_lock_guard(identifier, owner)));
 
     let mut token_store = MockTokenStore::new();
@@ -501,7 +501,7 @@ async fn test_create_multiple_tokens_same_identifier() {
     lock_manager
         .expect_lock()
         .times(2)
-        .with(eq("same_id"), eq("owner"))
+        .with(eq("participant1/same_id"), eq("owner"))
         .returning(|identifier, owner| Ok(create_dummy_lock_guard(identifier, owner)));
 
     let mut token_store = MockTokenStore::new();
@@ -610,7 +610,7 @@ async fn test_create_token_with_long_identifier() {
     lock_manager
         .expect_lock()
         .once()
-        .with(eq(long_identifier), eq("owner"))
+        .with(eq(format!("participant1/{}", long_identifier)), eq("owner"))
         .returning(|identifier, owner| Ok(create_dummy_lock_guard(identifier, owner)));
 
     let mut token_store = MockTokenStore::new();

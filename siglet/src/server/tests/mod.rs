@@ -52,6 +52,7 @@ impl TokenManager for NoOpTokenManager {
 
     async fn validate_token(
         &self,
+        _participant_context_id: Option<&str>,
         _audience: &str,
         _token: &str,
     ) -> Result<dsdk_facet_core::jwt::TokenClaims, TokenError> {

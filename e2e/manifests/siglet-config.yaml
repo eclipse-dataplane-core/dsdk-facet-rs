@@ -22,6 +22,11 @@ data:
     audience = "siglet"
     cache_ttl_seconds = 300
 
+    # In-cluster refresh endpoints are plain HTTP. Production deployments keep the HTTPS-only
+    # default and list the counterparties' refresh hosts in allowed_hosts.
+    [token.refresh_endpoint_policy]
+    allow_http = true
+
     [management_api_auth]
     mode = "enabled"
     jwks_url = "http://signaling-jwks/.well-known/jwks.json"

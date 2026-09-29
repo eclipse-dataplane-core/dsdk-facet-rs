@@ -17,8 +17,8 @@ use dsdk_facet_core::jwt::test_fixtures::{
     StaticSigningKeyResolver, StaticVerificationKeyResolver, generate_ed25519_keypair_pem,
 };
 use dsdk_facet_core::jwt::{JwkSet, JwkSetProvider, KeyFormat, LocalJwtGenerator, LocalJwtVerifier, SigningAlgorithm};
-use dsdk_facet_core::token::client::TokenClient;
 use dsdk_facet_core::token::client::oauth::OAuth2TokenClient;
+use dsdk_facet_core::token::client::{RefreshEndpointPolicy, TokenClient};
 use dsdk_facet_core::token::manager::{
     JwtTokenManager, MemoryRenewableTokenStore, TokenManager, ValidatedServerSecret,
 };
@@ -105,6 +105,8 @@ async fn test_token_renewal() {
 
     // Consumer-side generator: signs the client auth JWT presented to the renewal endpoint
     let oauth_client = OAuth2TokenClient::builder()
+        // The refresh handler under test listens on plain HTTP.
+        .endpoint_policy(RefreshEndpointPolicy::permissive())
         .jwt_generator(Arc::new(
             LocalJwtGenerator::builder()
                 .signing_key_resolver(Arc::new(

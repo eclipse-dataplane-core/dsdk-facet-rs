@@ -16,14 +16,36 @@ use async_trait::async_trait;
 use std::collections::HashMap;
 use tokio::sync::RwLock;
 
+/// Key of the flow index: (participant context id, flow id). Flow ids are only unique within a
+/// participant context.
+type FlowKey = (String, String);
+
+fn flow_key(participant_context_id: &str, flow_id: &str) -> FlowKey {
+    (participant_context_id.to_string(), flow_id.to_string())
+}
+
 /// Inner storage structure holding all token indices.
 struct InnerStore {
     /// Primary storage indexed by hashed_refresh_token
     entries_by_hash: HashMap<String, RenewableTokenEntry>,
     /// Secondary index by id for id-based lookups
     entries_by_id: HashMap<String, RenewableTokenEntry>,
-    /// Secondary index by flow_id for flow_id-based lookups
-    entries_by_flow_id: HashMap<String, RenewableTokenEntry>,
+    /// Secondary index from (participant context, flow) to the ids of every entry issued for it,
+    /// oldest first. A flow may be issued more than one token (e.g. a repeated start), and all of
+    /// them must stay revocable.
+    ids_by_flow: HashMap<FlowKey, Vec<String>>,
+}
+
+impl InnerStore {
+    fn insert(&mut self, entry: RenewableTokenEntry) {
+        self.entries_by_hash
+            .insert(entry.hashed_refresh_token.clone(), entry.clone());
+        self.ids_by_flow
+            .entry(flow_key(&entry.participant_context_id, &entry.flow_id))
+            .or_default()
+            .push(entry.id.clone());
+        self.entries_by_id.insert(entry.id.clone(), entry);
+    }
 }
 
 /// In-memory renewable token store for testing and development.
@@ -39,7 +61,7 @@ impl MemoryRenewableTokenStore {
             store: RwLock::new(InnerStore {
                 entries_by_hash: HashMap::new(),
                 entries_by_id: HashMap::new(),
-                entries_by_flow_id: HashMap::new(),
+                ids_by_flow: HashMap::new(),
             }),
         }
     }
@@ -54,12 +76,7 @@ impl Default for MemoryRenewableTokenStore {
 #[async_trait]
 impl RenewableTokenStore for MemoryRenewableTokenStore {
     async fn save(&self, entry: RenewableTokenEntry) -> Result<(), TokenError> {
-        let mut store = self.store.write().await;
-        store
-            .entries_by_hash
-            .insert(entry.hashed_refresh_token.clone(), entry.clone());
-        store.entries_by_id.insert(entry.id.clone(), entry.clone());
-        store.entries_by_flow_id.insert(entry.flow_id.clone(), entry);
+        self.store.write().await.insert(entry);
         Ok(())
     }
 
@@ -81,24 +98,33 @@ impl RenewableTokenStore for MemoryRenewableTokenStore {
             .ok_or_else(|| TokenError::token_not_found(id))
     }
 
-    async fn find_by_flow_id(&self, flow_id: &str) -> Result<RenewableTokenEntry, TokenError> {
+    async fn find_by_flow_id(
+        &self,
+        participant_context_id: &str,
+        flow_id: &str,
+    ) -> Result<RenewableTokenEntry, TokenError> {
         let store = self.store.read().await;
         store
-            .entries_by_flow_id
-            .get(flow_id)
+            .ids_by_flow
+            .get(&flow_key(participant_context_id, flow_id))
+            .and_then(|ids| ids.last())
+            .and_then(|id| store.entries_by_id.get(id))
             .cloned()
             .ok_or_else(|| TokenError::token_not_found(flow_id))
     }
 
-    async fn remove_by_flow_id(&self, flow_id: &str) -> Result<(), TokenError> {
+    async fn remove_by_flow_id(&self, participant_context_id: &str, flow_id: &str) -> Result<(), TokenError> {
         let mut store = self.store.write().await;
-        let entry = store
-            .entries_by_flow_id
-            .remove(flow_id)
+        let ids = store
+            .ids_by_flow
+            .remove(&flow_key(participant_context_id, flow_id))
             .ok_or_else(|| TokenError::token_not_found(flow_id))?;
 
-        store.entries_by_hash.remove(&entry.hashed_refresh_token);
-        store.entries_by_id.remove(&entry.id);
+        for id in ids {
+            if let Some(entry) = store.entries_by_id.remove(&id) {
+                store.entries_by_hash.remove(&entry.hashed_refresh_token);
+            }
+        }
         Ok(())
     }
 
@@ -111,13 +137,15 @@ impl RenewableTokenStore for MemoryRenewableTokenStore {
             .ok_or_else(|| TokenError::token_not_found(old_hash))?;
 
         store.entries_by_id.remove(&old_entry.id);
-        store.entries_by_flow_id.remove(&old_entry.flow_id);
+        let old_key = flow_key(&old_entry.participant_context_id, &old_entry.flow_id);
+        if let Some(ids) = store.ids_by_flow.get_mut(&old_key) {
+            ids.retain(|id| id != &old_entry.id);
+            if ids.is_empty() {
+                store.ids_by_flow.remove(&old_key);
+            }
+        }
 
-        store
-            .entries_by_hash
-            .insert(new_entry.hashed_refresh_token.clone(), new_entry.clone());
-        store.entries_by_id.insert(new_entry.id.clone(), new_entry.clone());
-        store.entries_by_flow_id.insert(new_entry.flow_id.clone(), new_entry);
+        store.insert(new_entry);
         Ok(())
     }
 }

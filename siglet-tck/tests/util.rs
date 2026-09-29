@@ -25,8 +25,8 @@ use reqwest::Client;
 use serde_json::json;
 use siglet::assembly::assemble_postgres;
 use siglet::config::{
-    ManagementApiAuthConfig, SigletConfig, SignalingAuthConfig, StorageBackend, TokenApiAuthConfig, TokenConfig,
-    TokenSource, TransferType, VaultConfig,
+    ManagementApiAuthConfig, RefreshEndpointPolicy, SigletConfig, SignalingAuthConfig, StorageBackend,
+    TokenApiAuthConfig, TokenConfig, TokenSource, TransferType, VaultConfig,
 };
 use siglet::http::build_http_client;
 use siglet::server::{
@@ -175,6 +175,8 @@ pub fn build_config(vault_url: &str, token_file: &Path, pg_url: &str) -> SigletC
         ],
         token: TokenConfig {
             refresh_endpoint: Some(format!("http://host.docker.internal:{}/token", REFRESH_API_PORT)),
+            // The TCK's refresh endpoints are plain HTTP on the docker host.
+            refresh_endpoint_policy: RefreshEndpointPolicy::permissive(),
             ..Default::default()
         },
         ..Default::default()

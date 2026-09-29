@@ -74,7 +74,7 @@ async fn test_get_token_expiring_soon_triggers_refresh() {
     lock_manager
         .expect_lock()
         .once()
-        .with(eq("identifier1"), eq("owner1"))
+        .with(eq("participant1/identifier1"), eq("owner1"))
         .returning(|identifier, owner| Ok(create_dummy_lock_guard(identifier, owner)));
 
     let mut token_store = MockTokenStore::new();
@@ -162,7 +162,7 @@ async fn test_get_token_expired_triggers_refresh() {
     lock_manager
         .expect_lock()
         .once()
-        .with(eq("identifier1"), eq("owner1"))
+        .with(eq("participant1/identifier1"), eq("owner1"))
         .returning(|identifier, owner| Ok(create_dummy_lock_guard(identifier, owner)));
 
     let mut token_store = MockTokenStore::new();
@@ -227,7 +227,7 @@ async fn test_refresh_updates_stored_token() {
     lock_manager
         .expect_lock()
         .once()
-        .with(eq("identifier1"), eq("owner1"))
+        .with(eq("participant1/identifier1"), eq("owner1"))
         .returning(|identifier, owner| Ok(create_dummy_lock_guard(identifier, owner)));
 
     let mut token_store = MockTokenStore::new();
@@ -295,7 +295,7 @@ async fn test_refresh_failure_returns_error() {
     lock_manager
         .expect_lock()
         .once()
-        .with(eq("identifier1"), eq("owner1"))
+        .with(eq("participant1/identifier1"), eq("owner1"))
         .returning(|identifier, owner| Ok(create_dummy_lock_guard(identifier, owner)));
 
     let pc = ParticipantContext::builder().id("participant1").build();
@@ -350,7 +350,7 @@ async fn test_lock_acquired_during_refresh() {
     lock_manager
         .expect_lock()
         .once()
-        .with(eq("identifier1"), eq("owner1"))
+        .with(eq("participant1/identifier1"), eq("owner1"))
         .returning(|identifier, owner| Ok(create_dummy_lock_guard(identifier, owner)));
 
     let mut token_store = MockTokenStore::new();
@@ -420,7 +420,7 @@ async fn test_lock_prevents_concurrent_refresh() {
     lock_manager
         .expect_lock()
         .once()
-        .with(eq("identifier1"), eq("owner1"))
+        .with(eq("participant1/identifier1"), eq("owner1"))
         .returning(|_, _| {
             Err(crate::lock::LockError::lock_already_held(
                 "identifier1",
@@ -515,7 +515,7 @@ async fn test_refresh_with_custom_refresh_threshold() {
     lock_manager
         .expect_lock()
         .once()
-        .with(eq("identifier1"), eq("owner1"))
+        .with(eq("participant1/identifier1"), eq("owner1"))
         .returning(|identifier, owner| Ok(create_dummy_lock_guard(identifier, owner)));
 
     let mut token_store = MockTokenStore::new();
@@ -583,7 +583,7 @@ async fn test_multiple_tokens_independent_refresh() {
     lock_manager
         .expect_lock()
         .once()
-        .with(eq("token1"), eq("owner1"))
+        .with(eq("participant1/token1"), eq("owner1"))
         .returning(|identifier, owner| Ok(create_dummy_lock_guard(identifier, owner)));
 
     let mut token_store = MockTokenStore::new();

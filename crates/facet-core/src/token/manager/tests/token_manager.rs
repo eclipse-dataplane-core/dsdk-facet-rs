@@ -59,8 +59,8 @@ async fn test_generate_pair_success() {
     assert_eq!(pair.refresh_endpoint, "http://localhost:8080/refresh");
     assert_eq!(
         pair.expires_at.timestamp(),
-        fixed_time.timestamp() + 86400,
-        "Expires at should be 24 hours from now"
+        fixed_time.timestamp() + 3600,
+        "Expires at should be the access token lifetime (1 hour) from now"
     );
 }
 
@@ -145,7 +145,9 @@ async fn test_generate_pair_stores_token_entry() {
 
     assert_eq!(entry.token, pair.token);
     assert_eq!(entry.subject, "did:web:consumer.com");
-    assert_eq!(entry.expires_at, pair.expires_at);
+    // The pair reports the access token's expiry; the stored entry tracks the longer-lived
+    // refresh token.
+    assert_eq!(pair.expires_at.timestamp(), entry.expires_at.timestamp() - 86400 + 3600);
     assert_eq!(entry.claims, custom_claims);
 }
 
@@ -542,6 +544,45 @@ async fn test_renew_token_mismatch() {
 }
 
 #[tokio::test]
+async fn test_renew_rejects_expired_refresh_token() {
+    let fixed_time = DateTime::from_timestamp(1000000000, 0).unwrap();
+    let mock_clock = Arc::new(MockClock::new(fixed_time));
+    let clock = mock_clock.clone() as Arc<dyn Clock>;
+    let fixture = create_jwt_token_manager(clock.clone());
+
+    let pc = ParticipantContext::builder()
+        .id("12345")
+        .identifier("did:web:provider.com")
+        .audience("did:web:provider.com")
+        .build();
+
+    let original_pair = fixture
+        .manager
+        .generate_pair(&pc, "did:web:consumer.com", HashMap::new(), "test_flow".to_string())
+        .await
+        .expect("generate_pair should succeed");
+
+    // Move past the refresh token's lifetime (renewal_token_duration = 24h in the fixture).
+    mock_clock.advance(TimeDelta::hours(24) + TimeDelta::seconds(1));
+
+    let bound_token = create_bound_token(
+        &fixture,
+        &pc,
+        "did:web:consumer.com",
+        &original_pair.token,
+        clock.clone(),
+    )
+    .await;
+
+    let result = fixture.manager.renew(&bound_token, &original_pair.refresh_token).await;
+
+    match result {
+        Err(TokenError::NotAuthorized(msg)) => assert!(msg.contains("expired"), "{msg}"),
+        other => panic!("Expected NotAuthorized error, got: {:?}", other),
+    }
+}
+
+#[tokio::test]
 async fn test_renew_uses_consistent_expiration_time() {
     let fixed_time = DateTime::from_timestamp(1000000000, 0).unwrap();
     let clock = Arc::new(MockClock::new(fixed_time)) as Arc<dyn Clock>;
@@ -580,7 +621,7 @@ async fn test_renew_uses_consistent_expiration_time() {
         .expect("renew should succeed");
 
     // Renewed token should have the same expiration time (since clock hasn't advanced)
-    let expected_expiration = (fixed_time + TimeDelta::hours(24)).timestamp();
+    let expected_expiration = (fixed_time + TimeDelta::hours(1)).timestamp();
     assert_eq!(
         renewed_pair.expires_at.timestamp(),
         expected_expiration,
@@ -893,7 +934,7 @@ async fn test_revoke_token_success() {
         .expect("Failed to generate pair");
 
     // Verify token exists
-    let entry_before = fixture.store.find_by_flow_id("flow_123").await;
+    let entry_before = fixture.store.find_by_flow_id("test_participant", "flow_123").await;
     assert!(entry_before.is_ok(), "Token should exist before revocation");
 
     // Revoke the token
@@ -901,7 +942,7 @@ async fn test_revoke_token_success() {
     assert!(result.is_ok(), "Revoke should succeed");
 
     // Verify token no longer exists
-    let entry_after = fixture.store.find_by_flow_id("flow_123").await;
+    let entry_after = fixture.store.find_by_flow_id("test_participant", "flow_123").await;
     assert!(entry_after.is_err(), "Token should not exist after revocation");
 }
 
@@ -940,7 +981,7 @@ async fn test_revoke_token_removes_from_all_indices() {
     // Get the entry to extract id and hash
     let entry = fixture
         .store
-        .find_by_flow_id("flow_456")
+        .find_by_flow_id("test_participant", "flow_456")
         .await
         .expect("Token should exist");
 
@@ -950,7 +991,13 @@ async fn test_revoke_token_removes_from_all_indices() {
     // Verify token exists in all indices
     assert!(fixture.store.find_by_id(&token_id).await.is_ok());
     assert!(fixture.store.find_by_renewal(&hashed_refresh).await.is_ok());
-    assert!(fixture.store.find_by_flow_id("flow_456").await.is_ok());
+    assert!(
+        fixture
+            .store
+            .find_by_flow_id("test_participant", "flow_456")
+            .await
+            .is_ok()
+    );
 
     // Revoke the token
     fixture
@@ -962,7 +1009,13 @@ async fn test_revoke_token_removes_from_all_indices() {
     // Verify token removed from all indices
     assert!(fixture.store.find_by_id(&token_id).await.is_err());
     assert!(fixture.store.find_by_renewal(&hashed_refresh).await.is_err());
-    assert!(fixture.store.find_by_flow_id("flow_456").await.is_err());
+    assert!(
+        fixture
+            .store
+            .find_by_flow_id("test_participant", "flow_456")
+            .await
+            .is_err()
+    );
 }
 
 // =============================================================================
@@ -989,12 +1042,28 @@ async fn test_validate_token_success() {
 
     let claims = fixture
         .manager
-        .validate_token(&pc.audience, &pair.token)
+        .validate_token(None, &pc.audience, &pair.token)
         .await
         .expect("validate_token should succeed for a live token");
 
     assert_eq!(claims.sub, "did:web:consumer.com");
     assert_eq!(claims.aud, "did:web:provider.com");
+
+    // Bound to the issuing participant context it validates; bound to another it is unknown.
+    assert!(
+        fixture
+            .manager
+            .validate_token(Some("12345"), &pc.audience, &pair.token)
+            .await
+            .is_ok()
+    );
+    assert!(matches!(
+        fixture
+            .manager
+            .validate_token(Some("other-context"), &pc.audience, &pair.token)
+            .await,
+        Err(TokenError::NotAuthorized(_))
+    ));
     assert!(claims.custom.contains_key("jti"), "jti should be present in claims");
 }
 
@@ -1006,7 +1075,7 @@ async fn test_validate_token_invalid_jwt() {
 
     let result = fixture
         .manager
-        .validate_token("did:web:provider.com", "not.a.valid.jwt")
+        .validate_token(None, "did:web:provider.com", "not.a.valid.jwt")
         .await;
 
     assert!(result.is_err(), "Invalid JWT should be rejected");
@@ -1037,11 +1106,11 @@ async fn test_validate_token_not_in_store() {
     // Remove the token from the store to simulate revocation / expiry
     fixture
         .store
-        .remove_by_flow_id("flow_evicted")
+        .remove_by_flow_id("12345", "flow_evicted")
         .await
         .expect("remove should succeed");
 
-    let result = fixture.manager.validate_token(&pc.audience, &pair.token).await;
+    let result = fixture.manager.validate_token(None, &pc.audience, &pair.token).await;
 
     assert!(result.is_err(), "Token removed from store should be rejected");
     assert!(

@@ -27,3 +27,6 @@ mod oauth;
 
 #[cfg(test)]
 mod vault;
+
+#[cfg(test)]
+mod endpoint_policy;

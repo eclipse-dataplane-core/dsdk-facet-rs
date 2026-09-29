@@ -88,12 +88,14 @@ fn test_valid_config_with_all_fields() {
             issuer: Some("my-issuer".to_string()),
             refresh_endpoint: Some("https://api.example.com/refresh".to_string()),
             server_secret: Some("0123456789abcdef0123456789abcdef".to_string()), // 16 bytes
+            ..Default::default()
         },
         signaling_auth: SignalingAuthConfig::Enabled {
             jwks_url: "https://idp.example.com/.well-known/jwks.json".to_string(),
             cache_ttl_seconds: 300,
             audience: "https://siglet.example.com".to_string(),
             required_scope: "dplane-signaling".to_string(),
+            issuer: None,
         },
         token_api_auth: TokenApiAuthConfig::Enabled {
             jwks_url: "https://idp.example.com/.well-known/jwks.json".to_string(),
@@ -101,11 +103,13 @@ fn test_valid_config_with_all_fields() {
             audience: "https://siglet.example.com".to_string(),
             required_scope: "siglet-token-api".to_string(),
             admin_scope: None,
+            issuer: None,
         },
         management_api_auth: ManagementApiAuthConfig::Enabled {
             jwks_url: "https://idp.example.com/.well-known/jwks.json".to_string(),
             cache_ttl_seconds: 300,
             audience: "https://siglet.example.com".to_string(),
+            issuer: None,
         },
         http_client: crate::config::HttpClientConfig {
             connect_timeout_seconds: 5,
@@ -814,6 +818,7 @@ fn test_all_possible_errors() {
             cache_ttl_seconds: 0,          // Error 11: zero TTL
             audience: String::new(),       // Error 12: empty audience
             required_scope: String::new(), // Error 13: empty required scope
+            issuer: None,
         },
         token_api_auth: TokenApiAuthConfig::Disabled,
         management_api_auth: ManagementApiAuthConfig::Disabled,
@@ -1153,6 +1158,7 @@ fn test_signaling_auth_enabled_requires_jwks_url() {
         cache_ttl_seconds: 300,
         audience: "siglet".to_string(),
         required_scope: "dplane-signaling".to_string(),
+        issuer: None,
     };
 
     let result = config.validate();
@@ -1175,6 +1181,7 @@ fn test_signaling_auth_enabled_rejects_invalid_jwks_url() {
         cache_ttl_seconds: 300,
         audience: "siglet".to_string(),
         required_scope: "dplane-signaling".to_string(),
+        issuer: None,
     };
 
     let result = config.validate();
@@ -1197,6 +1204,7 @@ fn test_signaling_auth_enabled_with_valid_jwks_url_passes() {
         cache_ttl_seconds: 300,
         audience: "siglet".to_string(),
         required_scope: "dplane-signaling".to_string(),
+        issuer: None,
     };
 
     assert!(config.validate().is_ok());
@@ -1219,6 +1227,7 @@ fn test_signaling_auth_rejects_zero_cache_ttl() {
         cache_ttl_seconds: 0,
         audience: "siglet".to_string(),
         required_scope: "dplane-signaling".to_string(),
+        issuer: None,
     };
 
     let result = config.validate();
@@ -1249,6 +1258,7 @@ fn test_management_api_auth_enabled_requires_jwks_url() {
         jwks_url: String::new(),
         cache_ttl_seconds: 300,
         audience: "siglet".to_string(),
+        issuer: None,
     };
 
     let messages = config.validate().unwrap_err().messages().join("\n");
@@ -1262,6 +1272,7 @@ fn test_management_api_auth_enabled_rejects_invalid_jwks_url() {
         jwks_url: "not-a-url".to_string(),
         cache_ttl_seconds: 300,
         audience: "siglet".to_string(),
+        issuer: None,
     };
 
     let messages = config.validate().unwrap_err().messages().join("\n");
@@ -1275,6 +1286,7 @@ fn test_management_api_auth_rejects_zero_cache_ttl() {
         jwks_url: "https://idp.example.com/.well-known/jwks.json".to_string(),
         cache_ttl_seconds: 0,
         audience: "siglet".to_string(),
+        issuer: None,
     };
 
     let messages = config.validate().unwrap_err().messages().join("\n");
@@ -1288,6 +1300,7 @@ fn test_management_api_auth_rejects_empty_audience() {
         jwks_url: "https://idp.example.com/.well-known/jwks.json".to_string(),
         cache_ttl_seconds: 300,
         audience: String::new(),
+        issuer: None,
     };
 
     let messages = config.validate().unwrap_err().messages().join("\n");
@@ -1301,6 +1314,7 @@ fn test_management_api_auth_enabled_with_valid_jwks_url_passes() {
         jwks_url: "https://idp.example.com/.well-known/jwks.json".to_string(),
         cache_ttl_seconds: 300,
         audience: "siglet".to_string(),
+        issuer: None,
     };
 
     assert!(config.validate().is_ok());
@@ -1324,6 +1338,7 @@ fn test_management_api_auth_deserialize_enabled_defaults_audience() {
             jwks_url: "https://idp.example.com/jwks.json".to_string(),
             cache_ttl_seconds: 300,
             audience: "siglet".to_string(),
+            issuer: None,
         }
     );
 }
@@ -1351,6 +1366,7 @@ fn test_signaling_auth_deserialize_enabled() {
             cache_ttl_seconds: 300,
             audience: "siglet".to_string(),
             required_scope: "dplane-signaling".to_string(),
+            issuer: None,
         }
     );
 }
@@ -1398,6 +1414,7 @@ fn test_signaling_auth_rejects_empty_audience() {
         cache_ttl_seconds: 300,
         audience: String::new(),
         required_scope: "dplane-signaling".to_string(),
+        issuer: None,
     };
 
     let err = config.validate().expect_err("empty audience must fail");
@@ -1453,6 +1470,7 @@ fn test_signaling_auth_rejects_empty_required_scope() {
         cache_ttl_seconds: 300,
         audience: "siglet".to_string(),
         required_scope: "   ".to_string(),
+        issuer: None,
     };
 
     let err = config.validate().expect_err("empty required_scope must fail");
@@ -1492,6 +1510,7 @@ fn test_token_api_auth_enabled_requires_jwks_url() {
         audience: "siglet".to_string(),
         required_scope: "siglet-token-api".to_string(),
         admin_scope: None,
+        issuer: None,
     };
 
     let messages = config.validate().unwrap_err().messages().join("\n");
@@ -1507,6 +1526,7 @@ fn test_token_api_auth_enabled_rejects_invalid_jwks_url() {
         audience: "siglet".to_string(),
         required_scope: "siglet-token-api".to_string(),
         admin_scope: None,
+        issuer: None,
     };
 
     let messages = config.validate().unwrap_err().messages().join("\n");
@@ -1522,6 +1542,7 @@ fn test_token_api_auth_enabled_with_valid_jwks_url_passes() {
         audience: "siglet".to_string(),
         required_scope: "siglet-token-api".to_string(),
         admin_scope: None,
+        issuer: None,
     };
 
     assert!(config.validate().is_ok());
@@ -1544,6 +1565,7 @@ fn test_token_api_auth_rejects_zero_cache_ttl() {
         audience: "siglet".to_string(),
         required_scope: "siglet-token-api".to_string(),
         admin_scope: None,
+        issuer: None,
     };
 
     let messages = config.validate().unwrap_err().messages().join("\n");
@@ -1559,6 +1581,7 @@ fn test_token_api_auth_rejects_empty_audience() {
         audience: String::new(),
         required_scope: "siglet-token-api".to_string(),
         admin_scope: None,
+        issuer: None,
     };
 
     let messages = config.validate().unwrap_err().messages().join("\n");
@@ -1576,6 +1599,7 @@ fn test_token_api_auth_rejects_empty_required_scope() {
         audience: "siglet".to_string(),
         required_scope: "   ".to_string(),
         admin_scope: None,
+        issuer: None,
     };
 
     let messages = config.validate().unwrap_err().messages().join("\n");
@@ -1593,6 +1617,7 @@ fn test_token_api_auth_rejects_blank_admin_scope() {
         audience: "siglet".to_string(),
         required_scope: "siglet-token-api".to_string(),
         admin_scope: Some("   ".to_string()),
+        issuer: None,
     };
 
     let messages = config.validate().unwrap_err().messages().join("\n");
@@ -1610,6 +1635,7 @@ fn test_token_api_auth_rejects_admin_scope_equal_to_required_scope() {
         audience: "siglet".to_string(),
         required_scope: "siglet-token-api".to_string(),
         admin_scope: Some("siglet-token-api".to_string()),
+        issuer: None,
     };
 
     let messages = config.validate().unwrap_err().messages().join("\n");
@@ -1625,6 +1651,7 @@ fn test_token_api_auth_accepts_distinct_admin_scope() {
         audience: "siglet".to_string(),
         required_scope: "siglet-token-api".to_string(),
         admin_scope: Some("siglet-token-api:admin".to_string()),
+        issuer: None,
     };
 
     assert!(config.validate().is_ok());
@@ -1678,6 +1705,7 @@ fn test_token_api_auth_deserialize_enabled_uses_defaults() {
             audience: "siglet".to_string(),
             required_scope: "siglet-token-api".to_string(),
             admin_scope: None,
+            issuer: None,
         }
     );
 }

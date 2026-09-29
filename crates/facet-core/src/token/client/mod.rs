@@ -10,6 +10,7 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
+pub mod endpoint_policy;
 pub mod mem;
 pub mod oauth;
 pub mod vault;
@@ -17,6 +18,7 @@ pub mod vault;
 #[cfg(test)]
 mod tests;
 
+pub use endpoint_policy::RefreshEndpointPolicy;
 pub use mem::MemoryTokenStore;
 pub use vault::VaultTokenStore;
 
@@ -60,7 +62,7 @@ impl TokenClientApi {
         let endpoint = data.endpoint.clone();
 
         // Check token validity
-        if self.clock.now() < (data.expires_at - TimeDelta::milliseconds(self.refresh_before_expiry_ms)) {
+        if !self.needs_refresh(data.expires_at) {
             return Ok(TokenResult {
                 token: data.token,
                 endpoint,
@@ -70,7 +72,7 @@ impl TokenClientApi {
         // Token is expiring, acquire lock for refresh
         let _guard = self
             .lock_manager
-            .lock(identifier, owner)
+            .lock(&lock_key(&participant_context.id, identifier), owner)
             .await
             .map_err(|e| TokenError::general_error(format!("Failed to acquire lock: {}", e)))?;
 
@@ -83,7 +85,7 @@ impl TokenClientApi {
             .identifier(data.participant_id)
             .build();
 
-        let token = if self.clock.now() >= (data.expires_at - TimeDelta::milliseconds(self.refresh_before_expiry_ms)) {
+        let token = if self.needs_refresh(data.expires_at) {
             // Token still expired after recheck, perform refresh
             let refreshed_data = self
                 .token_client
@@ -108,10 +110,22 @@ impl TokenClientApi {
         Ok(TokenResult { token, endpoint })
     }
 
+    /// Whether a token expiring at `expires_at` is within the refresh window. An `expires_at` so
+    /// close to the minimum timestamp that the window cannot be subtracted counts as expired rather
+    /// than overflowing: the value comes from a counterparty-supplied `expiresIn`.
+    fn needs_refresh(&self, expires_at: chrono::DateTime<Utc>) -> bool {
+        expires_at
+            .checked_sub_signed(TimeDelta::milliseconds(self.refresh_before_expiry_ms))
+            .is_none_or(|refresh_at| self.clock.now() >= refresh_at)
+    }
+
     pub async fn save_token(&self, token_data: TokenData, owner: &str) -> Result<(), TokenError> {
         let guard = self
             .lock_manager
-            .lock(&token_data.identifier, owner)
+            .lock(
+                &lock_key(&token_data.participant_context, &token_data.identifier),
+                owner,
+            )
             .await
             .map_err(|e| TokenError::general_error(format!("Failed to acquire lock: {}", e)))?;
 
@@ -128,7 +142,7 @@ impl TokenClientApi {
     ) -> Result<(), TokenError> {
         let guard = self
             .lock_manager
-            .lock(identifier, owner)
+            .lock(&lock_key(participant_context, identifier), owner)
             .await
             .map_err(|e| TokenError::general_error(format!("Failed to acquire lock: {}", e)))?;
 
@@ -136,6 +150,12 @@ impl TokenClientApi {
         drop(guard);
         Ok(())
     }
+}
+
+/// Lock key for a stored token. Scoped by participant context, since two participant contexts may
+/// hold tokens under the same identifier (flow id).
+fn lock_key(participant_context: &str, identifier: &str) -> String {
+    format!("{}/{}", participant_context, identifier)
 }
 
 /// Refreshes expired tokens with a remote authorization server.
@@ -163,7 +183,7 @@ pub struct TokenResult {
     pub endpoint: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Builder)]
+#[derive(Clone, PartialEq, Eq, Builder)]
 #[builder(on(String, into))]
 pub struct TokenData {
     pub identifier: String,
@@ -178,17 +198,45 @@ pub struct TokenData {
     pub endpoint: String,
 }
 
+// Tokens are bearer credentials: `Debug` never prints them.
+impl std::fmt::Debug for TokenData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TokenData")
+            .field("identifier", &self.identifier)
+            .field("participant_context", &self.participant_context)
+            .field("participant_id", &self.participant_id)
+            .field("counter_party_id", &self.counter_party_id)
+            .field("token", &crate::token::manager::REDACTED)
+            .field("refresh_token", &crate::token::manager::REDACTED)
+            .field("expires_at", &self.expires_at)
+            .field("refresh_endpoint", &self.refresh_endpoint)
+            .field("endpoint", &self.endpoint)
+            .finish()
+    }
+}
+
 /// Token data returned by a refresh operation.
 ///
 /// Contains only the fields that change during a refresh. The `endpoint` is intentionally
 /// excluded — it is immutable after the token is first saved via [`TokenStore::save_token`]
 /// and must never be overwritten by a refresh.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct RefreshedTokenData {
     pub token: String,
     pub refresh_token: String,
     pub expires_at: chrono::DateTime<Utc>,
     pub refresh_endpoint: String,
+}
+
+impl std::fmt::Debug for RefreshedTokenData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RefreshedTokenData")
+            .field("token", &crate::token::manager::REDACTED)
+            .field("refresh_token", &crate::token::manager::REDACTED)
+            .field("expires_at", &self.expires_at)
+            .field("refresh_endpoint", &self.refresh_endpoint)
+            .finish()
+    }
 }
 
 /// Persists and retrieves tokens with optional expiration tracking.

@@ -86,7 +86,7 @@ crate/cratesio/-/clap_lex/1.1.1, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, appr
 crate/cratesio/-/cmov/0.5.4, Apache-2.0 OR MIT, approved, clearlydefined
 crate/cratesio/-/colorchoice/1.0.5, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #16992
 crate/cratesio/-/concurrent-queue/2.5.0, Apache-2.0 OR MIT, approved, clearlydefined
-crate/cratesio/-/config/0.15.25, MIT OR Apache-2.0, approved, clearlydefined
+crate/cratesio/-/config/0.15.25, Apache-2.0 AND MIT, approved, #31940
 crate/cratesio/-/const-oid/0.10.2, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #29129
 crate/cratesio/-/const-oid/0.9.6, Apache-2.0 OR MIT, approved, clearlydefined
 crate/cratesio/-/const-random-macro/0.1.16, MIT OR Apache-2.0, approved, clearlydefined
@@ -114,9 +114,9 @@ crate/cratesio/-/darling/0.24.1, MIT, approved, #31106
 crate/cratesio/-/darling_core/0.24.1, MIT, approved, #31117
 crate/cratesio/-/darling_macro/0.24.1, MIT, approved, #31102
 crate/cratesio/-/dashmap/5.5.3, MIT, approved, clearlydefined
-crate/cratesio/-/dataplane-sdk-axum/0.1.2, Apache-2.0, approved, #31128
-crate/cratesio/-/dataplane-sdk-postgres/0.1.2, Apache-2.0, approved, #31104
-crate/cratesio/-/dataplane-sdk/0.1.2, Apache-2.0, approved, #31160
+crate/cratesio/-/dataplane-sdk-axum/0.1.3, Apache-2.0, approved, #31128
+crate/cratesio/-/dataplane-sdk-postgres/0.1.3, Apache-2.0, approved, #31104
+crate/cratesio/-/dataplane-sdk/0.1.3, Apache-2.0, approved, #31160
 crate/cratesio/-/der/0.7.10, Apache-2.0 OR MIT, approved, clearlydefined
 crate/cratesio/-/deranged/0.5.8, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #23552
 crate/cratesio/-/derivative/2.2.0, MIT OR Apache-2.0, approved, clearlydefined
@@ -191,10 +191,10 @@ crate/cratesio/-/httparse/1.10.1, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, app
 crate/cratesio/-/httpdate/1.0.3, MIT OR Apache-2.0, approved, clearlydefined
 crate/cratesio/-/hybrid-array/0.4.15, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #29131
 crate/cratesio/-/hyper-rustls/0.24.2, Apache-2.0 OR ISC OR MIT, approved, clearlydefined
-crate/cratesio/-/hyper-rustls/0.27.9, Apache-2.0 OR ISC OR MIT, approved, clearlydefined
+crate/cratesio/-/hyper-rustls/0.27.9, Apache-2.0 AND ISC AND MIT, approved, #31941
 crate/cratesio/-/hyper-timeout/0.5.2, MIT OR Apache-2.0, approved, clearlydefined
 crate/cratesio/-/hyper-tls/0.6.0, Apache-2.0 AND MIT, approved, #31112
-crate/cratesio/-/hyper-util/0.1.20, MIT, approved, clearlydefined
+crate/cratesio/-/hyper-util/0.1.20, MIT, approved, #31942
 crate/cratesio/-/hyper/0.14.32, MIT, approved, #15105
 crate/cratesio/-/hyper/1.11.1, MIT, approved, #30209
 crate/cratesio/-/hyperlocal/0.9.1, MIT, approved, clearlydefined

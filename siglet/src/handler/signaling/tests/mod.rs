@@ -452,6 +452,89 @@ async fn test_on_started_without_tx_renewal_support_saves_token() {
     assert!(token_store.get_token(&participant_ctx, "flow-1").await.is_ok());
 }
 
+/// Builds a handler with a single provider-sourced `http-pull` transfer type and a flow whose
+/// started notification carries the given refresh endpoint and `expiresIn`.
+fn started_fixture(
+    refresh_endpoint: &str,
+    expires_in: &str,
+) -> (
+    Handler,
+    Arc<MemoryTokenStore>,
+    dataplane_sdk::core::model::data_flow::DataFlow,
+) {
+    use dataplane_sdk::core::model::data_address::{DataAddress, EndpointProperty};
+
+    let token_store = Arc::new(MemoryTokenStore::new());
+    let mut mappings = HashMap::new();
+    mappings.insert(
+        "http-pull".to_string(),
+        create_transfer_type("http-pull", "HTTP", "https://pull.example.com", TokenSource::Provider),
+    );
+    let handler = Handler::builder()
+        .token_store(token_store.clone())
+        .token_manager(Arc::new(MockTokenManager))
+        .transfer_type_mappings(mappings)
+        .dataplane_id("dataplane-1")
+        .build();
+
+    let mut flow = create_test_flow("flow-1", "participant-1", "http-pull");
+    flow.data_address = Some(
+        DataAddress::builder()
+            .endpoint_type("HTTP")
+            .endpoint("https://pull.example.com")
+            .endpoint_properties(vec![
+                EndpointProperty::builder()
+                    .name("authorization")
+                    .value("token-abc")
+                    .build(),
+                EndpointProperty::builder()
+                    .name("refreshToken")
+                    .value("refresh-abc")
+                    .build(),
+                EndpointProperty::builder()
+                    .name("refreshEndpoint")
+                    .value(refresh_endpoint)
+                    .build(),
+                EndpointProperty::builder().name("expiresIn").value(expires_in).build(),
+            ])
+            .build(),
+    );
+    (handler, token_store, flow)
+}
+
+#[tokio::test]
+async fn test_on_started_rejects_refresh_endpoint_outside_policy() {
+    use dataplane_sdk::core::db::memory::MemoryContext;
+    use dataplane_sdk::core::db::tx::TransactionalContext;
+
+    for endpoint in [
+        "http://169.254.169.254/latest/meta-data/",
+        "http://refresh.example.com/token",
+        "file:///etc/passwd",
+    ] {
+        let (handler, token_store, flow) = started_fixture(endpoint, "3600");
+        let mut tx = MemoryContext.begin().await.unwrap();
+
+        assert!(handler.on_started(&mut tx, &flow).await.is_err(), "{endpoint}");
+
+        let participant_ctx = ParticipantContext::builder().id("context-1").build();
+        assert!(token_store.get_token(&participant_ctx, "flow-1").await.is_err());
+    }
+}
+
+#[tokio::test]
+async fn test_on_started_rejects_out_of_range_expires_in() {
+    use dataplane_sdk::core::db::memory::MemoryContext;
+    use dataplane_sdk::core::db::tx::TransactionalContext;
+
+    for expires_in in ["-1", "9223372036854775807", "-9223372036854775808"] {
+        let (handler, _, flow) = started_fixture("https://refresh.example.com", expires_in);
+        let mut tx = MemoryContext.begin().await.unwrap();
+
+        assert!(handler.on_started(&mut tx, &flow).await.is_err(), "{expires_in}");
+    }
+}
+
 #[tokio::test]
 async fn test_on_terminate_revokes_token_successfully() {
     use dataplane_sdk::core::db::memory::MemoryContext;
@@ -503,6 +586,7 @@ async fn test_on_terminate_revokes_token_successfully() {
 
         async fn validate_token(
             &self,
+            _participant_context_id: Option<&str>,
             _audience: &str,
             _token: &str,
         ) -> Result<dsdk_facet_core::jwt::TokenClaims, TokenError> {
@@ -586,6 +670,7 @@ async fn test_on_terminate_ignores_token_not_found_error() {
 
         async fn validate_token(
             &self,
+            _participant_context_id: Option<&str>,
             _audience: &str,
             _token: &str,
         ) -> Result<dsdk_facet_core::jwt::TokenClaims, TokenError> {
@@ -685,6 +770,7 @@ async fn test_on_terminate_propagates_other_errors() {
 
         async fn validate_token(
             &self,
+            _participant_context_id: Option<&str>,
             _audience: &str,
             _token: &str,
         ) -> Result<dsdk_facet_core::jwt::TokenClaims, TokenError> {
@@ -861,6 +947,7 @@ impl TokenManager for CountingTokenManager {
 
     async fn validate_token(
         &self,
+        _participant_context_id: Option<&str>,
         _audience: &str,
         _token: &str,
     ) -> Result<dsdk_facet_core::jwt::TokenClaims, TokenError> {
@@ -1112,6 +1199,7 @@ impl TokenManager for MockTokenManager {
 
     async fn validate_token(
         &self,
+        _participant_context_id: Option<&str>,
         _audience: &str,
         _token: &str,
     ) -> Result<dsdk_facet_core::jwt::TokenClaims, TokenError> {

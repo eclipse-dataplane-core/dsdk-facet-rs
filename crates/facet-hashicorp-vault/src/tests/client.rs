@@ -282,3 +282,38 @@ fn failing_state(failures: u32) -> Arc<RwLock<VaultClientState>> {
             .build(),
     ))
 }
+
+#[test]
+fn kv_path_rejects_cross_context_traversal() {
+    use crate::client::checked_kv_path;
+    use dsdk_facet_core::context::ParticipantContext;
+
+    let pc = ParticipantContext::builder().id("tenant-a").build();
+    assert!(checked_kv_path(&pc, "flow-1").is_ok());
+    assert!(checked_kv_path(&pc, "tokens/flow-1").is_ok());
+
+    for path in [
+        "../tenant-b/flow-1",
+        "tokens/../../tenant-b/flow-1",
+        "..%2Ftenant-b",
+        "flow?x",
+        "",
+    ] {
+        assert!(
+            matches!(checked_kv_path(&pc, path), Err(VaultError::InvalidData(_))),
+            "{path:?}"
+        );
+    }
+
+    let bad_pc = ParticipantContext::builder().id("tenant-a/../tenant-b").build();
+    assert!(checked_kv_path(&bad_pc, "flow-1").is_err());
+}
+
+#[test]
+fn transit_key_name_must_be_single_segment() {
+    use crate::client::checked_key_name;
+
+    assert!(checked_key_name("signing-tenant-a").is_ok());
+    assert!(checked_key_name("../keys/signing-tenant-b").is_err());
+    assert!(checked_key_name("signing/tenant-b").is_err());
+}

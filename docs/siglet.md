@@ -202,6 +202,10 @@ When token-API auth is enabled, this endpoint requires a caller JWT granting the
 Siglet checks the JWT signature **and** looks up the token's `jti` in the renewable token store. If the token has been
 revoked (flow terminated), this returns `401` even if the JWT is cryptographically valid.
 
+The caller only gets claims back for tokens issued for **its own** participant context: the caller JWT's `sub` must
+equal the participant context the token was minted for. A token of another participant context is answered with `401`,
+exactly like an unknown one. Callers holding the token API's `admin_scope` (if configured) are exempt.
+
 **Response (200 OK)** — all token claims as JSON:
 
 ```json
@@ -329,7 +333,13 @@ jwks_url = "https://idp.example.com/.well-known/jwks.json"
 audience = "https://siglet.example.com"   # optional, defaults to "siglet"
 cache_ttl_seconds = 300                    # optional, defaults to 300
 required_scope = "dplane-signaling"        # optional, defaults to "dplane-signaling"
+issuer = "https://idp.example.com"         # optional; when set, the JWT `iss` must equal it
 ```
+
+`issuer`, when set, is the value the JWT's `iss` claim must equal. Set it whenever the JWKS is
+shared with other issuers or tenants of the same IdP, so a token minted by another issuer that
+happens to carry a matching `sub`, `aud` and scope is rejected. The same optional key exists on
+`[token_api_auth]` and `[management_api_auth]`.
 
 `audience` is the value the verifier requires in the JWT's `aud` claim. Pick an
 identifier that's unique to this siglet instance (e.g. its public URL or DID).
@@ -466,7 +476,9 @@ endpoints be secured against a different IdP or audience than the DPS signaling 
 Like the signaling API, auth is **on by default**: operators must either supply a `jwks_url` or explicitly
 opt out with `mode = "disabled"`. It is an admin API that spans many participant contexts, so — unlike the
 token API — the JWT `sub` is **not** bound to the path; any valid token with the right scope may manage any
-participant context.
+participant context. Grant `siglet-mgmt-api:write` only to platform operators: a signing-key mapping decides which
+Vault transit key signs a participant context's proof JWTs. Participant context ids and `keyName` values must be plain
+identifiers (see [Token Deletion](#token-deletion)); anything else is rejected with `400`.
 
 Scopes are fixed per HTTP method (not configurable): reads (`GET`) require `siglet-mgmt-api:read` and writes
 (`POST`/`PUT`/`DELETE`) require `siglet-mgmt-api:write`. A missing or non-matching scope returns `403`; a
@@ -512,7 +524,7 @@ Returns:
 
 Siglet inspects the cached token's expiry. If it is within 5 seconds of expiring, Siglet:
 
-1. Acquires a cluster-wide lock on the `flow_id` (via the lock manager).
+1. Acquires a cluster-wide lock on `{participant_context_id}/{flow_id}` (via the lock manager).
 2. Re-checks the token after acquiring the lock — if another instance already refreshed it, the fresh token is returned
    without a second refresh call.
 3. If still expired, calls the provider's refresh endpoint using OAuth2 refresh token grant.
@@ -529,7 +541,17 @@ DELETE http://siglet:8080/tokens/{participant_context_id}/{flow_id}
 
 Returns `204 No Content`. Removes the cached token from the store.
 
+Both `{participant_context_id}` and `{flow_id}` must be plain identifiers: non-empty, at most 256
+characters from `[A-Za-z0-9._:@~-]`, and not `.` or `..`. Anything else (for example an
+encoded `/`) is rejected with `400` before any store is consulted.
+
 ### Refresh Flow Detail
+
+The refresh endpoint comes from the data address the counterparty sends, so Siglet only calls
+endpoints allowed by `[token.refresh_endpoint_policy]` (see the configuration reference): HTTPS by
+default, optionally restricted to a list of hosts. The endpoint is checked when the token is
+stored (a disallowed endpoint fails the `started` notification) and again before every refresh.
+Redirects are never followed.
 
 When Siglet refreshes a token, it sends a signed proof JWT as the bearer credential:
 
@@ -908,6 +930,15 @@ refresh_endpoint = "https://siglet.example.com/token"
 # Hex-encoded secret used to derive symmetric keys (HMAC, etc.).
 # Must be at least 16 bytes (32 hex chars). Generate with: openssl rand -hex 32
 server_secret = "0102030405060708090a0b0c0d0e0f10..."
+
+# Which counterparty refresh endpoints Siglet will call (consumer side). The endpoint arrives in
+# the provider's data address and receives the refresh token plus a proof JWT signed with the
+# participant context's key, so it must be constrained.
+[token.refresh_endpoint_policy]
+allow_http = false        # Default: false. Only for dev / in-cluster test setups.
+# When non-empty, the endpoint host must match an entry exactly or, for "*.domain", be a
+# subdomain of it. Recommended in production.
+allowed_hosts = ["provider.example.com", "*.dataspace.example"]
 
 # Transfer types — one block per supported transfer type.
 # These are the STATIC, GLOBAL mappings applied to every participant context. They act as the

@@ -28,7 +28,7 @@ use dataplane_sdk::core::{
 };
 use dsdk_facet_core::context::ParticipantContext;
 use dsdk_facet_core::token::TokenError;
-use dsdk_facet_core::token::client::{TokenData, TokenStore};
+use dsdk_facet_core::token::client::{RefreshEndpointPolicy, TokenData, TokenStore};
 use dsdk_facet_core::token::manager::{RenewableTokenPair, TokenManager};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -65,6 +65,11 @@ pub struct SigletDataFlowHandler<Tx = MemoryTransaction> {
     /// mappings are configured.
     #[builder(default = Arc::new(CelClaimMapper::new()) as Arc<dyn ClaimMapper>)]
     claim_mapper: Arc<dyn ClaimMapper>,
+    /// Which counterparty refresh endpoints are accepted in a data address. Checked when a token
+    /// is stored so a disallowed endpoint fails the flow up front; the token client checks it
+    /// again before every refresh. Defaults to HTTPS-only.
+    #[builder(default)]
+    refresh_endpoint_policy: RefreshEndpointPolicy,
     #[builder(skip)]
     _phantom: PhantomData<fn() -> Tx>,
 }
@@ -399,6 +404,9 @@ impl<Tx: Send> DataFlowHandler for SigletDataFlowHandler<Tx> {
             } else {
                 read_renewal_properties(data_address)?
             };
+            self.refresh_endpoint_policy
+                .check(&renewal_properties.refresh_endpoint)
+                .map_err(|e| HandlerError::Generic(e.to_string().into()))?;
 
             let token_data = TokenData::builder()
                 .identifier(flow.id.clone())
@@ -426,6 +434,20 @@ impl<Tx: Send> DataFlowHandler for SigletDataFlowHandler<Tx> {
         let participant_context = Self::build_participant_context(flow);
         self.cleanup_tokens(flow, &participant_context).await
     }
+}
+
+/// Upper bound on a counterparty-supplied `expiresIn` (30 days).
+const MAX_EXPIRES_IN_SECONDS: i64 = 30 * 24 * 3600;
+
+/// Converts a counterparty-supplied relative `expiresIn` into an absolute expiry. Values outside
+/// `0..=MAX_EXPIRES_IN_SECONDS` are rejected instead of overflowing the timestamp arithmetic.
+fn expires_at_from(expires_in: i64) -> HandlerResult<chrono::DateTime<Utc>> {
+    if !(0..=MAX_EXPIRES_IN_SECONDS).contains(&expires_in) {
+        return Err(HandlerError::Generic(
+            format!("expiresIn must be between 0 and {} seconds", MAX_EXPIRES_IN_SECONDS).into(),
+        ));
+    }
+    Ok(Utc::now() + chrono::TimeDelta::seconds(expires_in))
 }
 
 struct RenewalProperties {
@@ -456,10 +478,7 @@ fn read_renewal_properties(data_address: &DataAddress) -> HandlerResult<RenewalP
                 .map_err(|_| HandlerError::Generic("Invalid expiresIn format".into()))
         })?;
 
-    // Calculate absolute expiration timestamp from relative seconds
-    let expires_at_timestamp = Utc::now().timestamp() + expires_in;
-    let expires_at = chrono::DateTime::from_timestamp(expires_at_timestamp, 0)
-        .ok_or_else(|| HandlerError::Generic("Invalid expiration timestamp".into()))?;
+    let expires_at = expires_at_from(expires_in)?;
 
     Ok(RenewalProperties {
         token: token.to_string(),
@@ -490,10 +509,7 @@ fn read_tx_renewal_properties(data_address: &DataAddress) -> HandlerResult<Renew
                 .map_err(|_| HandlerError::Generic("Invalid expiresIn format".into()))
         })?;
 
-    // Calculate absolute expiration timestamp from relative seconds
-    let expires_at_timestamp = Utc::now().timestamp() + expires_in;
-    let expires_at = chrono::DateTime::from_timestamp(expires_at_timestamp, 0)
-        .ok_or_else(|| HandlerError::Generic("Invalid expiration timestamp".into()))?;
+    let expires_at = expires_at_from(expires_in)?;
 
     Ok(RenewalProperties {
         token: token.to_string(),
