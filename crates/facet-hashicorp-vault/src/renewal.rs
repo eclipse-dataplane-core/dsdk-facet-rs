@@ -323,7 +323,12 @@ impl RenewalTrigger for TimeBasedRenewalTrigger {
 /// File-based renewal trigger that waits for file system events.
 ///
 /// This is used for Kubernetes service account authentication where a Vault agent sidecar
-/// writes tokens to a file. The trigger fires when the file is modified.
+/// writes tokens to a file. The trigger fires when the token file changes.
+///
+/// The watcher is placed on the token file's *parent directory*, not on the file itself: token
+/// rotation (kubelet writing a new timestamped directory and swapping the `..data` symlink)
+/// replaces the file's inode, which permanently invalidates an inotify watch on the file. The
+/// parent directory's inode is never replaced, so the watch survives every rotation.
 pub struct FileBasedRenewalTrigger {
     /// Watcher must be kept alive for the duration of the trigger.
     /// It is not directly accessed, but dropping it would stop file watching.
@@ -333,6 +338,13 @@ pub struct FileBasedRenewalTrigger {
 
 impl FileBasedRenewalTrigger {
     pub fn new(token_file_path: PathBuf) -> Result<Self, VaultError> {
+        if !token_file_path.exists() {
+            return Err(VaultError::TokenFileNotFound(format!(
+                "Token file not found at path: {}",
+                token_file_path.display()
+            )));
+        }
+
         let (event_tx, event_rx) = mpsc::channel(100);
 
         // Create a watcher that sends events to our channel
@@ -343,16 +355,16 @@ impl FileBasedRenewalTrigger {
         })
         .map_err(|e| VaultError::TokenFileReadError(format!("Failed to create file watcher: {}", e)))?;
 
-        // Watch the token file for changes
-        watcher
-            .watch(&token_file_path, RecursiveMode::NonRecursive)
-            .map_err(|e| {
-                VaultError::TokenFileReadError(format!(
-                    "Failed to watch token file {}: {}",
-                    token_file_path.display(),
-                    e
-                ))
-            })?;
+        // Watch the token file's parent directory rather than the file itself: rotation replaces
+        // the file's inode, which permanently invalidates an inotify watch placed on the file.
+        let watch_dir = token_file_path
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| PathBuf::from("."));
+
+        watcher.watch(&watch_dir, RecursiveMode::NonRecursive).map_err(|e| {
+            VaultError::TokenFileReadError(format!("Failed to watch directory {}: {}", watch_dir.display(), e))
+        })?;
 
         Ok(Self {
             _watcher: Some(watcher),
