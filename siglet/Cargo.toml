@@ -11,9 +11,9 @@ path = "src/main.rs"
 
 [dependencies]
 # Facet library crates
-dsdk-facet-core = { path = "../crates/facet-core" , version = "0.1.0" }
-dsdk-facet-postgres = { path = "../crates/facet-postgres", version = "0.1.0" }
-dsdk-facet-hashicorp-vault = { path = "../crates/facet-hashicorp-vault", version = "0.1.0" }
+dsdk-facet-core = { path = "../crates/facet-core" , version = "0.1.1" }
+dsdk-facet-postgres = { path = "../crates/facet-postgres", version = "0.1.1" }
+dsdk-facet-hashicorp-vault = { path = "../crates/facet-hashicorp-vault", version = "0.1.1" }
 
 # Eclipse Data Plane SDK
 dataplane-sdk = "0.1.3"

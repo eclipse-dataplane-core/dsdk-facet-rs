@@ -8,7 +8,7 @@ repository.workspace = true
 description = "HashiCorp Vault integration for the Eclipse Rust Data Plane SDK (dsdk-facet)"
 
 [dependencies]
-dsdk-facet-core = { path = "../facet-core", version = "0.1.0" }
+dsdk-facet-core = { path = "../facet-core", version = "0.1.1" }
 bon = { workspace = true }
 rand = { workspace = true }
 tokio = { workspace = true }
