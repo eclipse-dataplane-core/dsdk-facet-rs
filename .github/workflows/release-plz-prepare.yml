@@ -8,10 +8,16 @@ name: Prepare Release
 # Before computing the release, the Eclipse Dash License Tool is run over the dependency tree
 # (scripts/check-dependencies.sh). The run aborts if any dependency is restricted or rejected,
 # i.e. still needs an Eclipse IP Team review. The regenerated DEPENDENCIES.txt is committed to
-# the release branch.
+# the release branch. Dispatching with `strict: false` downgrades that gate to a warning, to force
+# a release while IP reviews are still pending.
 
 on:
   workflow_dispatch:
+    inputs:
+      strict:
+        description: "Fail if any dependency is restricted/rejected by Eclipse Dash (uncheck to only warn)"
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -44,6 +50,8 @@ jobs:
 
       - name: Check dependency licenses (Eclipse Dash)
         run: scripts/check-dependencies.sh
+        env:
+          DASH_STRICT: ${{ inputs.strict }}
 
       - name: Install release-plz
         uses: taiki-e/install-action@v2

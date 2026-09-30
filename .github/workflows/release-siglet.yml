@@ -16,6 +16,10 @@ on:
         description: "Siglet version to release, e.g. 0.1.0 (no leading v)"
         required: true
         type: string
+      strict:
+        description: "Fail if any dependency is restricted/rejected by Eclipse Dash (uncheck to only warn)"
+        type: boolean
+        default: true
 
 concurrency:
   group: release-siglet
@@ -76,8 +80,9 @@ jobs:
 
   # Gate: the image ships every dependency, so all of them must be vetted by the Eclipse IP Team.
   # Runs the Eclipse Dash License Tool (scripts/check-dependencies.sh) and fails on any restricted
-  # or rejected dependency. Nothing is committed here; DEPENDENCIES.txt is refreshed by
-  # release-plz-prepare.yml.
+  # or rejected dependency. Dispatching with `strict: false` downgrades that gate to a warning, to
+  # force a release while IP reviews are still pending. Nothing is committed here;
+  # DEPENDENCIES.txt is refreshed by release-plz-prepare.yml.
   licenses:
     name: Check dependency licenses
     needs: validate
@@ -97,6 +102,8 @@ jobs:
 
       - name: Check dependency licenses (Eclipse Dash)
         run: scripts/check-dependencies.sh
+        env:
+          DASH_STRICT: ${{ inputs.strict }}
 
   # Build+push the image first (latest + version tags) via the reusable publish workflow.
   build:
