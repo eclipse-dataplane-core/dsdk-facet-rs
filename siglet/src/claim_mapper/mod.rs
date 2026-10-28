@@ -86,6 +86,9 @@ pub enum ClaimMapperError {
 
     #[error("failed to bind the 'flow' variable for data flow '{flow_id}': {message}")]
     Binding { flow_id: String, message: String },
+
+    #[error("failed to register CEL functions: {message}")]
+    Registration { message: String },
 }
 
 /// Evaluates configured expressions against a [`DataFlow`] to produce JWT claims.
