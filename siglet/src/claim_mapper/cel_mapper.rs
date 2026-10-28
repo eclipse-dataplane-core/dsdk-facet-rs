@@ -101,7 +101,8 @@ impl ClaimMapper for CelClaimMapper {
         // Project the flow and build the evaluation context once for the whole batch.
         let projection = flow_to_value(flow)?;
         let mut context = Context::default();
-        super::credential_functions::register(&mut context);
+        super::credential_functions::register(&mut context)
+            .map_err(|e| ClaimMapperError::Registration { message: e.to_string() })?;
         context
             .add_variable("flow", projection)
             .map_err(|e| ClaimMapperError::Binding {

@@ -35,7 +35,7 @@
 
 use cel::extractors::{Arguments, This};
 use cel::objects::{Key, Map};
-use cel::{Context, ExecutionError, Value};
+use cel::{Context, DeclarationError, ExecutionError, Value};
 use std::sync::Arc;
 
 /// Property names that may carry a credential's type set, in lookup order (`@type` is the
@@ -176,11 +176,14 @@ pub fn claims(This(this): This<Value>, name: Arc<String>) -> FnResult {
 ///
 /// Called once per evaluation, after `Context::default()`. Functions resolve at execute-time, so
 /// this never affects the compiled-program cache or expression validation.
-pub(crate) fn register(context: &mut Context) {
-    context.add_function("withType", with_type);
-    context.add_function("hasType", has_type);
-    context.add_function("hasCredential", has_credential);
-    context.add_function("hasClaim", has_claim);
-    context.add_function("claim", claim);
-    context.add_function("claims", claims);
+///
+/// Fails if a name collides with an overload already declared by the CEL environment.
+pub(crate) fn register(context: &mut Context) -> Result<(), DeclarationError> {
+    context.add_function("withType", with_type)?;
+    context.add_function("hasType", has_type)?;
+    context.add_function("hasCredential", has_credential)?;
+    context.add_function("hasClaim", has_claim)?;
+    context.add_function("claim", claim)?;
+    context.add_function("claims", claims)?;
+    Ok(())
 }
