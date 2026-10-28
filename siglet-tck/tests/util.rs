@@ -155,6 +155,7 @@ pub fn build_config(vault_url: &str, token_file: &Path, pg_url: &str) -> SigletC
         management_api_port: MANAGEMENT_API_PORT,
         storage_backend: StorageBackend::PostgresVault {
             url: pg_url.to_string(),
+            pool: Default::default(),
         },
         signaling_auth: SignalingAuthConfig::Disabled,
         token_api_auth: TokenApiAuthConfig::Disabled,

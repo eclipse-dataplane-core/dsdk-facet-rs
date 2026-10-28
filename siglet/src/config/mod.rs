@@ -92,6 +92,24 @@ pub const DEFAULT_HTTP_CONNECT_TIMEOUT_SECS: u64 = 10;
 /// Default total per-request timeout in seconds for the shared HTTP client.
 pub const DEFAULT_HTTP_REQUEST_TIMEOUT_SECS: u64 = 30;
 
+// The Postgres pool defaults mirror sqlx 0.8's `PoolOptions` defaults, so a `postgres-vault`
+// backend configured with only `url` behaves as it did before the pool became configurable.
+
+/// Default maximum number of connections per Postgres pool.
+pub const DEFAULT_PG_MAX_CONNECTIONS: u32 = 10;
+
+/// Default minimum number of idle connections kept open per Postgres pool.
+pub const DEFAULT_PG_MIN_CONNECTIONS: u32 = 0;
+
+/// Default time in seconds a caller waits for a pooled Postgres connection before failing.
+pub const DEFAULT_PG_ACQUIRE_TIMEOUT_SECS: u64 = 30;
+
+/// Default time in seconds an idle Postgres connection is kept before being closed (0 disables).
+pub const DEFAULT_PG_IDLE_TIMEOUT_SECS: u64 = 600;
+
+/// Default maximum lifetime in seconds of a Postgres connection (0 disables).
+pub const DEFAULT_PG_MAX_LIFETIME_SECS: u64 = 1800;
+
 /// Minimum server secret length in bytes (128 bits)
 pub const MIN_SERVER_SECRET_BYTES: usize = 16;
 
@@ -326,7 +344,74 @@ pub enum StorageBackend {
     Memory,
     /// Vault for `TokenStore`; Postgres for `RenewableTokenStore` and `LockManager`.
     #[serde(rename = "postgres-vault")]
-    PostgresVault { url: String },
+    PostgresVault {
+        url: String,
+        /// Pool settings, given as flat keys next to `url` in `[storage_backend]`.
+        #[serde(flatten)]
+        pool: PostgresPoolConfig,
+    },
+}
+
+/// Connection pool settings for the `postgres-vault` storage backend.
+///
+/// Siglet opens two pools with these settings: one for data plane SDK transactions and one for
+/// the stores the signaling handler calls while such a transaction is open (renewable tokens,
+/// transfer-type mappings, locks, signing-key mappings). Keeping them apart means a request that
+/// holds an SDK connection never waits on its own pool, so the pools cannot starve each other.
+/// Up to `2 * max_connections` connections can therefore be open against Postgres.
+///
+/// The defaults match sqlx's own defaults. `max_connections` and `acquire_timeout_seconds` have
+/// to be > 0 and `min_connections` must not exceed `max_connections`; this is checked by
+/// `SigletConfig::validate`. A value of 0 for `idle_timeout_seconds` or `max_lifetime_seconds`
+/// disables that limit.
+///
+/// The numeric fields also accept strings, because `SIGLET__STORAGE_BACKEND__*` environment
+/// overrides arrive as strings and the tagged `StorageBackend` enum does not coerce them.
+#[derive(Deserialize, Clone, Debug, PartialEq)]
+#[serde(default)]
+pub struct PostgresPoolConfig {
+    #[serde(deserialize_with = "deserialize_number_or_string")]
+    pub max_connections: u32,
+    #[serde(deserialize_with = "deserialize_number_or_string")]
+    pub min_connections: u32,
+    #[serde(deserialize_with = "deserialize_number_or_string")]
+    pub acquire_timeout_seconds: u64,
+    #[serde(deserialize_with = "deserialize_number_or_string")]
+    pub idle_timeout_seconds: u64,
+    #[serde(deserialize_with = "deserialize_number_or_string")]
+    pub max_lifetime_seconds: u64,
+}
+
+impl Default for PostgresPoolConfig {
+    fn default() -> Self {
+        Self {
+            max_connections: DEFAULT_PG_MAX_CONNECTIONS,
+            min_connections: DEFAULT_PG_MIN_CONNECTIONS,
+            acquire_timeout_seconds: DEFAULT_PG_ACQUIRE_TIMEOUT_SECS,
+            idle_timeout_seconds: DEFAULT_PG_IDLE_TIMEOUT_SECS,
+            max_lifetime_seconds: DEFAULT_PG_MAX_LIFETIME_SECS,
+        }
+    }
+}
+
+/// Deserializes a number given either natively or as a decimal string.
+fn deserialize_number_or_string<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de> + std::str::FromStr,
+    T::Err: std::fmt::Display,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum NumberOrString<T> {
+        Number(T),
+        String(String),
+    }
+
+    match NumberOrString::<T>::deserialize(deserializer)? {
+        NumberOrString::Number(n) => Ok(n),
+        NumberOrString::String(s) => s.trim().parse().map_err(serde::de::Error::custom),
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
@@ -759,6 +844,23 @@ impl SigletConfig {
         }
         if self.http_client.request_timeout_seconds == 0 {
             errors.push("http_client.request_timeout_seconds must be greater than 0".to_string());
+        }
+
+        // Validate Postgres pool settings. A zero-sized pool or a zero acquire timeout would
+        // make every database call fail; sqlx would reject min > max only at connect time.
+        if let StorageBackend::PostgresVault { pool, .. } = &self.storage_backend {
+            if pool.max_connections == 0 {
+                errors.push("storage_backend.max_connections must be greater than 0".to_string());
+            }
+            if pool.acquire_timeout_seconds == 0 {
+                errors.push("storage_backend.acquire_timeout_seconds must be greater than 0".to_string());
+            }
+            if pool.min_connections > pool.max_connections {
+                errors.push(format!(
+                    "storage_backend.min_connections ({}) must not exceed storage_backend.max_connections ({})",
+                    pool.min_connections, pool.max_connections
+                ));
+            }
         }
 
         // Validate signaling auth config

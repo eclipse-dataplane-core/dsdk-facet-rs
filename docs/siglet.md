@@ -870,6 +870,12 @@ management_api_port = 8083   # Default: 8083 — transfer-type & signing-key map
 [storage_backend]
 type = "postgres-vault"
 url = "postgresql://siglet:password@postgres:5432/siglet"
+# Connection pool settings, applied to each of Siglet's two Postgres pools (see "PostgreSQL Setup").
+max_connections = 10          # Default: 10
+min_connections = 0           # Default: 0
+acquire_timeout_seconds = 30  # Default: 30 — how long a request waits for a connection
+idle_timeout_seconds = 600    # Default: 600 — 0 disables
+max_lifetime_seconds = 1800   # Default: 1800 — 0 disables
 
 # HashiCorp Vault
 [vault]
@@ -1019,6 +1025,7 @@ SIGLET__VAULT__TOKEN_FILE=/var/run/secrets/vault/token
 SIGLET__TOKEN__ISSUER=my-siglet
 SIGLET__STORAGE_BACKEND__TYPE=postgres-vault
 SIGLET__STORAGE_BACKEND__URL=postgresql://...
+SIGLET__STORAGE_BACKEND__MAX_CONNECTIONS=20
 ```
 
 ---
@@ -1039,7 +1046,42 @@ Database schema migrations are applied automatically on startup. The database us
 postgresql://{user}:{password}@{host}:{port}/{database}
 ```
 
-Siglet uses a connection pool (via `sqlx`). The pool size is tuned automatically based on available resources.
+### Connection Pools
+
+Siglet opens two `sqlx` connection pools against the database, both configured from the same keys in
+`[storage_backend]`:
+
+- the **SDK pool**, used for the data plane SDK's transactions (data flow state), and
+- the **store pool**, used by the renewable token store, the lock manager, and the transfer-type and signing-key
+  mapping stores.
+
+They are separate because a signaling `start`/`prepare` request holds an SDK transaction while the handler reads the
+transfer-type mapping and saves the renewable token. With one shared pool, `max_connections` concurrent starts would
+each hold a connection and wait for a second one, and all of them would stall until `acquire_timeout_seconds`.
+With two pools, store-pool connections are held only for short statements or transactions and never while waiting for
+another connection, so open SDK transactions cannot starve them.
+
+| Key                       | Default | Description                                                                         |
+|---------------------------|---------|-------------------------------------------------------------------------------------|
+| `max_connections`         | `10`    | Maximum connections per pool. Must be > 0.                                          |
+| `min_connections`         | `0`     | Idle connections kept open per pool. Must not exceed `max_connections`.             |
+| `acquire_timeout_seconds` | `30`    | How long a caller waits for a free connection before failing. Must be > 0.          |
+| `idle_timeout_seconds`    | `600`   | Idle connections are closed after this many seconds. `0` disables the limit.        |
+| `max_lifetime_seconds`    | `1800`  | Connections are recycled after this many seconds. `0` disables the limit.           |
+
+The defaults are the `sqlx` defaults, so a configuration with only `url` keeps the previous per-pool settings. Because
+there are two pools, each Siglet replica can open up to `2 × max_connections` connections (20 with the defaults); size
+the database's `max_connections` for that across all replicas. The effective settings are logged at startup (`Connecting Postgres pool`, once per pool).
+
+Sizing guidance:
+
+- Each in-flight `start`/`prepare` holds one SDK-pool connection for the whole request, including the Vault signing
+  call, so `max_connections` caps the number of concurrent starts per replica. Raise it (for example to 20–30) when the
+  control plane starts many transfers concurrently.
+- Keep `acquire_timeout_seconds` well below the control plane's HTTP read timeout (EDC uses 30 s), for example 5–10 s.
+  A request that cannot get a connection then fails fast before anything is committed, and a control plane retry of
+  the same data flow can succeed. With the default of 30 s, the control plane may time out while the request is still
+  completing, and its retry then fails with `409 Data flow ... already exists`.
 
 ---
 
