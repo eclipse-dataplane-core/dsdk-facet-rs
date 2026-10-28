@@ -10,7 +10,7 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
-use crate::config::{SigletConfig, StorageBackend, TransferType, VaultAuth, VaultConfig};
+use crate::config::{PostgresPoolConfig, SigletConfig, StorageBackend, TransferType, VaultAuth, VaultConfig};
 use crate::error::SigletError;
 use crate::handler::refresh::TokenRefreshHandler;
 use crate::handler::{ManagementApiHandler, SigletDataFlowHandler, TokenApiHandler};
@@ -45,9 +45,11 @@ use rand::RngExt;
 use rand::rng;
 use reqwest::Client;
 use sqlx::PgPool;
+use sqlx::postgres::PgPoolOptions;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::warn;
+use std::time::Duration;
+use tracing::{info, warn};
 
 #[cfg(test)]
 mod tests;
@@ -158,11 +160,15 @@ pub async fn assemble_postgres(
     let (jwt_generator, jwt_verifier) = create_jwt_components(signing_client.clone(), cfg.vault.use_http_resolution);
     let server_secret = generate_server_secret(cfg)?;
 
-    let StorageBackend::PostgresVault { url } = &cfg.storage_backend else {
+    let StorageBackend::PostgresVault { url, pool: pool_cfg } = &cfg.storage_backend else {
         unreachable!("assemble_postgres called with non-postgres backend");
     };
 
-    let (pool, (renewable_token_store, lock_manager)) = connect_postgres(url).await?;
+    let (pool, (renewable_token_store, lock_manager)) = connect_postgres(url, pool_cfg).await?;
+    // The SDK gets its own pool: the signaling handler calls the stores above while the SDK
+    // transaction holds a connection, so sharing one pool deadlocks once `max_connections`
+    // starts are in flight (each holds one connection and waits for a second).
+    let sdk_pool = create_pg_pool(url, pool_cfg, "sdk").await?;
     let token_store: Arc<dyn TokenStore> = Arc::new(VaultTokenStore::with_subpath(
         vault_client as Arc<dyn VaultClient>,
         cfg.vault.token_subpath.clone(),
@@ -195,7 +201,7 @@ pub async fn assemble_postgres(
     );
 
     let sdk = assemble_postgres_sdk(
-        pool,
+        sdk_pool,
         cfg,
         token_store.clone(),
         token_manager.clone(),
@@ -232,14 +238,14 @@ pub fn assemble_memory_stores() -> StoreBundle {
 ///
 /// Used by the `postgres-vault` backend, where `TokenStore` is handled by Vault and
 /// does not require an encryption key.
-pub async fn assemble_postgres_bundle(url: &str) -> Result<StoreBundle, SigletError> {
-    let (_, bundle) = connect_postgres(url).await?;
+pub async fn assemble_postgres_bundle(url: &str, pool_cfg: &PostgresPoolConfig) -> Result<StoreBundle, SigletError> {
+    let (_, bundle) = connect_postgres(url, pool_cfg).await?;
     Ok(bundle)
 }
 
 /// Assembles a Postgres-backed SDK for data plane operations.
 ///
-/// Shares the provided pool with the caller's stores — no second pool is created.
+/// The pool should not be shared with the stores the handler uses (see `assemble_postgres`).
 /// Runs schema migrations via `PgDataFlowRepo::migrate` before building the SDK.
 pub async fn assemble_postgres_sdk(
     pool: PgPool,
@@ -283,10 +289,8 @@ pub async fn assemble_postgres_sdk(
 ///
 /// Returns the raw pool (for callers that need it to build additional stores) alongside
 /// the initialized bundle.
-async fn connect_postgres(url: &str) -> Result<(PgPool, StoreBundle), SigletError> {
-    let pool = PgPool::connect(url)
-        .await
-        .map_err(|e| SigletError::InvalidConfiguration(format!("Failed to connect to Postgres: {}", e)))?;
+async fn connect_postgres(url: &str, pool_cfg: &PostgresPoolConfig) -> Result<(PgPool, StoreBundle), SigletError> {
+    let pool = create_pg_pool(url, pool_cfg, "stores").await?;
 
     let renewable_token_store = Arc::new(PostgresRenewableTokenStore::new(pool.clone()));
     renewable_token_store
@@ -301,6 +305,35 @@ async fn connect_postgres(url: &str) -> Result<(PgPool, StoreBundle), SigletErro
         .map_err(|e| SigletError::Token(Box::new(e)))?;
 
     Ok((pool, (renewable_token_store, lock_manager)))
+}
+
+/// Builds `PgPoolOptions` from the configured pool settings. Zero idle timeout or max lifetime
+/// disables that limit.
+pub fn pg_pool_options(pool_cfg: &PostgresPoolConfig) -> PgPoolOptions {
+    let non_zero = |secs: u64| (secs > 0).then(|| Duration::from_secs(secs));
+    PgPoolOptions::new()
+        .max_connections(pool_cfg.max_connections)
+        .min_connections(pool_cfg.min_connections)
+        .acquire_timeout(Duration::from_secs(pool_cfg.acquire_timeout_seconds))
+        .idle_timeout(non_zero(pool_cfg.idle_timeout_seconds))
+        .max_lifetime(non_zero(pool_cfg.max_lifetime_seconds))
+}
+
+/// Connects a Postgres pool with the configured settings and logs them.
+async fn create_pg_pool(url: &str, pool_cfg: &PostgresPoolConfig, name: &str) -> Result<PgPool, SigletError> {
+    info!(
+        pool = name,
+        max_connections = pool_cfg.max_connections,
+        min_connections = pool_cfg.min_connections,
+        acquire_timeout_seconds = pool_cfg.acquire_timeout_seconds,
+        idle_timeout_seconds = pool_cfg.idle_timeout_seconds,
+        max_lifetime_seconds = pool_cfg.max_lifetime_seconds,
+        "Connecting Postgres pool"
+    );
+    pg_pool_options(pool_cfg)
+        .connect(url)
+        .await
+        .map_err(|e| SigletError::InvalidConfiguration(format!("Failed to connect to Postgres: {}", e)))
 }
 
 // ============================================================================

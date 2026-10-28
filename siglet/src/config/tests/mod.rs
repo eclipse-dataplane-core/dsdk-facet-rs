@@ -13,8 +13,9 @@
 #![allow(clippy::unwrap_used)]
 
 use crate::config::{
-    ClaimMapping, EndpointMapping, ManagementApiAuthConfig, SigletConfig, SignalingAuthConfig, StorageBackend,
-    TokenApiAuthConfig, TokenConfig, TokenSource, TransferType, ValidationError, VaultAuth, VaultConfig,
+    ClaimMapping, EndpointMapping, ManagementApiAuthConfig, PostgresPoolConfig, SigletConfig, SignalingAuthConfig,
+    StorageBackend, TokenApiAuthConfig, TokenConfig, TokenSource, TransferType, ValidationError, VaultAuth,
+    VaultConfig,
 };
 use std::net::{IpAddr, Ipv4Addr};
 
@@ -2162,4 +2163,226 @@ fn test_documented_claim_mapping_toml_parses_and_validates() {
 
     // Every documented expression must compile.
     assert!(cfg.validate().is_ok(), "{:?}", validation_messages(&cfg));
+}
+
+// ============================================================================
+// Postgres Pool Config Tests
+// ============================================================================
+
+/// Deserializes a `SigletConfig` from TOML through the `config` crate, as `load_config` does,
+/// applying `overrides` the way `SIGLET__*` environment variables arrive (as strings).
+fn load_toml_config(toml: &str, overrides: &[(&str, &str)]) -> Result<SigletConfig, config::ConfigError> {
+    use config::{Config, File, FileFormat};
+
+    let mut builder = Config::builder().add_source(File::from_str(toml, FileFormat::Toml));
+    for (key, value) in overrides {
+        builder = builder.set_override(*key, *value)?;
+    }
+    builder.build()?.try_deserialize()
+}
+
+fn postgres_pool(config: &SigletConfig) -> &PostgresPoolConfig {
+    match &config.storage_backend {
+        StorageBackend::PostgresVault { pool, .. } => pool,
+        other => panic!("expected postgres-vault backend, got {other:?}"),
+    }
+}
+
+fn postgres_vault_config(pool: PostgresPoolConfig) -> SigletConfig {
+    SigletConfig {
+        storage_backend: StorageBackend::PostgresVault {
+            url: "postgresql://siglet:siglet@localhost:5432/siglet".to_string(),
+            pool,
+        },
+        ..create_valid_config()
+    }
+}
+
+#[test]
+fn test_postgres_pool_defaults_when_only_url_is_set() {
+    // Backward compatibility: a backend with only `url` must get sqlx's own pool defaults.
+    let toml = r#"
+        [storage_backend]
+        type = "postgres-vault"
+        url = "postgresql://siglet:siglet@postgres:5432/siglet"
+    "#;
+
+    let cfg = load_toml_config(toml, &[]).unwrap();
+
+    let StorageBackend::PostgresVault { url, pool } = &cfg.storage_backend else {
+        panic!("expected postgres-vault backend");
+    };
+    assert_eq!(url, "postgresql://siglet:siglet@postgres:5432/siglet");
+    assert_eq!(*pool, PostgresPoolConfig::default());
+    assert_eq!(pool.max_connections, 10);
+    assert_eq!(pool.min_connections, 0);
+    assert_eq!(pool.acquire_timeout_seconds, 30);
+    assert_eq!(pool.idle_timeout_seconds, 600);
+    assert_eq!(pool.max_lifetime_seconds, 1800);
+}
+
+#[test]
+fn test_postgres_pool_defaults_match_sqlx_defaults() {
+    use sqlx::postgres::PgPoolOptions;
+    use std::time::Duration;
+
+    let sqlx_defaults = PgPoolOptions::new();
+    let ours = crate::assembly::pg_pool_options(&PostgresPoolConfig::default());
+
+    assert_eq!(ours.get_max_connections(), sqlx_defaults.get_max_connections());
+    assert_eq!(ours.get_min_connections(), sqlx_defaults.get_min_connections());
+    assert_eq!(ours.get_acquire_timeout(), sqlx_defaults.get_acquire_timeout());
+    assert_eq!(ours.get_idle_timeout(), sqlx_defaults.get_idle_timeout());
+    assert_eq!(ours.get_max_lifetime(), sqlx_defaults.get_max_lifetime());
+    assert_eq!(ours.get_acquire_timeout(), Duration::from_secs(30));
+}
+
+#[test]
+fn test_postgres_pool_overrides_from_toml() {
+    let toml = r#"
+        [storage_backend]
+        type = "postgres-vault"
+        url = "postgresql://siglet:siglet@postgres:5432/siglet"
+        max_connections = 40
+        min_connections = 5
+        acquire_timeout_seconds = 5
+        idle_timeout_seconds = 0
+        max_lifetime_seconds = 900
+    "#;
+
+    let cfg = load_toml_config(toml, &[]).unwrap();
+
+    assert_eq!(
+        *postgres_pool(&cfg),
+        PostgresPoolConfig {
+            max_connections: 40,
+            min_connections: 5,
+            acquire_timeout_seconds: 5,
+            idle_timeout_seconds: 0,
+            max_lifetime_seconds: 900,
+        }
+    );
+}
+
+#[test]
+fn test_postgres_pool_partial_override_keeps_other_defaults() {
+    let toml = r#"
+        [storage_backend]
+        type = "postgres-vault"
+        url = "postgresql://siglet:siglet@postgres:5432/siglet"
+        max_connections = 25
+    "#;
+
+    let cfg = load_toml_config(toml, &[]).unwrap();
+
+    assert_eq!(
+        *postgres_pool(&cfg),
+        PostgresPoolConfig {
+            max_connections: 25,
+            ..PostgresPoolConfig::default()
+        }
+    );
+}
+
+#[test]
+fn test_postgres_pool_accepts_string_overrides_like_env_vars() {
+    // `SIGLET__STORAGE_BACKEND__MAX_CONNECTIONS=40` reaches serde as the string "40".
+    let toml = r#"
+        [storage_backend]
+        type = "postgres-vault"
+        url = "postgresql://siglet:siglet@postgres:5432/siglet"
+    "#;
+
+    let cfg = load_toml_config(
+        toml,
+        &[
+            ("storage_backend.max_connections", "40"),
+            ("storage_backend.acquire_timeout_seconds", "5"),
+        ],
+    )
+    .unwrap();
+
+    let pool = postgres_pool(&cfg);
+    assert_eq!(pool.max_connections, 40);
+    assert_eq!(pool.acquire_timeout_seconds, 5);
+    assert_eq!(pool.min_connections, 0);
+}
+
+#[test]
+fn test_postgres_pool_rejects_non_numeric_value() {
+    let toml = r#"
+        [storage_backend]
+        type = "postgres-vault"
+        url = "postgresql://siglet:siglet@postgres:5432/siglet"
+        max_connections = "lots"
+    "#;
+
+    assert!(load_toml_config(toml, &[]).is_err());
+}
+
+#[test]
+fn test_postgres_pool_defaults_pass_validation() {
+    let config = postgres_vault_config(PostgresPoolConfig::default());
+    assert!(config.validate().is_ok(), "{:?}", validation_messages(&config));
+}
+
+#[test]
+fn test_postgres_pool_rejects_zero_max_connections() {
+    let config = postgres_vault_config(PostgresPoolConfig {
+        max_connections: 0,
+        ..PostgresPoolConfig::default()
+    });
+
+    let messages = validation_messages(&config);
+    assert!(
+        messages
+            .iter()
+            .any(|msg| msg.contains("storage_backend.max_connections must be greater than 0")),
+        "got: {messages:?}"
+    );
+}
+
+#[test]
+fn test_postgres_pool_rejects_zero_acquire_timeout() {
+    let config = postgres_vault_config(PostgresPoolConfig {
+        acquire_timeout_seconds: 0,
+        ..PostgresPoolConfig::default()
+    });
+
+    let messages = validation_messages(&config);
+    assert!(
+        messages
+            .iter()
+            .any(|msg| msg.contains("storage_backend.acquire_timeout_seconds")),
+        "got: {messages:?}"
+    );
+}
+
+#[test]
+fn test_postgres_pool_rejects_min_above_max() {
+    let config = postgres_vault_config(PostgresPoolConfig {
+        max_connections: 5,
+        min_connections: 6,
+        ..PostgresPoolConfig::default()
+    });
+
+    let messages = validation_messages(&config);
+    assert!(
+        messages
+            .iter()
+            .any(|msg| msg.contains("storage_backend.min_connections")),
+        "got: {messages:?}"
+    );
+}
+
+#[test]
+fn test_postgres_pool_zero_idle_and_lifetime_disable_limits() {
+    let options = crate::assembly::pg_pool_options(&PostgresPoolConfig {
+        idle_timeout_seconds: 0,
+        max_lifetime_seconds: 0,
+        ..PostgresPoolConfig::default()
+    });
+
+    assert_eq!(options.get_idle_timeout(), None);
+    assert_eq!(options.get_max_lifetime(), None);
 }
