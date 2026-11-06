@@ -3,7 +3,9 @@ name = "dsdk-facet-testcontainers"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-publish = false
+authors.workspace = true
+repository.workspace = true
+description = "Testcontainers helpers (Postgres, Vault, S3, Keycloak) for testing with the Eclipse Rust Data Plane SDK (dsdk-facet)"
 
 [dependencies]
 tokio = {workspace = true}
