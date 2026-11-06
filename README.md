@@ -34,6 +34,13 @@ with refresh capabilities. Features include:
 - Support for multiple S3-compatible storage providers
 - Pluggable token verification and access control
 
+## Siglet
+
+Siglet, the data plane built on these components, has moved to its own repository:
+[eclipse-dataplane-core/siglet](https://github.com/eclipse-dataplane-core/siglet). Its image is now published as
+`ghcr.io/eclipse-dataplane-core/siglet` (from `0.1.7`). Releases up to `siglet-v0.1.6` and their images
+(`ghcr.io/eclipse-dataplane-core/dsdk-facet-rs/siglet`) remain available from this repository.
+
 ## Build Requirements
 
 Note `cmake` is required to build the S3 proxy.

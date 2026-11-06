@@ -116,61 +116,6 @@ vault_cmd secrets list | grep -q "secret/" && echo "KV v2 engine already enabled
     echo "KV v2 engine enabled at secret/"
 }
 
-# Enable Transit secrets engine for JWT signing
-echo "Enabling Transit secrets engine..."
-vault_cmd secrets enable transit 2>/dev/null && echo "Transit engine enabled" || echo "Transit engine already enabled"
-
-# Create the access-token signing key for Siglet.
-# Key name = {ACCESS_TOKEN_SIGNING_KEY_PREFIX}-{SIGLET_PC_ID} = "signing-siglet".
-echo "Creating signing key for Siglet..."
-vault_cmd write -f transit/keys/signing-siglet type=ed25519 2>/dev/null && echo "Signing key created" || echo "Signing key already exists"
-
-# Note: the consumer PC signing transit key and its Kubernetes Secret are provisioned
-# by setup-consumer-did.sh (idempotently), so they work with both `make setup` and
-# `make test-fast` / `make setup-consumer-did`.
-
-# Update test policy to include Transit access
-echo "Updating test policy with Transit access..."
-kubectl exec -n "${NAMESPACE}" "${VAULT_POD}" -- sh -c "
-export VAULT_TOKEN=${VAULT_TOKEN}
-vault policy write test-policy - <<'POLICY_EOF'
-# Allow full access to secret/ for testing
-path \"secret/*\" {
-  capabilities = [\"create\", \"read\", \"update\", \"delete\", \"list\"]
-}
-
-# Allow access to sys/health for health checks
-path \"sys/health\" {
-  capabilities = [\"read\"]
-}
-
-# Allow access to Transit engine for JWT signing
-path \"transit/sign/*\" {
-  capabilities = [\"create\", \"update\"]
-}
-
-path \"transit/keys/*\" {
-  capabilities = [\"read\"]
-}
-
-path \"transit/keys\" {
-  capabilities = [\"list\"]
-}
-POLICY_EOF
-"
-
-echo "Test policy updated with Transit access"
-
-# Create role for Siglet service account
-echo "Creating Kubernetes auth role for Siglet..."
-vault_cmd write auth/kubernetes/role/siglet-role \
-    bound_service_account_names=siglet-sa \
-    bound_service_account_namespaces="${NAMESPACE}" \
-    policies=test-policy \
-    ttl=1h
-
-echo "Created role: siglet-role (for siglet-sa)"
-
 echo ""
 echo "======================================"
 echo "Vault configuration complete!"
@@ -181,8 +126,6 @@ echo "  - test-role (SA: test-app-sa, TTL: 1h)"
 echo "  - test-role-sa1 (SA: test-app-sa1, TTL: 1h)"
 echo "  - test-role-sa2 (SA: test-app-sa2, TTL: 1h)"
 echo "  - test-role-short-ttl (SA: test-app-sa, TTL: 60s)"
-echo "  - siglet-role (SA: siglet-sa, TTL: 1h)"
 echo ""
-echo "Transit engine enabled with signing key: signing-siglet"
 echo "Root token: ${VAULT_TOKEN}"
 echo ""

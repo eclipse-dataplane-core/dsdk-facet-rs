@@ -5,21 +5,10 @@ edition.workspace = true
 license.workspace = true
 publish = false
 
-[[bin]]
-name = "consumer-did-setup"
-path = "src/bin/consumer_did_setup.rs"
-
 [dependencies]
 tokio = { workspace = true }
 anyhow = "1.0"
 base64 = { workspace = true }
-dsdk-facet-testcontainers = { path = "../crates/facet-testcontainers" }
-dsdk-facet-core = { path = "../crates/facet-core", features = ["test-fixtures"] }
-dsdk-facet-hashicorp-vault = { path = "../crates/facet-hashicorp-vault" }
-uuid = { workspace = true }
-serde_json = { workspace = true }
-reqwest = "0.12"
-jsonwebtoken = { workspace = true, features = ["rust_crypto"] }
 
 [dev-dependencies]
 

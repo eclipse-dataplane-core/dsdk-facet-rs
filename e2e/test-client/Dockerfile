@@ -9,7 +9,6 @@ WORKDIR /build
 FROM chef AS planner
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
-COPY siglet ./siglet
 COPY e2e ./e2e
 RUN cargo chef prepare --recipe-path recipe.json
 
@@ -28,7 +27,6 @@ RUN cargo chef cook --release --recipe-path recipe.json
 # Copy source code and build application (only this layer rebuilds on code changes)
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
-COPY siglet ./siglet
 COPY e2e ./e2e
 RUN cargo build --release --bin vault-test --package vault-e2e-test-client
 
