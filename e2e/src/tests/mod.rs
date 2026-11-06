@@ -10,5 +10,4 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
-pub mod siglet;
 pub mod vault_sidecar;

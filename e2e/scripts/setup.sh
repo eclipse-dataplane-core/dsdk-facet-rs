@@ -98,35 +98,23 @@ echo "Configuring Vault..."
 echo "Vault configured"
 echo ""
 
-# Deploy PostgreSQL
-echo "Deploying PostgreSQL..."
-kubectl apply -f "${MANIFESTS_DIR}/postgres-deployment.yaml"
-echo "Waiting for PostgreSQL to be ready..."
-kubectl wait --for=condition=available deployment/postgres -n "${NAMESPACE}" --timeout=120s
-echo "PostgreSQL deployed and ready"
-echo ""
-
-# Deploy consumer DID server
-"${SCRIPT_DIR}/setup-consumer-did.sh"
-echo ""
-
 # NOTE: This script intentionally does NOT build/load application images. Image
 # build + load is the responsibility of the test-runner targets (e.g. `make test`
-# → build-and-load-image.sh + build-and-load-siglet.sh). Keeping the split lets
+# → build-and-load-image.sh). Keeping the split lets
 # `make test` bootstrap from a clean machine without a duplicate build pass:
-# `ensure-environment` calls this script, then `make test` rebuilds the images
+# `ensure-environment` calls this script, then `make test` rebuilds the image
 # exactly once before running.
 
 echo "======================================"
 echo "E2E infrastructure setup complete!"
 echo "======================================"
 echo ""
-echo "Infrastructure ready: Kind cluster, Vault, PostgreSQL, consumer DID."
-echo "Application images (siglet, vault-test) are NOT built by this script."
+echo "Infrastructure ready: Kind cluster, Vault."
+echo "The vault-test image is NOT built by this script."
 echo ""
 echo "Next steps:"
-echo "  - Run tests (will build images on first run): cd e2e && make test"
-echo "  - Or build images standalone: cd e2e && make build build-siglet"
+echo "  - Run tests (builds the vault-test image): cd e2e && make test"
+echo "  - Or build the image standalone: cd e2e && make build"
 echo "  - Cleanup: cd e2e && ./scripts/cleanup.sh"
 echo ""
 echo "Useful commands:"

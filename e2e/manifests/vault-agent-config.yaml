@@ -135,35 +135,3 @@ data:
         }
       }
     }
----
-# ConfigMap for Siglet
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: vault-agent-config-siglet
-  namespace: vault-e2e-test
-data:
-  vault-agent-config.hcl: |
-    pid_file = "/tmp/vault-agent.pid"
-
-    vault {
-      address = "http://vault:8200"
-    }
-
-    auto_auth {
-      method {
-        type = "kubernetes"
-
-        config = {
-          role = "siglet-role"
-        }
-      }
-
-      sink {
-        type = "file"
-        config = {
-          path = "/vault/secrets/.vault-token"
-          mode = 0644
-        }
-      }
-    }
