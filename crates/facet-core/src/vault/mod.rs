@@ -16,6 +16,7 @@
 mod tests;
 
 use crate::context::ParticipantContext;
+use crate::jwt::{KeyType, SigningAlgorithm};
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::RwLock;
@@ -40,12 +41,16 @@ pub enum PublicKeyFormat {
     /// Multibase format (base58btc with 'z' prefix and Ed25519 multicodec prefix 0xed01).
     /// Example: `z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK`
     ///
-    /// Used for DID (Decentralized Identifier) compatibility.
+    /// Used for DID (Decentralized Identifier) compatibility. Only Ed25519 keys can be
+    /// represented this way; requesting it for any other key type is an error. Publish
+    /// RSA/EC keys in DID documents as `publicKeyJwk` instead.
     Multibase,
-    /// Base64url format (raw Ed25519 key bytes, no prefix or padding).
-    /// Example: `HbfGpLrYUjBN9dRhWxN3Pw5WhN1bBLRvL8VQZGkJCzE`
+    /// Base64url format (no padding) of the public key bytes. The byte layout depends on the
+    /// key type reported in [`KeyMetadata::key_type`]:
     ///
-    /// The raw 32-byte Ed25519 public key encoded as base64url without padding.
+    /// - Ed25519: the raw 32-byte public key.
+    ///   Example: `HbfGpLrYUjBN9dRhWxN3Pw5WhN1bBLRvL8VQZGkJCzE`
+    /// - RSA and ECDSA: the DER-encoded `SubjectPublicKeyInfo` (RFC 5280).
     Base64Url,
 }
 
@@ -58,6 +63,10 @@ pub struct KeyMetadata {
     /// This name is used as the base for constructing JWT `kid` values.
     /// For example, with key_name "my-key" and version 2, the JWT kid would be "my-key-2".
     pub key_name: String,
+
+    /// The type of the key. Determines both the layout of each entry in `keys` and which
+    /// [`SigningAlgorithm`]s the key can sign with.
+    pub key_type: KeyType,
 
     /// Public keys for all versions, ordered by version number (ascending).
     ///
@@ -77,13 +86,15 @@ pub struct KeyMetadata {
     pub current_version: usize,
 }
 
-/// A client for signing content using a vault. Only Ed25519 signatures are supported.
+/// A client for signing content using a vault.
+///
+/// Supports the asymmetric key types in [`KeyType`] (Ed25519, ECDSA P-256/P-384, RSA).
 #[async_trait]
 pub trait VaultSigningClient: Send + Sync {
     /// Returns the name of the default signing key, or `None` if not configured.
     fn signing_key_name(&self) -> Option<&str>;
 
-    /// Returns Ed25519 signing keys and associated metadata for a named transit key.
+    /// Returns the public keys, key type and associated metadata for a named transit key.
     ///
     /// # Arguments
     /// * `participant_context` - The participant context the operation is bound to (used to scope the
@@ -99,11 +110,15 @@ pub trait VaultSigningClient: Send + Sync {
 
     /// Signs content using a named transit key.
     ///
-    /// `participant_context` scopes the Vault access token used for the operation.
+    /// `participant_context` scopes the Vault access token used for the operation. `algorithm`
+    /// selects the hash and padding, and must be supported by the key's [`KeyType`]. The
+    /// returned bytes are the signature in JWS encoding (RFC 7518): for ECDSA that is the
+    /// fixed-width `r || s` concatenation, not ASN.1 DER.
     async fn sign_content(
         &self,
         participant_context: &ParticipantContext,
         key_name: &str,
+        algorithm: SigningAlgorithm,
         content: &[u8],
     ) -> Result<Vec<u8>, VaultError>;
 }

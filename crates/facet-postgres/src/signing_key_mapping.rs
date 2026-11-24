@@ -11,7 +11,7 @@
 //
 
 use async_trait::async_trait;
-use dsdk_facet_core::jwt::{SigningKeyMapping, SigningKeyMappingError, SigningKeyMappingRepository};
+use dsdk_facet_core::jwt::{SigningAlgorithm, SigningKeyMapping, SigningKeyMappingError, SigningKeyMappingRepository};
 use sqlx::PgPool;
 
 /// Postgres-backed [`SigningKeyMappingRepository`] using SQLx connection pooling.
@@ -29,7 +29,8 @@ impl PostgresSigningKeyMappingStore {
         Self { pool }
     }
 
-    /// Creates the `signing_key_mappings` table if it does not already exist.
+    /// Creates the `signing_key_mappings` table if it does not already exist, and adds the
+    /// `algorithm` column to tables created by earlier versions.
     ///
     /// # Errors
     ///
@@ -39,12 +40,20 @@ impl PostgresSigningKeyMappingStore {
             "CREATE TABLE IF NOT EXISTS signing_key_mappings (
                 participant_context_id TEXT NOT NULL PRIMARY KEY,
                 key_name               TEXT NOT NULL,
-                kid                    TEXT NOT NULL
+                kid                    TEXT NOT NULL,
+                algorithm              TEXT
             )",
         )
         .execute(&self.pool)
         .await
         .map_err(|e| SigningKeyMappingError::storage(format!("Failed to create signing_key_mappings table: {}", e)))?;
+
+        sqlx::query("ALTER TABLE signing_key_mappings ADD COLUMN IF NOT EXISTS algorithm TEXT")
+            .execute(&self.pool)
+            .await
+            .map_err(|e| {
+                SigningKeyMappingError::storage(format!("Failed to migrate signing_key_mappings table: {}", e))
+            })?;
 
         Ok(())
     }
@@ -54,12 +63,13 @@ impl PostgresSigningKeyMappingStore {
 impl SigningKeyMappingRepository for PostgresSigningKeyMappingStore {
     async fn create(&self, mapping: SigningKeyMapping) -> Result<(), SigningKeyMappingError> {
         sqlx::query(
-            "INSERT INTO signing_key_mappings (participant_context_id, key_name, kid)
-             VALUES ($1, $2, $3)",
+            "INSERT INTO signing_key_mappings (participant_context_id, key_name, kid, algorithm)
+             VALUES ($1, $2, $3, $4)",
         )
         .bind(&mapping.participant_context_id)
         .bind(&mapping.key_name)
         .bind(&mapping.kid)
+        .bind(mapping.algorithm.map(|a| a.as_str()))
         .execute(&self.pool)
         .await
         .map_err(|e| match &e {
@@ -75,12 +85,13 @@ impl SigningKeyMappingRepository for PostgresSigningKeyMappingStore {
     async fn update(&self, mapping: SigningKeyMapping) -> Result<(), SigningKeyMappingError> {
         let rows_affected = sqlx::query(
             "UPDATE signing_key_mappings
-             SET key_name = $2, kid = $3
+             SET key_name = $2, kid = $3, algorithm = $4
              WHERE participant_context_id = $1",
         )
         .bind(&mapping.participant_context_id)
         .bind(&mapping.key_name)
         .bind(&mapping.kid)
+        .bind(mapping.algorithm.map(|a| a.as_str()))
         .execute(&self.pool)
         .await
         .map_err(|e| SigningKeyMappingError::storage(format!("Failed to update signing key mapping: {}", e)))?
@@ -95,7 +106,7 @@ impl SigningKeyMappingRepository for PostgresSigningKeyMappingStore {
 
     async fn find(&self, participant_context_id: &str) -> Result<SigningKeyMapping, SigningKeyMappingError> {
         let record: SigningKeyMappingRecord = sqlx::query_as(
-            "SELECT participant_context_id, key_name, kid
+            "SELECT participant_context_id, key_name, kid, algorithm
              FROM signing_key_mappings
              WHERE participant_context_id = $1",
         )
@@ -105,7 +116,7 @@ impl SigningKeyMappingRepository for PostgresSigningKeyMappingStore {
         .map_err(|e| SigningKeyMappingError::storage(format!("Failed to fetch signing key mapping: {}", e)))?
         .ok_or_else(|| SigningKeyMappingError::not_found(participant_context_id))?;
 
-        Ok(record.into())
+        record.try_into()
     }
 
     async fn delete(&self, participant_context_id: &str) -> Result<(), SigningKeyMappingError> {
@@ -132,14 +143,24 @@ struct SigningKeyMappingRecord {
     participant_context_id: String,
     key_name: String,
     kid: String,
+    algorithm: Option<String>,
 }
 
-impl From<SigningKeyMappingRecord> for SigningKeyMapping {
-    fn from(record: SigningKeyMappingRecord) -> Self {
-        SigningKeyMapping::builder()
+impl TryFrom<SigningKeyMappingRecord> for SigningKeyMapping {
+    type Error = SigningKeyMappingError;
+
+    fn try_from(record: SigningKeyMappingRecord) -> Result<Self, Self::Error> {
+        let algorithm = record
+            .algorithm
+            .as_deref()
+            .map(str::parse::<SigningAlgorithm>)
+            .transpose()
+            .map_err(|e| SigningKeyMappingError::storage(format!("Invalid stored signing algorithm: {}", e)))?;
+        Ok(SigningKeyMapping::builder()
             .participant_context_id(record.participant_context_id)
             .key_name(record.key_name)
             .kid(record.kid)
-            .build()
+            .maybe_algorithm(algorithm)
+            .build())
     }
 }

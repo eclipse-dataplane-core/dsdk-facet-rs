@@ -20,7 +20,8 @@ pub async fn setup_postgres_container() -> (PgPool, testcontainers::ContainerAsy
     let container = Postgres::default().start().await.unwrap();
 
     let connection_string = format!(
-        "postgresql://postgres:postgres@127.0.0.1:{}/postgres",
+        "postgresql://postgres:postgres@{}:{}/postgres",
+        crate::utils::container_host(),
         container.get_host_port_ipv4(5432).await.unwrap()
     );
 

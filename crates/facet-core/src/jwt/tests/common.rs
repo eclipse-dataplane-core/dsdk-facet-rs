@@ -134,6 +134,7 @@ impl VaultSigningClient for MockVaultSigningClient {
 
         Ok(KeyMetadata {
             key_name: self.key_name.clone(),
+            key_type: crate::jwt::KeyType::Ed25519,
             keys: vec![key],
             current_version: self.current_version,
         })
@@ -143,6 +144,7 @@ impl VaultSigningClient for MockVaultSigningClient {
         &self,
         _participant_context: &ParticipantContext,
         _key_name: &str,
+        _algorithm: crate::jwt::SigningAlgorithm,
         _content: &[u8],
     ) -> Result<Vec<u8>, VaultError> {
         Ok(self.signature_bytes.clone())

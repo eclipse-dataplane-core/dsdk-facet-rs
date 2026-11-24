@@ -244,6 +244,7 @@ impl VaultSigningClient for RotatingMockVaultSigningClient {
             .collect::<Vec<_>>();
         Ok(KeyMetadata {
             key_name: self.key_name.clone(),
+            key_type: crate::jwt::KeyType::Ed25519,
             current_version: key_strings.len(),
             keys: key_strings,
         })
@@ -253,6 +254,7 @@ impl VaultSigningClient for RotatingMockVaultSigningClient {
         &self,
         _participant_context: &ParticipantContext,
         _key_name: &str,
+        _algorithm: crate::jwt::SigningAlgorithm,
         _content: &[u8],
     ) -> Result<Vec<u8>, VaultError> {
         Ok(vec![])
@@ -349,6 +351,7 @@ impl VaultSigningClient for MockVaultSigningClient {
         }
         Ok(KeyMetadata {
             key_name: self.key_name.clone(),
+            key_type: crate::jwt::KeyType::Ed25519,
             keys: self.key_strings.clone(),
             current_version: self.current_version,
         })
@@ -358,6 +361,7 @@ impl VaultSigningClient for MockVaultSigningClient {
         &self,
         _participant_context: &ParticipantContext,
         _key_name: &str,
+        _algorithm: crate::jwt::SigningAlgorithm,
         _content: &[u8],
     ) -> Result<Vec<u8>, VaultError> {
         Ok(vec![])

@@ -213,7 +213,7 @@ pub async fn setup_keycloak_container(network: &str) -> (KeycloakSetup, testcont
         .unwrap();
 
     let host_port = container.get_host_port_ipv4(KEYCLOAK_PORT).await.unwrap();
-    let keycloak_url = format!("http://127.0.0.1:{}", host_port);
+    let keycloak_url = format!("http://{}:{}", crate::utils::container_host(), host_port);
     let keycloak_internal_url = format!("http://{}:{}", keycloak_hostname, KEYCLOAK_PORT);
 
     // Wait for Keycloak to be fully ready (Keycloak can be slow to start, especially in parallel test runs)

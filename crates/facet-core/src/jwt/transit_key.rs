@@ -24,8 +24,8 @@
 //! [`VaultJwtGenerator`]: crate::jwt::VaultJwtGenerator
 
 use crate::context::ParticipantContext;
-use crate::jwt::JwtGenerationError;
 use crate::jwt::mapping::{SigningKeyMappingError, SigningKeyMappingRepository};
+use crate::jwt::{JwtGenerationError, SigningAlgorithm};
 use async_trait::async_trait;
 use bon::Builder;
 use std::sync::Arc;
@@ -34,10 +34,16 @@ use std::sync::Arc;
 ///
 /// When `kid` is `None`, the generator derives it from the Vault key metadata (`{key_name}-{version}`).
 /// When `Some`, the value is used verbatim.
+///
+/// When `algorithm` is `None`, the generator uses the default algorithm for the Vault key type
+/// (see [`KeyType::default_algorithm`]). When `Some`, it must be compatible with the key type.
+///
+/// [`KeyType::default_algorithm`]: crate::jwt::KeyType::default_algorithm
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TransitKeyRef {
     pub key_name: String,
     pub kid: Option<String>,
+    pub algorithm: Option<SigningAlgorithm>,
 }
 
 /// Resolves the transit key reference for a participant context.
@@ -49,10 +55,15 @@ pub trait TransitKeyResolver: Send + Sync {
 /// Derives the transit key name as `{prefix}-{pc.id}` and leaves the `kid` to be derived from
 /// the Vault key version. This preserves the historical behavior used for siglet access-token
 /// minting and the pull scenario.
+///
+/// `algorithm` optionally pins the JWS algorithm for every key this resolver yields (useful to
+/// select PS256 etc. for RSA keys); by default it is derived from the Vault key type.
 #[derive(Builder)]
 pub struct PrefixTransitKeyResolver {
     #[builder(into)]
     prefix: String,
+
+    algorithm: Option<SigningAlgorithm>,
 }
 
 #[async_trait]
@@ -61,6 +72,7 @@ impl TransitKeyResolver for PrefixTransitKeyResolver {
         Ok(TransitKeyRef {
             key_name: format!("{}-{}", self.prefix, participant_context.id),
             kid: None,
+            algorithm: self.algorithm,
         })
     }
 }
@@ -82,6 +94,7 @@ impl TransitKeyResolver for MappingTransitKeyResolver {
             Ok(mapping) => Ok(TransitKeyRef {
                 key_name: mapping.key_name,
                 kid: Some(mapping.kid),
+                algorithm: mapping.algorithm,
             }),
             Err(SigningKeyMappingError::NotFound { .. }) => Err(JwtGenerationError::KeyResolution(format!(
                 "no signing key mapping for participant context '{}'",

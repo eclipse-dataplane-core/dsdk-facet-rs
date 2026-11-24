@@ -16,6 +16,7 @@ use super::provider::{ExchangingTokenProvider, RenewingTokenProvider, VaultToken
 use async_trait::async_trait;
 use base64::Engine;
 use dsdk_facet_core::context::ParticipantContext;
+use dsdk_facet_core::jwt::{HashAlgorithm, KeyFamily, KeyType, RsaPadding, SigningAlgorithm};
 use dsdk_facet_core::util::clock::Clock;
 use dsdk_facet_core::util::crypto;
 use dsdk_facet_core::util::path::{validate_path, validate_path_segment};
@@ -197,7 +198,7 @@ impl HashicorpVaultClient {
         let url = self.transit_key_url(key_name)?;
 
         let request = TransitCreateKeyRequest {
-            r#type: "ed25519".to_string(),
+            r#type: self.config.signing_key_type.as_str().to_string(),
         };
 
         let response = self
@@ -360,6 +361,13 @@ impl VaultSigningClient for HashicorpVaultClient {
             .await
             .map_err(|e| VaultError::InvalidData(format!("Failed to parse key metadata response: {}", e)))?;
 
+        let key_type: KeyType = key_response.data.r#type.parse().map_err(|e| {
+            VaultError::InvalidData(format!(
+                "Transit key '{}' cannot be used for JWT signing: {}",
+                key_name, e
+            ))
+        })?;
+
         let mut version_numbers: Vec<usize> = key_response.data.keys.keys().filter_map(|v| v.parse().ok()).collect();
         version_numbers.sort_unstable();
 
@@ -367,11 +375,17 @@ impl VaultSigningClient for HashicorpVaultClient {
         for version in version_numbers {
             if let Some(key_info) = key_response.data.keys.get(&version.to_string()) {
                 let key = match format {
-                    PublicKeyFormat::Multibase => crypto::convert_to_multibase(&key_info.public_key)?,
+                    PublicKeyFormat::Multibase if key_type == KeyType::Ed25519 => {
+                        crypto::convert_to_multibase(&key_info.public_key)?
+                    }
+                    PublicKeyFormat::Multibase => {
+                        return Err(VaultError::InvalidData(format!(
+                            "Multibase encoding is only supported for Ed25519 keys; '{}' is {}",
+                            key_name, key_type
+                        )));
+                    }
                     PublicKeyFormat::Base64Url => {
-                        let key_bytes = base64::engine::general_purpose::STANDARD
-                            .decode(&key_info.public_key)
-                            .map_err(|_| VaultError::InvalidData("Invalid key format".to_string()))?;
+                        let key_bytes = public_key_bytes(key_type, &key_info.public_key)?;
                         base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&key_bytes)
                     }
                 };
@@ -388,6 +402,7 @@ impl VaultSigningClient for HashicorpVaultClient {
 
         Ok(KeyMetadata {
             key_name: returned_key_name,
+            key_type,
             keys,
             current_version: key_response.data.latest_version,
         })
@@ -397,13 +412,14 @@ impl VaultSigningClient for HashicorpVaultClient {
         &self,
         participant_context: &ParticipantContext,
         key_name: &str,
+        algorithm: SigningAlgorithm,
         content: &[u8],
     ) -> Result<Vec<u8>, VaultError> {
         let url = self.transit_sign_url_for_key(key_name)?;
         let token = self.token_provider()?.token(participant_context).await?;
 
         let encoded_content = base64::engine::general_purpose::STANDARD.encode(content);
-        let request = TransitSignRequest { input: encoded_content };
+        let request = TransitSignRequest::new(encoded_content, algorithm);
 
         let response = self
             .http_client
@@ -430,9 +446,15 @@ impl VaultSigningClient for HashicorpVaultClient {
             .map(|(_, sig)| sig)
             .ok_or_else(|| VaultError::InvalidData("Invalid signature format".to_string()))?;
 
-        let signature_bytes = base64::engine::general_purpose::STANDARD
-            .decode(signature_b64)
-            .map_err(|_| VaultError::InvalidData("Signature validation failed".to_string()))?;
+        // With `marshaling_algorithm=jws` (ECDSA), Vault returns the signature base64url-encoded;
+        // otherwise it uses standard base64.
+        let decoded = if request.marshaling_algorithm.is_some() {
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(signature_b64.trim_end_matches('='))
+        } else {
+            base64::engine::general_purpose::STANDARD.decode(signature_b64)
+        };
+        let signature_bytes =
+            decoded.map_err(|_| VaultError::InvalidData("Signature validation failed".to_string()))?;
 
         Ok(signature_bytes)
     }
@@ -465,6 +487,45 @@ struct TransitCreateKeyRequest {
 #[derive(Debug, Serialize)]
 struct TransitSignRequest {
     input: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hash_algorithm: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    signature_algorithm: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    marshaling_algorithm: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    salt_length: Option<&'static str>,
+}
+
+impl TransitSignRequest {
+    /// Maps a JWS algorithm onto Vault transit sign parameters.
+    ///
+    /// - EdDSA: no parameters (Ed25519 hashes internally).
+    /// - ES256/ES384: hash + `marshaling_algorithm=jws`, so Vault returns the fixed-width `r || s`
+    ///   form required by RFC 7518 §3.4 instead of ASN.1 DER.
+    /// - RS*: hash + `pkcs1v15` padding.
+    /// - PS*: hash + `pss` padding, with the salt length equal to the hash length as RFC 7518 §3.5
+    ///   requires (Vault's default `auto` would use the maximum salt length).
+    fn new(input: String, algorithm: SigningAlgorithm) -> Self {
+        let hash_algorithm = algorithm.hash().map(|hash| match hash {
+            HashAlgorithm::Sha256 => "sha2-256",
+            HashAlgorithm::Sha384 => "sha2-384",
+            HashAlgorithm::Sha512 => "sha2-512",
+        });
+        let signature_algorithm = algorithm.rsa_padding().map(|padding| match padding {
+            RsaPadding::Pkcs1v15 => "pkcs1v15",
+            RsaPadding::Pss => "pss",
+        });
+        let marshaling_algorithm = (algorithm.family() == KeyFamily::Ec).then_some("jws");
+        let salt_length = (algorithm.rsa_padding() == Some(RsaPadding::Pss)).then_some("hash");
+        Self {
+            input,
+            hash_algorithm,
+            signature_algorithm,
+            marshaling_algorithm,
+            salt_length,
+        }
+    }
 }
 
 /// Vault Transit sign response
@@ -486,6 +547,7 @@ struct TransitKeyResponse {
 
 #[derive(Debug, Deserialize)]
 struct TransitKeyData {
+    r#type: String,
     latest_version: usize,
     keys: HashMap<String, TransitKeyVersionInfo>,
 }
@@ -510,4 +572,31 @@ pub(crate) fn checked_kv_path<'a>(
 /// Validates a Transit key name as a single path segment.
 pub(crate) fn checked_key_name(key_name: &str) -> Result<(), VaultError> {
     validate_path_segment(key_name).map_err(|e| VaultError::InvalidData(format!("transit key name: {}", e)))
+}
+
+/// Decodes a transit key's `public_key` field into the byte layout documented on
+/// [`PublicKeyFormat::Base64Url`].
+///
+/// Vault returns Ed25519 public keys as standard base64 of the raw 32 bytes, and RSA/ECDSA
+/// public keys as a PEM-encoded `SubjectPublicKeyInfo`, which is converted to DER here.
+fn public_key_bytes(key_type: KeyType, public_key: &str) -> Result<Vec<u8>, VaultError> {
+    let base64_body = match key_type.family() {
+        KeyFamily::Ed25519 => public_key.trim().to_string(),
+        KeyFamily::Rsa | KeyFamily::Ec => {
+            let pem = public_key.trim();
+            if !pem.starts_with("-----BEGIN PUBLIC KEY-----") || !pem.ends_with("-----END PUBLIC KEY-----") {
+                return Err(VaultError::InvalidData(format!(
+                    "Expected a PEM public key for {} transit key",
+                    key_type
+                )));
+            }
+            pem.lines()
+                .map(str::trim)
+                .filter(|line| !line.starts_with("-----"))
+                .collect()
+        }
+    };
+    base64::engine::general_purpose::STANDARD
+        .decode(base64_body)
+        .map_err(|_| VaultError::InvalidData("Invalid key format".to_string()))
 }

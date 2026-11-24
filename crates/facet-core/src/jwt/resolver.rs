@@ -11,8 +11,9 @@
 //
 
 use crate::context::ParticipantContext;
+use crate::jwt::keys::public_key_to_jwk;
 use crate::jwt::{
-    Jwk, JwkKeyType, JwkPublicKeyUse, JwkSet, JwkSetProvider, JwtVerificationError, KeyFormat, KeyMaterial,
+    Jwk, JwkSet, JwkSetProvider, JwtVerificationError, KeyFamily, KeyFormat, KeyMaterial, KeyType, SigningAlgorithm,
     VerificationKeyResolver,
 };
 use crate::util::task::TaskHandle;
@@ -20,7 +21,6 @@ use crate::vault::{PublicKeyFormat, VaultSigningClient};
 use async_trait::async_trait;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use bon::Builder;
 use log::error;
 use std::collections::HashMap;
 use std::sync;
@@ -35,35 +35,34 @@ struct VaultKeyResolverState {
     /// Participant context used to scope the Vault access token when loading the signing key.
     /// This resolver loads the issuer's own key, so it is the issuer's participant context.
     signing_context: ParticipantContext,
+    /// Algorithm the issuer signs with. Advertised as the JWK `alg`; `None` means the key type's
+    /// default (see [`KeyType::default_algorithm`]).
+    algorithm: Option<SigningAlgorithm>,
     public_keys: sync::RwLock<HashMap<String, CachedPublicKey>>,
 }
 
 impl VaultKeyResolverState {
-    fn new(vault_client: Arc<dyn VaultSigningClient>, signing_context: ParticipantContext) -> Self {
+    fn new(
+        vault_client: Arc<dyn VaultSigningClient>,
+        signing_context: ParticipantContext,
+        algorithm: Option<SigningAlgorithm>,
+    ) -> Self {
         Self {
             vault_client,
             signing_context,
+            algorithm,
             public_keys: sync::RwLock::new(HashMap::new()),
         }
     }
 
-    fn lookup(&self, kid: &str) -> Option<(Vec<u8>, KeyFormat)> {
-        self.public_keys
-            .read()
-            .ok()?
-            .get(kid)
-            .map(|k| (k.key.clone(), k.key_format))
+    fn lookup(&self, kid: &str) -> Option<CachedPublicKey> {
+        self.public_keys.read().ok()?.get(kid).cloned()
     }
 
-    fn all_keys(&self) -> Vec<(String, Vec<u8>, KeyFormat)> {
+    fn all_keys(&self) -> Vec<CachedPublicKey> {
         self.public_keys
             .read()
-            .map(|guard| {
-                guard
-                    .values()
-                    .map(|k| (k.kid.clone(), k.key.clone(), k.key_format))
-                    .collect()
-            })
+            .map(|guard| guard.values().cloned().collect())
             .unwrap_or_default()
     }
 
@@ -78,6 +77,11 @@ impl VaultKeyResolverState {
             .await
             .map_err(|e| JwtVerificationError::GeneralError(format!("Failed to get key metadata: {}", e)))?;
 
+        let key_type = metadata.key_type;
+        let algorithm = key_type
+            .resolve_algorithm(self.algorithm)
+            .map_err(|e| JwtVerificationError::GeneralError(format!("Signing key '{}': {}", key_name, e)))?;
+
         let cached_keys = metadata
             .keys
             .iter()
@@ -87,18 +91,21 @@ impl VaultKeyResolverState {
                 let key_bytes = URL_SAFE_NO_PAD
                     .decode(key_b64)
                     .map_err(|e| JwtVerificationError::GeneralError(format!("Failed to decode public key: {}", e)))?;
-                Ok(CachedPublicKey::builder()
-                    .key(key_bytes)
-                    .key_format(KeyFormat::DER)
-                    .kid(kid)
-                    .build())
+                let jwk = public_key_to_jwk(key_type, &key_bytes, &kid, algorithm)
+                    .map_err(|e| JwtVerificationError::GeneralError(format!("Invalid public key '{}': {}", kid, e)))?;
+                Ok(CachedPublicKey {
+                    kid,
+                    key_type,
+                    key: key_bytes,
+                    jwk,
+                })
             })
             .collect::<Result<Vec<_>, JwtVerificationError>>()?;
 
         self.public_keys
             .write()
             .map_err(|e| JwtVerificationError::GeneralError(format!("Failed to acquire write lock: {}", e)))?
-            .extend(cached_keys.into_iter().map(Into::into));
+            .extend(cached_keys.into_iter().map(|key| (key.kid.clone(), key)));
         Ok(())
     }
 }
@@ -117,10 +124,13 @@ impl VaultVerificationKeyResolver {
         /// Participant context used to scope the Vault access token when loading the signing key
         /// (the issuer's own participant context).
         signing_context: ParticipantContext,
+        /// Algorithm the issuer signs with, advertised as the published JWK `alg`. Only needed to
+        /// pick a non-default RSA variant (e.g. PS256); otherwise derived from the Vault key type.
+        algorithm: Option<SigningAlgorithm>,
         #[builder(default = Duration::from_secs(300))] refresh_interval: Duration,
     ) -> Self {
         Self {
-            state: Arc::new(VaultKeyResolverState::new(vault_client, signing_context)),
+            state: Arc::new(VaultKeyResolverState::new(vault_client, signing_context, algorithm)),
             refresh_interval,
             refresh_handle: Mutex::new(None),
         }
@@ -174,12 +184,8 @@ impl VaultVerificationKeyResolver {
 impl VerificationKeyResolver for VaultVerificationKeyResolver {
     async fn resolve_key(&self, _iss: &str, kid: &str) -> Result<KeyMaterial, JwtVerificationError> {
         // 1. Check the cache first (populated by initialize() and the background refresh loop).
-        if let Some((key_bytes, key_format)) = self.state.lookup(kid) {
-            return Ok(KeyMaterial::builder()
-                .key(key_bytes)
-                .key_format(key_format)
-                .kid(kid)
-                .build());
+        if let Some(key) = self.state.lookup(kid) {
+            return key.to_key_material();
         }
 
         // 2. Cache miss — the key may have been added by a recent rotation that the background
@@ -190,56 +196,50 @@ impl VerificationKeyResolver for VaultVerificationKeyResolver {
             .map_err(|e| JwtVerificationError::VerificationFailed(e.to_string()))?;
 
         // 3. Retry from the re-populated cache.
-        let (key_bytes, key_format) = self
-            .state
+        self.state
             .lookup(kid)
-            .ok_or_else(|| JwtVerificationError::VerificationFailed(format!("Key '{}' not found", kid)))?;
-
-        Ok(KeyMaterial::builder()
-            .key(key_bytes)
-            .key_format(key_format)
-            .kid(kid)
-            .build())
+            .ok_or_else(|| JwtVerificationError::VerificationFailed(format!("Key '{}' not found", kid)))?
+            .to_key_material()
     }
 }
 
 #[async_trait]
 impl JwkSetProvider for VaultVerificationKeyResolver {
     async fn jwk_set(&self) -> JwkSet {
-        let keys = self
-            .state
-            .all_keys()
-            .into_iter()
-            .map(|(kid, key_bytes, _key_format)| {
-                // Vault public keys are Ed25519: raw 32-byte material encoded as base64url for the `x` parameter.
-                let x = URL_SAFE_NO_PAD.encode(&key_bytes);
-                Jwk::builder()
-                    .kty(JwkKeyType::Okp)
-                    .crv("Ed25519")
-                    .x(x)
-                    .kid(kid)
-                    .key_use(JwkPublicKeyUse::Sig)
-                    .alg("EdDSA")
-                    .build()
-            })
-            .collect();
+        let keys = self.state.all_keys().into_iter().map(|key| key.jwk).collect();
         JwkSet { keys }
     }
 }
 
-#[derive(Builder)]
-pub struct CachedPublicKey {
-    #[builder(default = KeyFormat::DER)]
-    pub key_format: KeyFormat,
-
-    pub key: Vec<u8>,
-
-    #[builder(into)]
-    pub kid: String,
+/// A Vault public key version, with its JWK representation precomputed.
+#[derive(Clone)]
+struct CachedPublicKey {
+    kid: String,
+    key_type: KeyType,
+    /// Raw Ed25519 key bytes, or DER `SubjectPublicKeyInfo` for RSA/EC.
+    key: Vec<u8>,
+    /// The JWK published in the JWKS (and used for RSA/EC verification).
+    jwk: Jwk,
 }
 
-impl From<CachedPublicKey> for (String, CachedPublicKey) {
-    fn from(key: CachedPublicKey) -> Self {
-        (key.kid.clone(), key)
+impl CachedPublicKey {
+    /// Ed25519 keys are handed to the verifier as raw bytes (the format `DecodingKey::from_ed_der`
+    /// expects); RSA and EC keys as their JWK, which carries the curve and parameters explicitly.
+    fn to_key_material(&self) -> Result<KeyMaterial, JwtVerificationError> {
+        let (key, key_format) = match self.key_type.family() {
+            KeyFamily::Ed25519 => (self.key.clone(), KeyFormat::DER),
+            KeyFamily::Rsa | KeyFamily::Ec => {
+                let jwk_bytes = serde_json::to_vec(&self.jwk).map_err(|e| {
+                    JwtVerificationError::GeneralError(format!("Failed to serialize JWK '{}': {}", self.kid, e))
+                })?;
+                (jwk_bytes, KeyFormat::Jwk)
+            }
+        };
+        Ok(KeyMaterial::builder()
+            .key(key)
+            .key_format(key_format)
+            .kid(self.kid.clone())
+            .key_type(self.key_type)
+            .build())
     }
 }

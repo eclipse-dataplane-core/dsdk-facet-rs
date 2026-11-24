@@ -155,12 +155,15 @@ impl DidWebVerificationKeyResolver {
                 .key(key_bytes)
                 .key_format(KeyFormat::DER)
                 .kid(kid)
+                .key_type(crate::jwt::KeyType::Ed25519)
                 .build());
         }
 
         // Try publicKeyJwk: serialize the JWK back to JSON bytes so the verifier
         // can hand them to jsonwebtoken::DecodingKey::from_jwk, which dispatches
-        // on the JWK's own `kty` (OKP/RSA/EC).
+        // on the JWK's own `kty` (OKP/RSA/EC). This is how non-Ed25519 keys (RSA,
+        // EC P-256/P-384) are published; the verifier checks the token `alg`
+        // against the JWK's `kty`/`crv`/`alg` and rejects symmetric (`oct`) keys.
         if let Some(jwk) = &vm.public_key_jwk {
             let jwk_bytes = serde_json::to_vec(jwk).map_err(|e| {
                 JwtVerificationError::VerificationFailed(format!("Failed to serialize publicKeyJwk: {}", e))

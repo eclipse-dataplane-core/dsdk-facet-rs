@@ -13,9 +13,11 @@
 #[cfg(test)]
 mod tests;
 
+pub mod algorithm;
 pub mod did;
 pub mod generator;
 pub mod jwk;
+pub mod keys;
 pub mod mapping;
 pub mod resolver;
 #[cfg(any(test, feature = "test-fixtures"))]
@@ -23,10 +25,11 @@ pub mod test_fixtures;
 pub mod transit_key;
 pub mod verifier;
 
+pub use algorithm::{AlgorithmError, HashAlgorithm, KeyFamily, KeyType, RsaPadding, SigningAlgorithm};
 pub use did::DidWebVerificationKeyResolver;
 #[cfg(test)]
 pub(crate) use did::{DidDocument, VerificationMethod};
-pub use generator::VaultJwtGenerator;
+pub use generator::{DEFAULT_KEY_TYPE_CACHE_TTL, VaultJwtGenerator};
 pub use jwk::{Jwk, JwkKeyOperation, JwkKeyType, JwkPublicKeyUse, JwkSet};
 pub use mapping::{
     MemorySigningKeyMappingStore, SigningKeyMapping, SigningKeyMappingError, SigningKeyMappingRepository,
@@ -41,7 +44,6 @@ use crate::context::ParticipantContext;
 use crate::vault::VaultError;
 use async_trait::async_trait;
 use bon::Builder;
-use jsonwebtoken::Algorithm;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use thiserror::Error;
@@ -121,28 +123,12 @@ pub enum JwtVerificationError {
     GeneralError(String),
 }
 
-/// Signing algorithms supported by the JWT generator.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SigningAlgorithm {
-    EdDSA,
-    RS256,
-}
-
 /// Supported key formats.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum KeyFormat {
     PEM,
     DER,
     Jwk,
-}
-
-impl From<SigningAlgorithm> for Algorithm {
-    fn from(algo: SigningAlgorithm) -> Self {
-        match algo {
-            SigningAlgorithm::EdDSA => Self::EdDSA,
-            SigningAlgorithm::RS256 => Self::RS256,
-        }
-    }
 }
 
 /// Resolves signing keys for the participant context.
@@ -160,6 +146,17 @@ pub struct KeyMaterial {
 
     #[builder(into)]
     pub kid: String,
+
+    /// The asymmetric key type, when known. Used by verifiers to reject a token whose `alg`
+    /// does not match the key (e.g. an RS256 header against an EC key). `None` for keys whose
+    /// type is carried by the material itself (JWK) or is unknown (test fixtures).
+    pub key_type: Option<KeyType>,
+}
+
+impl KeyMaterial {
+    pub fn key_format(&self) -> KeyFormat {
+        self.key_format
+    }
 }
 
 /// Resolves public keys for JWT verification.

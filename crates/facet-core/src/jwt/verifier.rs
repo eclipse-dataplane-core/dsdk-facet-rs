@@ -10,8 +10,9 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
+use crate::jwt::keys::check_jwk_algorithm;
 use crate::jwt::{
-    JwtVerificationError, JwtVerifier, KeyFormat, SigningAlgorithm, TokenClaims, VerificationKeyResolver,
+    JwtVerificationError, JwtVerifier, KeyFamily, KeyFormat, SigningAlgorithm, TokenClaims, VerificationKeyResolver,
 };
 use async_trait::async_trait;
 use bon::Builder;
@@ -22,6 +23,13 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 /// Verifies JWTs in-process.
+///
+/// The token's `alg` header is checked against an allowlist *before* the key is resolved, and
+/// then against the resolved key (its [`KeyType`] when known, or the JWK's `kty`/`crv`/`alg`).
+/// This prevents algorithm-confusion attacks, including HS256 tokens "signed" with a public key
+/// or with a symmetric JWK published in a DID document.
+///
+/// [`KeyType`]: crate::jwt::KeyType
 #[derive(Builder)]
 pub struct LocalJwtVerifier {
     #[builder(default = 300)] // Five minutes
@@ -29,24 +37,57 @@ pub struct LocalJwtVerifier {
 
     verification_key_resolver: Arc<dyn VerificationKeyResolver>,
 
-    #[builder(default = SigningAlgorithm::EdDSA)]
-    signing_algorithm: SigningAlgorithm,
+    /// Algorithms accepted on incoming tokens. Defaults to every [`SigningAlgorithm`].
+    #[builder(default = SigningAlgorithm::ALL.to_vec())]
+    allowed_algorithms: Vec<SigningAlgorithm>,
+
+    /// Restricts verification to exactly this algorithm, overriding `allowed_algorithms`.
+    signing_algorithm: Option<SigningAlgorithm>,
 }
 
 impl LocalJwtVerifier {
-    async fn load_decoding_key(&self, iss: &str, kid: &str) -> Result<DecodingKey, JwtVerificationError> {
+    fn is_allowed(&self, algorithm: SigningAlgorithm) -> bool {
+        match self.signing_algorithm {
+            Some(only) => only == algorithm,
+            None => self.allowed_algorithms.contains(&algorithm),
+        }
+    }
+
+    async fn load_decoding_key(
+        &self,
+        iss: &str,
+        kid: &str,
+        algorithm: SigningAlgorithm,
+    ) -> Result<DecodingKey, JwtVerificationError> {
         let key_material = self.verification_key_resolver.resolve_key(iss, kid).await?;
-        match (&self.signing_algorithm, key_material.key_format) {
-            (SigningAlgorithm::EdDSA, KeyFormat::PEM) => DecodingKey::from_ed_pem(&key_material.key).map_err(|e| {
+
+        if let Some(key_type) = key_material.key_type
+            && !key_type.supports(algorithm)
+        {
+            return Err(JwtVerificationError::VerificationFailed(format!(
+                "Algorithm {} cannot be used with key '{}' of type {}",
+                algorithm, kid, key_type
+            )));
+        }
+
+        let key = &key_material.key;
+        match (algorithm.family(), key_material.key_format) {
+            (KeyFamily::Ed25519, KeyFormat::PEM) => DecodingKey::from_ed_pem(key).map_err(|e| {
                 JwtVerificationError::VerificationFailed(format!("Failed to load Ed25519 PEM key: {}", e))
             }),
-            (SigningAlgorithm::EdDSA, KeyFormat::DER) => Ok(DecodingKey::from_ed_der(&key_material.key)),
-            (SigningAlgorithm::RS256, KeyFormat::PEM) => DecodingKey::from_rsa_pem(&key_material.key)
+            (KeyFamily::Ed25519, KeyFormat::DER) => Ok(DecodingKey::from_ed_der(key)),
+            (KeyFamily::Rsa, KeyFormat::PEM) => DecodingKey::from_rsa_pem(key)
                 .map_err(|e| JwtVerificationError::VerificationFailed(format!("Failed to load RSA PEM key: {}", e))),
-            (SigningAlgorithm::RS256, KeyFormat::DER) => Ok(DecodingKey::from_rsa_der(&key_material.key)),
+            (KeyFamily::Rsa, KeyFormat::DER) => Ok(DecodingKey::from_rsa_der(key)),
+            (KeyFamily::Ec, KeyFormat::PEM) => DecodingKey::from_ec_pem(key)
+                .map_err(|e| JwtVerificationError::VerificationFailed(format!("Failed to load EC PEM key: {}", e))),
+            (KeyFamily::Ec, KeyFormat::DER) => Ok(DecodingKey::from_ec_der(key)),
             (_, KeyFormat::Jwk) => {
-                let jwk: jsonwebtoken::jwk::Jwk = serde_json::from_slice(&key_material.key)
+                let jwk: jsonwebtoken::jwk::Jwk = serde_json::from_slice(key)
                     .map_err(|e| JwtVerificationError::VerificationFailed(format!("Failed to parse JWK: {}", e)))?;
+
+                check_jwk_algorithm(&jwk, algorithm)
+                    .map_err(|e| JwtVerificationError::VerificationFailed(format!("Key '{}': {}", kid, e)))?;
 
                 DecodingKey::from_jwk(&jwk).map_err(|e| {
                     JwtVerificationError::VerificationFailed(format!("Failed to load JWK decoding key: {}", e))
@@ -59,8 +100,17 @@ impl LocalJwtVerifier {
 #[async_trait]
 impl JwtVerifier for LocalJwtVerifier {
     async fn verify_token(&self, audience: &str, token: &str) -> Result<TokenClaims, JwtVerificationError> {
-        // Extract kid from header (without verification)
+        // Extract alg and kid from header (without verification)
         let header = decode_header(token).map_err(|_| JwtVerificationError::InvalidFormat)?;
+
+        // Pin the algorithm to the allowlist before touching any key material.
+        let algorithm = SigningAlgorithm::try_from(header.alg)
+            .ok()
+            .filter(|alg| self.is_allowed(*alg))
+            .ok_or_else(|| {
+                JwtVerificationError::VerificationFailed(format!("Algorithm {:?} is not allowed", header.alg))
+            })?;
+
         let kid = header.kid.ok_or(JwtVerificationError::InvalidFormat)?;
 
         // Extract iss from payload (without verification, safe because we verify below)
@@ -68,9 +118,9 @@ impl JwtVerifier for LocalJwtVerifier {
         let iss = &unverified.claims.iss;
 
         // Now load the decoding key with the extracted iss and kid
-        let decoding_key = self.load_decoding_key(iss, &kid).await?;
+        let decoding_key = self.load_decoding_key(iss, &kid, algorithm).await?;
 
-        let mut validation = Validation::new(header.alg);
+        let mut validation = Validation::new(algorithm.into());
         validation.leeway = self.leeway_seconds;
         validation.validate_nbf = true;
         validation.aud = Some(HashSet::from([audience.to_string()]));

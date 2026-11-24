@@ -11,6 +11,7 @@
 //
 
 use bon::Builder;
+use dsdk_facet_core::jwt::KeyType;
 use dsdk_facet_core::util::clock::{Clock, default_clock};
 use dsdk_facet_core::vault::VaultError;
 use std::path::PathBuf;
@@ -110,6 +111,11 @@ pub struct HashicorpVaultConfig {
     pub transit_mount_path: Option<String>,
     /// Optional name of the signing key to use in the Transit engine
     pub signing_key_name: Option<String>,
+    /// Key type used when the client creates `signing_key_name` because it does not exist yet
+    /// (defaults to Ed25519). Has no effect on an existing key: the JWS algorithm always follows
+    /// the actual Vault key type.
+    #[builder(default = KeyType::Ed25519)]
+    pub signing_key_type: KeyType,
     /// Optional transformer to customize the JWT kid (key ID) in returned KeyMetadata.
     /// This transforms the signing key name before it's included in JWT kid header.
     /// The transformation only affects the returned metadata and JWT kid, not the
@@ -182,6 +188,7 @@ impl std::fmt::Debug for HashicorpVaultConfig {
             .field("renewal_jitter", &self.renewal_jitter)
             .field("transit_mount_path", &self.transit_mount_path)
             .field("signing_key_name", &self.signing_key_name)
+            .field("signing_key_type", &self.signing_key_type)
             .field(
                 "jwt_kid_transformer",
                 &self.jwt_kid_transformer.as_ref().map(|_| "<transformer>"),

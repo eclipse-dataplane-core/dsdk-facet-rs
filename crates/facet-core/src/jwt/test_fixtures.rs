@@ -18,7 +18,7 @@
 
 use crate::context::ParticipantContext;
 use crate::jwt::{
-    JwtGenerationError, JwtGenerator, JwtVerificationError, KeyFormat, KeyMaterial, SigningAlgorithm,
+    JwtGenerationError, JwtGenerator, JwtVerificationError, KeyFamily, KeyFormat, KeyMaterial, SigningAlgorithm,
     SigningKeyResolver, TokenClaims, VerificationKeyResolver,
 };
 use crate::util::clock::{Clock, default_clock};
@@ -96,13 +96,16 @@ pub struct LocalJwtGenerator {
 
 impl LocalJwtGenerator {
     fn load_encoding_key(&self, key_format: &KeyFormat, key_bytes: &[u8]) -> Result<EncodingKey, JwtGenerationError> {
-        match (&self.signing_algorithm, key_format) {
-            (SigningAlgorithm::EdDSA, KeyFormat::PEM) => EncodingKey::from_ed_pem(key_bytes)
+        match (self.signing_algorithm.family(), key_format) {
+            (KeyFamily::Ed25519, KeyFormat::PEM) => EncodingKey::from_ed_pem(key_bytes)
                 .map_err(|e| JwtGenerationError::GenerationError(format!("Failed to load Ed25519 PEM key: {}", e))),
-            (SigningAlgorithm::EdDSA, KeyFormat::DER) => Ok(EncodingKey::from_ed_der(key_bytes)),
-            (SigningAlgorithm::RS256, KeyFormat::PEM) => EncodingKey::from_rsa_pem(key_bytes)
+            (KeyFamily::Ed25519, KeyFormat::DER) => Ok(EncodingKey::from_ed_der(key_bytes)),
+            (KeyFamily::Rsa, KeyFormat::PEM) => EncodingKey::from_rsa_pem(key_bytes)
                 .map_err(|e| JwtGenerationError::GenerationError(format!("Failed to load RSA PEM key: {}", e))),
-            (SigningAlgorithm::RS256, KeyFormat::DER) => Ok(EncodingKey::from_rsa_der(key_bytes)),
+            (KeyFamily::Rsa, KeyFormat::DER) => Ok(EncodingKey::from_rsa_der(key_bytes)),
+            (KeyFamily::Ec, KeyFormat::PEM) => EncodingKey::from_ec_pem(key_bytes)
+                .map_err(|e| JwtGenerationError::GenerationError(format!("Failed to load EC PEM key: {}", e))),
+            (KeyFamily::Ec, KeyFormat::DER) => Ok(EncodingKey::from_ec_der(key_bytes)),
             (_, KeyFormat::Jwk) => Err(JwtGenerationError::GenerationError(
                 "JWK key format is verification-only; signing from JWK is not supported".to_string(),
             )),
@@ -227,4 +230,50 @@ pub fn generate_ed25519_keypair_pem() -> Result<Ed25519Keypair, JwtGenerationErr
         private_key,
         public_key,
     })
+}
+
+// ============================================================================
+// Static EC keypairs
+// ============================================================================
+
+/// An EC keypair: PKCS#8 PEM private key and SPKI PEM public key.
+#[derive(Debug, Clone)]
+pub struct EcKeypair {
+    pub private_key: Vec<u8>,
+    pub public_key: Vec<u8>,
+}
+
+impl EcKeypair {
+    /// The public key as DER `SubjectPublicKeyInfo` (the PEM body, base64-decoded).
+    pub fn public_key_der(&self) -> Vec<u8> {
+        use base64::Engine;
+        let pem = String::from_utf8_lossy(&self.public_key);
+        let body: String = pem.lines().filter(|line| !line.starts_with("-----")).collect();
+        base64::engine::general_purpose::STANDARD
+            .decode(body)
+            .unwrap_or_default()
+    }
+}
+
+// Fixed test-only keys (generated with `openssl genpkey -algorithm EC`). Generating EC keys at
+// runtime would require an extra curve-arithmetic dependency for test code only.
+const EC_P256_PRIVATE_PEM: &str = "-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgoQnEkby8TSQY2+9f\nRwK+S+6mtxtABBCql9yXZpXRUW6hRANCAARieKPVZZPtpt0Fx1o5Yk++vq2fNRp+\n3c1aHndiua65xxce/l5gVVZVt6xpzVxBUr5+t3by49TKPc0UNtpKFBh5\n-----END PRIVATE KEY-----";
+const EC_P256_PUBLIC_PEM: &str = "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEYnij1WWT7abdBcdaOWJPvr6tnzUa\nft3NWh53YrmuuccXHv5eYFVWVbesac1cQVK+frd28uPUyj3NFDbaShQYeQ==\n-----END PUBLIC KEY-----";
+const EC_P384_PRIVATE_PEM: &str = "-----BEGIN PRIVATE KEY-----\nMIG2AgEAMBAGByqGSM49AgEGBSuBBAAiBIGeMIGbAgEBBDDUk792UeHihxCnXiW8\nM7XiCOdCILx+kcmIOKR5tUWdGfQ5tQHtdHQwsRWSmGda34+hZANiAAQo1fdqRPd+\nsb2954Zvm1yHA8oMrfR6Vm0J1EmXp7V+mznWMYT/snG9qzcbJS55jW5i3P5n2Eo7\nk61nuTzuZa7Ko3lO/3K6RH/AWsXkIdT/V/mN3b2UtN2p0DdGQhCCK8A=\n-----END PRIVATE KEY-----";
+const EC_P384_PUBLIC_PEM: &str = "-----BEGIN PUBLIC KEY-----\nMHYwEAYHKoZIzj0CAQYFK4EEACIDYgAEKNX3akT3frG9veeGb5tchwPKDK30elZt\nCdRJl6e1fps51jGE/7Jxvas3GyUueY1uYtz+Z9hKO5OtZ7k87mWuyqN5Tv9yukR/\nwFrF5CHU/1f5jd29lLTdqdA3RkIQgivA\n-----END PUBLIC KEY-----";
+
+/// A fixed P-256 keypair for ES256 tests. Not secret; never use outside tests.
+pub fn ec_p256_keypair_pem() -> EcKeypair {
+    EcKeypair {
+        private_key: EC_P256_PRIVATE_PEM.as_bytes().to_vec(),
+        public_key: EC_P256_PUBLIC_PEM.as_bytes().to_vec(),
+    }
+}
+
+/// A fixed P-384 keypair for ES384 tests. Not secret; never use outside tests.
+pub fn ec_p384_keypair_pem() -> EcKeypair {
+    EcKeypair {
+        private_key: EC_P384_PRIVATE_PEM.as_bytes().to_vec(),
+        public_key: EC_P384_PUBLIC_PEM.as_bytes().to_vec(),
+    }
 }

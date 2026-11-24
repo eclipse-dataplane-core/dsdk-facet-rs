@@ -11,6 +11,7 @@
 //
 
 #![allow(clippy::unwrap_used)]
+mod algorithm;
 mod common;
 mod did;
 mod generator;
