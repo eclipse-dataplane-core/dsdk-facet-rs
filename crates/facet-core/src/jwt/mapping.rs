@@ -19,6 +19,7 @@
 //!
 //! [`VaultJwtGenerator`]: crate::jwt::VaultJwtGenerator
 
+use crate::jwt::SigningAlgorithm;
 use async_trait::async_trait;
 use bon::Builder;
 use serde::{Deserialize, Serialize};
@@ -64,6 +65,12 @@ impl SigningKeyMappingError {
 /// the value [`VaultJwtGenerator`] keys on). `key_name` is the Vault transit key used to sign,
 /// and `kid` is the value written verbatim into the JWT header so verifiers can locate the key.
 ///
+/// `algorithm` optionally pins the JWS algorithm. When absent, it is derived from the Vault key
+/// type ([`KeyType::default_algorithm`]). It only needs to be set to choose among the RSA
+/// variants (RS256/384/512, PS256/384/512); for EC and Ed25519 keys the key type fixes it.
+///
+/// [`KeyType::default_algorithm`]: crate::jwt::KeyType::default_algorithm
+///
 /// [`VaultJwtGenerator`]: crate::jwt::VaultJwtGenerator
 #[derive(Debug, Clone, PartialEq, Eq, Builder, Serialize, Deserialize)]
 #[builder(on(String, into))]
@@ -72,6 +79,8 @@ pub struct SigningKeyMapping {
     pub participant_context_id: String,
     pub key_name: String,
     pub kid: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub algorithm: Option<SigningAlgorithm>,
 }
 
 /// Persists and retrieves [`SigningKeyMapping`]s keyed by participant-context id.

@@ -529,3 +529,201 @@ async fn test_vault_jwt_generator_errors_when_mapping_missing() {
         "expected KeyResolution error, got {err:?}"
     );
 }
+
+// ============================================================================
+// VaultJwtGenerator — key-type cache
+// ============================================================================
+
+mod key_type_cache {
+    use crate::context::ParticipantContext;
+    use crate::jwt::transit_key::{TransitKeyRef, TransitKeyResolver};
+    use crate::jwt::{JwtGenerationError, JwtGenerator, KeyType, SigningAlgorithm, TokenClaims, VaultJwtGenerator};
+    use crate::util::clock::MockClock;
+    use crate::vault::{KeyMetadata, PublicKeyFormat, VaultError, VaultSigningClient};
+    use async_trait::async_trait;
+    use chrono::{TimeDelta, Utc};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::{Arc, Mutex};
+
+    /// Vault stand-in whose key type can change (key deleted and re-created), and which rejects
+    /// sign requests whose algorithm does not fit the current key type, as Vault does.
+    struct SwitchableVault {
+        key_type: Mutex<KeyType>,
+        metadata_calls: AtomicUsize,
+        fail_next_sign: AtomicBool,
+    }
+
+    impl SwitchableVault {
+        fn new(key_type: KeyType) -> Arc<Self> {
+            Arc::new(Self {
+                key_type: Mutex::new(key_type),
+                metadata_calls: AtomicUsize::new(0),
+                fail_next_sign: AtomicBool::new(false),
+            })
+        }
+
+        fn metadata_calls(&self) -> usize {
+            self.metadata_calls.load(Ordering::SeqCst)
+        }
+    }
+
+    #[async_trait]
+    impl VaultSigningClient for SwitchableVault {
+        fn signing_key_name(&self) -> Option<&str> {
+            None
+        }
+
+        async fn get_key_metadata(
+            &self,
+            _participant_context: &ParticipantContext,
+            key_name: &str,
+            _format: PublicKeyFormat,
+        ) -> Result<KeyMetadata, VaultError> {
+            self.metadata_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(KeyMetadata {
+                key_name: key_name.to_string(),
+                key_type: *self.key_type.lock().unwrap(),
+                keys: vec![],
+                current_version: 1,
+            })
+        }
+
+        async fn sign_content(
+            &self,
+            _participant_context: &ParticipantContext,
+            _key_name: &str,
+            algorithm: SigningAlgorithm,
+            _content: &[u8],
+        ) -> Result<Vec<u8>, VaultError> {
+            if self.fail_next_sign.swap(false, Ordering::SeqCst) {
+                return Err(VaultError::NetworkError("simulated failure".to_string()));
+            }
+            let key_type = *self.key_type.lock().unwrap();
+            if !key_type.supports(algorithm) {
+                return Err(VaultError::InvalidData(format!(
+                    "{} cannot sign with a {} key",
+                    algorithm, key_type
+                )));
+            }
+            Ok(vec![0u8; 64])
+        }
+    }
+
+    /// Resolves `{pc.id}` with a fixed kid, so the generator only needs Vault for the key type.
+    struct FixedKidResolver;
+
+    #[async_trait]
+    impl TransitKeyResolver for FixedKidResolver {
+        async fn resolve(&self, pc: &ParticipantContext) -> Result<TransitKeyRef, JwtGenerationError> {
+            Ok(TransitKeyRef {
+                key_name: pc.id.clone(),
+                kid: Some(format!("{}#key-1", pc.id)),
+                algorithm: None,
+            })
+        }
+    }
+
+    fn generator(vault: &Arc<SwitchableVault>, clock: &Arc<MockClock>) -> VaultJwtGenerator {
+        VaultJwtGenerator::builder()
+            .signing_client(vault.clone() as Arc<dyn VaultSigningClient>)
+            .key_resolver(Arc::new(FixedKidResolver))
+            .clock(clock.clone())
+            .key_type_cache_ttl(TimeDelta::minutes(10))
+            .build()
+    }
+
+    fn pc(id: &str) -> ParticipantContext {
+        ParticipantContext::builder().id(id).audience("aud").build()
+    }
+
+    fn claims() -> TokenClaims {
+        TokenClaims::builder()
+            .sub("sub")
+            .aud("aud")
+            .exp(Utc::now().timestamp() + 300)
+            .build()
+    }
+
+    fn header_alg(token: &str) -> String {
+        format!("{:?}", jsonwebtoken::decode_header(token).unwrap().alg)
+    }
+
+    #[tokio::test]
+    async fn key_type_is_cached_within_ttl() {
+        let vault = SwitchableVault::new(KeyType::Ed25519);
+        let clock = Arc::new(MockClock::new(Utc::now()));
+        let generator = generator(&vault, &clock);
+
+        generator.generate_token(&pc("pc-1"), claims()).await.unwrap();
+        clock.advance(TimeDelta::minutes(9));
+        generator.generate_token(&pc("pc-1"), claims()).await.unwrap();
+
+        assert_eq!(vault.metadata_calls(), 1);
+    }
+
+    #[tokio::test]
+    async fn key_type_is_reread_after_ttl() {
+        let vault = SwitchableVault::new(KeyType::Ed25519);
+        let clock = Arc::new(MockClock::new(Utc::now()));
+        let generator = generator(&vault, &clock);
+
+        generator.generate_token(&pc("pc-1"), claims()).await.unwrap();
+        clock.advance(TimeDelta::minutes(11));
+        generator.generate_token(&pc("pc-1"), claims()).await.unwrap();
+
+        assert_eq!(vault.metadata_calls(), 2);
+    }
+
+    #[tokio::test]
+    async fn signing_failure_evicts_the_cached_key_type() {
+        let vault = SwitchableVault::new(KeyType::Ed25519);
+        let clock = Arc::new(MockClock::new(Utc::now()));
+        let generator = generator(&vault, &clock);
+
+        generator.generate_token(&pc("pc-1"), claims()).await.unwrap();
+        vault.fail_next_sign.store(true, Ordering::SeqCst);
+        assert!(generator.generate_token(&pc("pc-1"), claims()).await.is_err());
+        generator.generate_token(&pc("pc-1"), claims()).await.unwrap();
+
+        assert_eq!(
+            vault.metadata_calls(),
+            2,
+            "the call after the failure must re-read the key type"
+        );
+    }
+
+    #[tokio::test]
+    async fn recreated_key_with_another_type_recovers_after_one_failure() {
+        let vault = SwitchableVault::new(KeyType::Ed25519);
+        let clock = Arc::new(MockClock::new(Utc::now()));
+        let generator = generator(&vault, &clock);
+
+        let token = generator.generate_token(&pc("pc-1"), claims()).await.unwrap();
+        assert_eq!(header_alg(&token), "EdDSA");
+
+        // The key is deleted and re-created as ECDSA P-256 under the same name.
+        *vault.key_type.lock().unwrap() = KeyType::EcdsaP256;
+
+        // The stale cached type makes this sign request fail...
+        assert!(generator.generate_token(&pc("pc-1"), claims()).await.is_err());
+        // ...which evicts it, so the next one picks up the new type.
+        let token = generator.generate_token(&pc("pc-1"), claims()).await.unwrap();
+        assert_eq!(header_alg(&token), "ES256");
+    }
+
+    #[tokio::test]
+    async fn expired_entries_are_swept() {
+        let vault = SwitchableVault::new(KeyType::Ed25519);
+        let clock = Arc::new(MockClock::new(Utc::now()));
+        let generator = generator(&vault, &clock);
+
+        generator.generate_token(&pc("pc-1"), claims()).await.unwrap();
+        generator.generate_token(&pc("pc-2"), claims()).await.unwrap();
+        assert_eq!(generator.cached_key_count(), 2);
+
+        clock.advance(TimeDelta::minutes(11));
+        generator.generate_token(&pc("pc-3"), claims()).await.unwrap();
+
+        assert_eq!(generator.cached_key_count(), 1, "only pc-3's entry should remain");
+    }
+}

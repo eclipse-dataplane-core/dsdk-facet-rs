@@ -13,7 +13,7 @@
 #![allow(clippy::unwrap_used)]
 use base64::Engine;
 use dsdk_facet_core::context::ParticipantContext;
-use dsdk_facet_core::jwt::{JwtGenerator, PrefixTransitKeyResolver, TokenClaims, VaultJwtGenerator};
+use dsdk_facet_core::jwt::{JwtGenerator, PrefixTransitKeyResolver, SigningAlgorithm, TokenClaims, VaultJwtGenerator};
 use dsdk_facet_core::vault::{PublicKeyFormat, VaultClient, VaultSigningClient};
 use dsdk_facet_hashicorp_vault::{HashicorpVaultClient, HashicorpVaultConfig, JwtKidTransformer, VaultAuthConfig};
 use dsdk_facet_testcontainers::{
@@ -472,13 +472,23 @@ async fn test_content_signing_determinism(client: &Arc<HashicorpVaultClient>) {
     .expect("Failed to serialize payload");
 
     let sig1 = client
-        .sign_content(&create_test_context(), TEST_SIGNING_KEY_NAME, &payload)
+        .sign_content(
+            &create_test_context(),
+            TEST_SIGNING_KEY_NAME,
+            SigningAlgorithm::EdDSA,
+            &payload,
+        )
         .await
         .expect("Failed to sign");
     assert_eq!(sig1.len(), ED25519_SIGNATURE_BYTES);
 
     let sig2 = client
-        .sign_content(&create_test_context(), TEST_SIGNING_KEY_NAME, &payload)
+        .sign_content(
+            &create_test_context(),
+            TEST_SIGNING_KEY_NAME,
+            SigningAlgorithm::EdDSA,
+            &payload,
+        )
         .await
         .expect("Failed to sign second time");
     assert_eq!(sig1, sig2, "Same content should produce the same signature");
@@ -489,7 +499,12 @@ async fn test_content_signing_determinism(client: &Arc<HashicorpVaultClient>) {
     }))
     .expect("Failed to serialize");
     let sig3 = client
-        .sign_content(&create_test_context(), TEST_SIGNING_KEY_NAME, &different)
+        .sign_content(
+            &create_test_context(),
+            TEST_SIGNING_KEY_NAME,
+            SigningAlgorithm::EdDSA,
+            &different,
+        )
         .await
         .expect("Failed to sign different content");
     assert_ne!(sig1, sig3, "Different content should produce different signatures");

@@ -62,7 +62,7 @@ impl S3Instance {
             .unwrap();
 
         let port = container.get_host_port_ipv4(9000).await.unwrap();
-        let host = format!("127.0.0.1:{}", port);
+        let host = format!("{}:{}", crate::utils::container_host(), port);
         let endpoint = format!("http://{}", host);
 
         Self {

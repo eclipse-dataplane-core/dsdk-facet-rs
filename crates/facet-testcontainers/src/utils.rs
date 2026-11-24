@@ -145,3 +145,15 @@ fn is_process_running(pid: u32) -> bool {
         }
     }
 }
+
+/// Host on which published container ports are reachable from the test process.
+///
+/// Defaults to `127.0.0.1`. Set `TESTCONTAINERS_HOST_OVERRIDE` (the variable testcontainers itself
+/// honours) when the Docker daemon publishes ports elsewhere, e.g. inside a dev container that uses
+/// the host's Docker socket, where ports are reachable via the Docker network gateway.
+pub fn container_host() -> String {
+    std::env::var("TESTCONTAINERS_HOST_OVERRIDE")
+        .ok()
+        .filter(|h| !h.trim().is_empty())
+        .unwrap_or_else(|| "127.0.0.1".to_string())
+}

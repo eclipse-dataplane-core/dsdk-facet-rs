@@ -38,6 +38,9 @@ hmac = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
+# Enables `test-fixtures` for this crate's own integration tests (e.g. tests/token_api.rs), so a
+# plain `cargo test` / `cargo nextest run` works without `--all-features`.
+dsdk-facet-core = { path = ".", features = ["test-fixtures"] }
 dsdk-facet-test-utils = { path = "../facet-test-utils" }
 tokio = { workspace = true }
 reqwest = { workspace = true }

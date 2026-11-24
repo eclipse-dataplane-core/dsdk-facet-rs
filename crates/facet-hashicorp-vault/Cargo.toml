@@ -28,6 +28,7 @@ dsdk-facet-test-utils = { path = "../facet-test-utils" }
 wiremock = { workspace = true }
 dsdk-facet-testcontainers = { path = "../facet-testcontainers" }
 tempfile = "3"
+jsonwebtoken = { workspace = true, features = ["rust_crypto"] }
 
 [lints]
 workspace = true
