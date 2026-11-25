@@ -1,5 +1,5 @@
 crate/cratesio/-/aes/0.8.4, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #4260
-crate/cratesio/-/ahash/0.8.12, MIT OR Apache-2.0, approved, clearlydefined
+crate/cratesio/-/ahash/0.8.14, Apache-2.0 AND MIT, approved, #34095
 crate/cratesio/-/aho-corasick/1.1.5, MIT OR Unlicense, approved, #11397
 crate/cratesio/-/alloc-no-stdlib/2.0.4, BSD-3-Clause, approved, clearlydefined
 crate/cratesio/-/alloc-stdlib/0.2.4, BSD-3-Clause, approved, clearlydefined
@@ -8,8 +8,8 @@ crate/cratesio/-/anstream/1.0.0, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, appr
 crate/cratesio/-/anstyle-parse/1.0.0, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #26535
 crate/cratesio/-/anstyle-query/1.1.5, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #15147
 crate/cratesio/-/anstyle/1.0.14, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #25466
-crate/cratesio/-/anyhow/1.0.104, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #16097
-crate/cratesio/-/arc-swap/1.9.2, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #27041
+crate/cratesio/-/anyhow/1.0.105, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #16097
+crate/cratesio/-/arc-swap/1.9.5, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #27041
 crate/cratesio/-/arrayvec/0.7.8, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #16981
 crate/cratesio/-/astral-tokio-tar/0.5.6, MIT OR Apache-2.0, approved, clearlydefined
 crate/cratesio/-/async-channel/2.5.0, Apache-2.0 OR MIT, approved, clearlydefined
@@ -18,33 +18,30 @@ crate/cratesio/-/async-stream/0.3.6, MIT, approved, clearlydefined
 crate/cratesio/-/async-trait/0.1.92, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #6666
 crate/cratesio/-/atoi/2.0.0, MIT, approved, clearlydefined
 crate/cratesio/-/atomic-waker/1.1.2, Apache-2.0 OR MIT, approved, clearlydefined
-crate/cratesio/-/aws-config/1.13.0, Apache-2.0, approved, #32817
+crate/cratesio/-/aws-config/1.13.3, Apache-2.0, approved, #32817
 crate/cratesio/-/aws-credential-types/1.3.1, Apache-2.0, approved, #31101
-crate/cratesio/-/aws-lc-rs/1.18.1, Apache-2.0 OR ISC AND (Apache-2.0 AND ISC) AND (Apache-2.0 OR ISC) AND (Apache-2.0 OR ISC), approved, #31203
-crate/cratesio/-/aws-lc-sys/0.45.0, Apache-2.0 AND BSD-3-Clause AND ISC AND MIT, approved, #31169
-crate/cratesio/-/aws-runtime/1.10.2, Apache-2.0, approved, #32816
-crate/cratesio/-/aws-sdk-s3/1.148.0, Apache-2.0 AND MIT, approved, #31180
-crate/cratesio/-/aws-sdk-sso/1.117.0, Apache-2.0, approved, #32818
-crate/cratesio/-/aws-sdk-ssooidc/1.119.0, Apache-2.0, approved, #32831
-crate/cratesio/-/aws-sdk-sts/1.122.0, Apache-2.0, approved, #32811
-crate/cratesio/-/aws-sigv4/1.6.3, Apache-2.0, approved, #32016
+crate/cratesio/-/aws-lc-rs/1.19.0, Apache-2.0 OR ISC AND (Apache-2.0 AND ISC) AND (Apache-2.0 OR ISC) AND (Apache-2.0 OR ISC), approved, #34097
+crate/cratesio/-/aws-lc-sys/0.47.0, Apache-2.0 AND BSD-3-Clause AND ISC AND (Apache-2.0 OR ISC) AND (Apache-2.0 OR ISC AND (Apache-2.0 OR ISC OR MIT-0) AND BSD-3-Clause AND (Apache-2.0 OR ISC OR MIT)) AND (MIT OR CC0-1.0) AND (Apache-2.0 OR ISC OR MIT) AND (Apache-2.0 OR ISC) AND (BSD-3-Clause AND GPL-1.0-or-later) AND (Apache-2.0 OR ISC OR MIT-0) AND (Apache-2.0 OR ISC), restricted, #34081
+crate/cratesio/-/aws-runtime/1.10.4, Apache-2.0, approved, #32816
+crate/cratesio/-/aws-sdk-s3/1.161.0, Apache-2.0 AND MIT, approved, #34106
+crate/cratesio/-/aws-sdk-sso/1.122.0, Apache-2.0, approved, #34080
+crate/cratesio/-/aws-sdk-ssooidc/1.124.0, Apache-2.0, approved, #34092
+crate/cratesio/-/aws-sdk-sts/1.128.0, Apache-2.0, approved, #34105
+crate/cratesio/-/aws-sigv4/1.6.6, Apache-2.0, approved, #32016
 crate/cratesio/-/aws-smithy-async/1.3.1, Apache-2.0, approved, #31130
-crate/cratesio/-/aws-smithy-checksums/0.65.0, Apache-2.0, approved, #31171
+crate/cratesio/-/aws-smithy-checksums/0.65.1, Apache-2.0, approved, #31171
 crate/cratesio/-/aws-smithy-eventstream/0.61.6, Apache-2.0, approved, #31124
-crate/cratesio/-/aws-smithy-http-client/1.5.1, Apache-2.0, approved, #32822
-crate/cratesio/-/aws-smithy-http/0.64.2, Apache-2.0, approved, #31162
-crate/cratesio/-/aws-smithy-json/0.63.1, Apache-2.0, approved, #31210
-crate/cratesio/-/aws-smithy-json/0.65.0, Apache-2.0, approved, #32812
-crate/cratesio/-/aws-smithy-observability/0.3.0, Apache-2.0, approved, #31186
+crate/cratesio/-/aws-smithy-http-client/1.5.3, Apache-2.0, approved, #32822
+crate/cratesio/-/aws-smithy-http/0.64.3, Apache-2.0, approved, #31162
+crate/cratesio/-/aws-smithy-json/0.65.1, Apache-2.0, approved, #32812
+crate/cratesio/-/aws-smithy-observability/0.3.1, Apache-2.0, approved, #31186
 crate/cratesio/-/aws-smithy-query/0.64.0, Apache-2.0, approved, #32827
-crate/cratesio/-/aws-smithy-runtime-api-macros/1.1.0, Apache-2.0, approved, #31151
-crate/cratesio/-/aws-smithy-runtime-api/1.19.1, Apache-2.0, approved, #32257
-crate/cratesio/-/aws-smithy-runtime/1.16.1, Apache-2.0, approved, #32832
-crate/cratesio/-/aws-smithy-schema/0.2.1, Apache-2.0, approved, #31205
-crate/cratesio/-/aws-smithy-schema/1.1.0, Apache-2.0, approved, #32835
-crate/cratesio/-/aws-smithy-types/1.9.0, Apache-2.0, approved, #32834
-crate/cratesio/-/aws-smithy-xml/0.62.1, Apache-2.0, approved, #31215
-crate/cratesio/-/aws-smithy-xml/0.64.0, Apache-2.0, approved, #32833
+crate/cratesio/-/aws-smithy-runtime-api-macros/1.2.0, Apache-2.0, approved, #34064
+crate/cratesio/-/aws-smithy-runtime-api/1.22.1, Apache-2.0, approved, #34062
+crate/cratesio/-/aws-smithy-runtime/1.16.4, Apache-2.0, approved, #32832
+crate/cratesio/-/aws-smithy-schema/1.2.0, Apache-2.0, approved, #34102
+crate/cratesio/-/aws-smithy-types/1.9.5, Apache-2.0, approved, #32834
+crate/cratesio/-/aws-smithy-xml/0.64.1, Apache-2.0, approved, #32833
 crate/cratesio/-/aws-types/1.7.0, Apache-2.0, approved, #32826
 crate/cratesio/-/axum-core/0.5.6, MIT, approved, clearlydefined
 crate/cratesio/-/axum/0.8.9, MIT, approved, #27199
@@ -62,31 +59,31 @@ crate/cratesio/-/block-padding/0.3.3, MIT OR Apache-2.0, approved, clearlydefine
 crate/cratesio/-/bollard-buildkit-proto/0.7.0, Apache-2.0 AND BSD-2-Clause AND BSD-3-Clause, approved, #31098
 crate/cratesio/-/bollard-stubs/1.49.1-rc.28.4.0, Apache-2.0, approved, clearlydefined
 crate/cratesio/-/bollard/0.19.4, Apache-2.0 AND MIT, approved, #31100
-crate/cratesio/-/bon-macros/3.10.1, Apache-2.0 AND MIT, approved, #31146
-crate/cratesio/-/bon/3.10.1, Apache-2.0 AND MIT, approved, #31158
+crate/cratesio/-/bon-macros/3.10.3, Apache-2.0 AND MIT, approved, #31146
+crate/cratesio/-/bon/3.10.3, Apache-2.0 AND MIT, approved, #31158
 crate/cratesio/-/brotli-decompressor/2.5.1, BSD-3-Clause OR MIT, approved, clearlydefined
 crate/cratesio/-/brotli/3.5.0, BSD-3-Clause OR MIT, approved, clearlydefined
 crate/cratesio/-/bs58/0.5.1, Apache-2.0 AND MIT, approved, #31099
-crate/cratesio/-/bstr/1.13.1, MIT AND LicenseRef-scancode-unicode, approved, #31206
+crate/cratesio/-/bstr/1.14.0, Apache-2.0 AND MIT AND (Apache-2.0 AND LicenseRef-scancode-unicode AND MIT), restricted, #34107
 crate/cratesio/-/byteorder/1.5.0, Unlicense OR MIT, approved, clearlydefined
 crate/cratesio/-/bytes-utils/0.1.4, Apache-2.0 OR MIT, approved, clearlydefined
-crate/cratesio/-/bytes/1.12.1, MIT, approved, #29659
+crate/cratesio/-/bytes/1.12.2, MIT, approved, #29659
 crate/cratesio/-/cbc/0.1.2, MIT OR Apache-2.0, approved, clearlydefined
 crate/cratesio/-/cfg-if/1.0.5, Apache-2.0 AND MIT, approved, #31212
 crate/cratesio/-/chacha20/0.10.2, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #30086
 crate/cratesio/-/chrono/0.4.45, Apache-2.0 AND MIT, approved, #25679
 crate/cratesio/-/cipher/0.4.4, MIT OR Apache-2.0, approved, clearlydefined
-crate/cratesio/-/clap/4.6.7, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #26540
-crate/cratesio/-/clap_builder/4.6.7, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #26539
-crate/cratesio/-/clap_derive/4.6.7, Apache-2.0 AND MIT AND Apache-2.0 AND MIT AND (Apache-2.0 AND MIT AND MIT-0), approved, #26548
-crate/cratesio/-/clap_lex/1.1.1, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #26545
+crate/cratesio/-/clap/4.6.10, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #26540
+crate/cratesio/-/clap_builder/4.6.10, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #26539
+crate/cratesio/-/clap_derive/4.6.9, Apache-2.0 AND MIT AND Apache-2.0 AND MIT AND (Apache-2.0 AND MIT AND MIT-0), approved, #26548
+crate/cratesio/-/clap_lex/1.1.2, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #26545
 crate/cratesio/-/cmov/0.5.4, Apache-2.0 OR MIT, approved, clearlydefined
 crate/cratesio/-/colorchoice/1.0.5, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #16992
 crate/cratesio/-/concurrent-queue/2.5.0, Apache-2.0 OR MIT, approved, clearlydefined
-crate/cratesio/-/const-oid/0.10.2, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #29129
+crate/cratesio/-/const-oid/0.10.3, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #29129
 crate/cratesio/-/const-oid/0.9.6, Apache-2.0 OR MIT, approved, clearlydefined
-crate/cratesio/-/const-random-macro/0.1.16, MIT OR Apache-2.0, approved, clearlydefined
-crate/cratesio/-/const-random/0.1.18, MIT OR Apache-2.0, approved, clearlydefined
+crate/cratesio/-/const-random-macro/0.1.18, Apache-2.0 AND MIT, approved, #34083
+crate/cratesio/-/const-random/0.1.20, Apache-2.0 AND MIT, approved, #34103
 crate/cratesio/-/core_detect/1.0.0, Apache-2.0 AND MIT, approved, #31183
 crate/cratesio/-/cpubits/0.1.1, Apache-2.0 AND MIT, approved, #32810
 crate/cratesio/-/cpufeatures/0.2.17, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #16101
@@ -94,15 +91,15 @@ crate/cratesio/-/cpufeatures/0.3.1, Apache-2.0 AND MIT, approved, #31202
 crate/cratesio/-/crc-catalog/2.5.0, Apache-2.0 AND MIT, approved, #31200
 crate/cratesio/-/crc-fast/1.10.0, Apache-2.0 AND MIT AND Zlib, approved, #31113
 crate/cratesio/-/crc/3.4.0, MIT OR Apache-2.0, approved, clearlydefined
-crate/cratesio/-/crc32fast/1.5.2, Apache-2.0 AND MIT, approved, #31199
+crate/cratesio/-/crc32fast/1.5.6, Apache-2.0 AND MIT, approved, #31199
 crate/cratesio/-/crossbeam-queue/0.3.14, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #30073
 crate/cratesio/-/crossbeam-utils/0.8.23, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #30082
 crate/cratesio/-/crunchy/0.2.4, MIT, approved, clearlydefined
 crate/cratesio/-/crypto-bigint/0.5.5, Apache-2.0 OR MIT, approved, clearlydefined
-crate/cratesio/-/crypto-bigint/0.7.10, Apache-2.0 AND MIT, approved, #32815
+crate/cratesio/-/crypto-bigint/0.7.11, Apache-2.0 AND MIT, approved, #32815
 crate/cratesio/-/crypto-common/0.1.7, MIT OR Apache-2.0, approved, clearlydefined
 crate/cratesio/-/crypto-common/0.2.2, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #29128
-crate/cratesio/-/ctutils/0.4.6, Apache-2.0 AND MIT, approved, #31149
+crate/cratesio/-/ctutils/0.4.8, Apache-2.0 AND MIT, approved, #31149
 crate/cratesio/-/curve25519-dalek-derive/0.1.1, MIT OR Apache-2.0, approved, clearlydefined
 crate/cratesio/-/curve25519-dalek/4.1.3, BSD-3-Clause, approved, #22543
 crate/cratesio/-/daemonix/0.1.0, Apache-2.0 AND MIT, approved, #31223
@@ -113,7 +110,7 @@ crate/cratesio/-/darling_macro/0.24.1, MIT, approved, #31102
 crate/cratesio/-/dashmap/5.5.3, MIT, approved, clearlydefined
 crate/cratesio/-/der/0.7.10, Apache-2.0 OR MIT, approved, clearlydefined
 crate/cratesio/-/der/0.8.3, Apache-2.0 AND MIT, approved, #32813
-crate/cratesio/-/deranged/0.5.8, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #23552
+crate/cratesio/-/deranged/0.5.9, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #23552
 crate/cratesio/-/derivative/2.2.0, MIT OR Apache-2.0, approved, clearlydefined
 crate/cratesio/-/digest/0.10.7, MIT OR Apache-2.0, approved, clearlydefined
 crate/cratesio/-/digest/0.11.3, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #29127
@@ -125,12 +122,12 @@ crate/cratesio/-/ecdsa/0.17.0, Apache-2.0 AND MIT, approved, #32830
 crate/cratesio/-/ed25519-dalek/2.2.0, BSD-3-Clause, approved, #22483
 crate/cratesio/-/ed25519/1.5.3, Apache-2.0 OR MIT, approved, clearlydefined
 crate/cratesio/-/ed25519/2.2.3, Apache-2.0 OR MIT, approved, clearlydefined
-crate/cratesio/-/either/1.18.0, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #30520
+crate/cratesio/-/either/1.19.0, Apache-2.0 AND MIT, approved, #33317
 crate/cratesio/-/elliptic-curve/0.13.8, Apache-2.0 OR MIT, approved, clearlydefined
 crate/cratesio/-/elliptic-curve/0.14.3, Apache-2.0 AND MIT, approved, #32820
-crate/cratesio/-/encoding_rs/0.8.41, Apache-2.0 AND BSD-3-Clause AND MIT AND Apache-2.0 AND (Apache-2.0 AND CC0-1.0 AND MIT) AND MIT AND BSD-3-Clause AND (Apache-2.0 AND BSD-3-Clause AND CC0-1.0 AND MIT) AND (Apache-2.0 AND MIT) AND CC0-1.0, approved, #9762
-crate/cratesio/-/equivalent/1.0.2, Apache-2.0 OR MIT, approved, clearlydefined
-crate/cratesio/-/errno/0.3.14, MIT OR Apache-2.0, approved, clearlydefined
+crate/cratesio/-/encoding_rs/0.8.44, Apache-2.0 AND BSD-3-Clause AND MIT AND Apache-2.0 AND (Apache-2.0 AND CC0-1.0 AND MIT) AND MIT AND BSD-3-Clause AND (Apache-2.0 AND BSD-3-Clause AND CC0-1.0 AND MIT) AND (Apache-2.0 AND MIT) AND CC0-1.0, approved, #9762
+crate/cratesio/-/equivalent/1.0.3, Apache-2.0 AND MIT, approved, #33557
+crate/cratesio/-/errno/0.3.15, Apache-2.0 AND MIT, approved, #33556
 crate/cratesio/-/etcetera/0.11.0, MIT OR Apache-2.0, approved, clearlydefined
 crate/cratesio/-/event-listener-strategy/0.5.4, Apache-2.0 OR MIT, approved, clearlydefined
 crate/cratesio/-/event-listener/5.4.2, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #30067
@@ -138,14 +135,14 @@ crate/cratesio/-/fastrand/2.5.0, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, appr
 crate/cratesio/-/ferroid/0.8.9, Apache-2.0 AND MIT, approved, #31165
 crate/cratesio/-/ff/0.13.1, MIT OR Apache-2.0, approved, clearlydefined
 crate/cratesio/-/ff/0.14.0, Apache-2.0 AND MIT, approved, #32829
-crate/cratesio/-/filetime/0.2.29, MIT OR Apache-2.0, approved, clearlydefined
-crate/cratesio/-/fixedbitset/0.5.7, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #21858
-crate/cratesio/-/flate2/1.1.10, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #25681
+crate/cratesio/-/filetime/0.2.30, Apache-2.0 AND MIT, approved, #34078
+crate/cratesio/-/fixedbitset/0.5.9, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #21858
+crate/cratesio/-/flate2/1.1.11, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #25681
 crate/cratesio/-/flurry/0.5.2, MIT, approved, #31231
 crate/cratesio/-/fnv/1.0.7, Apache-2.0 OR MIT, approved, clearlydefined
 crate/cratesio/-/foldhash/0.1.5, Zlib, approved, clearlydefined
 crate/cratesio/-/foldhash/0.2.0, Zlib, approved, clearlydefined
-crate/cratesio/-/form_urlencoded/1.2.2, MIT OR Apache-2.0, approved, clearlydefined
+crate/cratesio/-/form_urlencoded/1.2.3, Apache-2.0 AND MIT, approved, #34098
 crate/cratesio/-/futures-channel/0.3.34, (Apache-2.0 or MIT) AND BSD-2-Clause-Views, approved, #6671
 crate/cratesio/-/futures-core/0.3.34, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #17218
 crate/cratesio/-/futures-executor/0.3.34, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #17220
@@ -163,11 +160,11 @@ crate/cratesio/-/getrandom/0.4.3, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, app
 crate/cratesio/-/group/0.13.0, MIT OR Apache-2.0, approved, clearlydefined
 crate/cratesio/-/group/0.14.0, MIT OR Apache-2.0, approved, clearlydefined
 crate/cratesio/-/h2/0.3.27, MIT, approved, #22729
-crate/cratesio/-/h2/0.4.19, MIT, approved, #29113
+crate/cratesio/-/h2/0.4.21, MIT, approved, #29113
 crate/cratesio/-/hashbrown/0.12.3, MIT OR Apache-2.0, approved, clearlydefined
 crate/cratesio/-/hashbrown/0.14.5, MIT OR Apache-2.0, approved, clearlydefined
 crate/cratesio/-/hashbrown/0.15.5, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #17428
-crate/cratesio/-/hashbrown/0.17.1, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #27191
+crate/cratesio/-/hashbrown/0.17.2, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #27191
 crate/cratesio/-/hashlink/0.10.0, MIT OR Apache-2.0, approved, clearlydefined
 crate/cratesio/-/heck/0.5.0, MIT OR Apache-2.0, approved, clearlydefined
 crate/cratesio/-/hex/0.4.3, MIT OR Apache-2.0, approved, clearlydefined
@@ -184,20 +181,20 @@ crate/cratesio/-/httparse/1.10.1, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, app
 crate/cratesio/-/httpdate/1.0.3, MIT OR Apache-2.0, approved, clearlydefined
 crate/cratesio/-/hybrid-array/0.4.15, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #29131
 crate/cratesio/-/hyper-rustls/0.24.2, Apache-2.0 OR ISC OR MIT, approved, clearlydefined
-crate/cratesio/-/hyper-rustls/0.27.9, Apache-2.0 AND ISC AND MIT, approved, #31941
+crate/cratesio/-/hyper-rustls/0.27.10, Apache-2.0 AND ISC AND MIT, approved, #31941
 crate/cratesio/-/hyper-timeout/0.5.2, MIT OR Apache-2.0, approved, clearlydefined
-crate/cratesio/-/hyper-util/0.1.20, MIT, approved, #31942
+crate/cratesio/-/hyper-util/0.1.21, MIT, approved, #31942
 crate/cratesio/-/hyper/0.14.32, MIT, approved, #15105
-crate/cratesio/-/hyper/1.11.1, MIT, approved, #30209
+crate/cratesio/-/hyper/1.13.0, MIT, approved, #34087
 crate/cratesio/-/hyperlocal/0.9.1, MIT, approved, clearlydefined
 crate/cratesio/-/iana-time-zone/0.1.65, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #23542
-crate/cratesio/-/icu_collections/2.3.0, Unicode-3.0, approved, #30220
-crate/cratesio/-/icu_locale_core/2.3.0, Unicode-3.0, approved, #30223
-crate/cratesio/-/icu_normalizer/2.3.0, Unicode-3.0 AND Unicode-TOU, approved, #30222
-crate/cratesio/-/icu_normalizer_data/2.3.0, Unicode-3.0, approved, #30218
-crate/cratesio/-/icu_properties/2.3.0, Unicode-3.0, approved, #30221
-crate/cratesio/-/icu_properties_data/2.3.0, Unicode-3.0, approved, #30226
-crate/cratesio/-/icu_provider/2.3.1, Apache-2.0 OR MIT, approved, #30227
+crate/cratesio/-/icu_collections/2.4.0, Unicode-3.0, approved, #33564
+crate/cratesio/-/icu_locale_core/2.4.0, Unicode-3.0, approved, #33563
+crate/cratesio/-/icu_normalizer/2.4.0, LicenseRef-scancode-unknown-spdx AND (CC0-1.0 AND LicenseRef-scancode-unicode), restricted, #33560
+crate/cratesio/-/icu_normalizer_data/2.4.0, Unicode-3.0, approved, #33562
+crate/cratesio/-/icu_properties/2.4.0, Unicode-3.0, approved, #33568
+crate/cratesio/-/icu_properties_data/2.4.0, Unicode-3.0, approved, #33569
+crate/cratesio/-/icu_provider/2.4.0, LicenseRef-scancode-unknown-spdx AND (Apache-2.0 AND MIT), restricted, #33553
 crate/cratesio/-/ident_case/1.0.1, MIT OR Apache-2.0, approved, clearlydefined
 crate/cratesio/-/idna/1.1.0, Apache-2.0 AND MIT AND Unicode-TOU, approved, #23543
 crate/cratesio/-/idna_adapter/1.2.2, Apache-2.0 OR MIT, approved, clearlydefined
@@ -209,31 +206,31 @@ crate/cratesio/-/inout/0.1.4, MIT OR Apache-2.0, approved, clearlydefined
 crate/cratesio/-/ipnet/2.12.2, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #28542
 crate/cratesio/-/is_terminal_polyfill/1.70.2, MIT OR Apache-2.0, approved, clearlydefined
 crate/cratesio/-/itertools/0.14.0, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #25686
-crate/cratesio/-/itoa/1.0.18, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #17174
+crate/cratesio/-/itertools/0.15.0, Apache-2.0 AND MIT, approved, #33316
+crate/cratesio/-/itoa/1.0.19, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #17174
 crate/cratesio/-/jsonwebtoken/11.1.0, MIT, approved, #31207
-crate/cratesio/-/lazy_static/1.5.0, Apache-2.0 AND MIT, approved, #32991
-crate/cratesio/-/libc/0.2.189, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #16809
+crate/cratesio/-/lazy_static/1.5.1, Apache-2.0 AND MIT, approved, #32991
+crate/cratesio/-/libc/0.2.191, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #16809
 crate/cratesio/-/libm/0.2.16, (Apache-2.0 OR MIT) AND LicenseRef-Permission-Notice AND BSD-2-Clause, approved, #14603
 crate/cratesio/-/libsodium-sys/0.2.7, Apache-2.0 AND BSD-2-Clause AND BSD-1-Clause AND CC0-1.0 AND FSFAP AND MIT AND FSFULLR AND FSFULLRWD AND FSFUL AND (GPL-2.0-or-later WITH Libtool-exception) AND ISC AND (GPL-2.0-or-later WITH Autoconf-exception-generic) AND (GPL-3.0-or-later WITH Autoconf-exception-generic-3.0) AND (GPL-3.0-or-later WITH Libtool-exception) AND X11, approved, #31168
-crate/cratesio/-/libz-ng-sys/1.1.29, Apache-2.0 AND MIT AND Zlib, approved, #31091
+crate/cratesio/-/libz-ng-sys/1.1.33, Apache-2.0 AND MIT AND Zlib, approved, #31091
 crate/cratesio/-/linux-raw-sys/0.12.1, Apache-2.0 AND Apache-2.0 WITH LLVM-exception AND MIT, approved, #27070
 crate/cratesio/-/litemap/0.8.3, Unicode-3.0, approved, #22551
 crate/cratesio/-/lock_api/0.4.14, MIT OR Apache-2.0, approved, clearlydefined
-crate/cratesio/-/log/0.4.34, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #18691
-crate/cratesio/-/lru/0.18.4, MIT, approved, #31211
+crate/cratesio/-/lock_api/0.5.0, Apache-2.0 AND MIT, approved, #34082
+crate/cratesio/-/log/0.4.35, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #18691
+crate/cratesio/-/lru/0.18.5, MIT, approved, #31211
 crate/cratesio/-/matchit/0.8.4, MIT AND BSD-3-Clause, approved, clearlydefined
 crate/cratesio/-/md-5/0.10.6, MIT OR Apache-2.0, approved, clearlydefined
 crate/cratesio/-/md-5/0.11.0, MIT OR Apache-2.0, approved, clearlydefined
 crate/cratesio/-/memchr/2.8.3, Unlicense AND (MIT AND Unlicense) AND MIT, approved, #26141
 crate/cratesio/-/memoffset/0.9.1, MIT, approved, clearlydefined
-crate/cratesio/-/mime/0.3.17, Apache-2.0 AND MIT, approved, #17178
-crate/cratesio/-/mio/1.2.3, MIT, approved, #27014
-crate/cratesio/-/multiversion-macros/0.9.0, Apache-2.0 AND MIT, approved, #31187
-crate/cratesio/-/multiversion/0.9.0, Apache-2.0 AND MIT, approved, #31198
+crate/cratesio/-/mime/0.3.18, Apache-2.0 AND MIT, approved, #17178
+crate/cratesio/-/mio/1.2.5, MIT, approved, #27014
 crate/cratesio/-/multiversion_no_op/1.0.0, Apache-2.0 AND MIT, approved, #31178
-crate/cratesio/-/nix/0.31.3, MIT AND (GPL-2.0-or-later OR MIT), approved, #26914
-crate/cratesio/-/notify-types/2.1.0, Apache-2.0 AND MIT AND (Apache-2.0 AND CC0-1.0 AND MIT), approved, #31123
-crate/cratesio/-/notify/8.2.0, (Apache-2.0 AND CC0-1.0 AND MIT), approved, #31159
+crate/cratesio/-/nix/0.31.4, MIT AND (GPL-2.0-or-later OR MIT), approved, #26914
+crate/cratesio/-/notify-types/2.3.1, Apache-2.0 AND MIT AND (Apache-2.0 AND CC0-1.0 AND MIT), approved, #34063
+crate/cratesio/-/notify/9.0.0, Apache-2.0 AND CC0-1.0 AND MIT AND (Artistic-1.0-Perl AND Artistic-2.0), restricted, #34065
 crate/cratesio/-/num-bigint-dig/0.8.6, Apache-2.0 AND LGPL-3.0-or-later AND MIT, approved, #16985
 crate/cratesio/-/num-bigint/0.4.8, Apache-2.0 or MIT, approved, #11390
 crate/cratesio/-/num-complex/0.4.6, MIT OR Apache-2.0, approved, clearlydefined
@@ -246,13 +243,15 @@ crate/cratesio/-/num/0.4.3, MIT OR Apache-2.0, approved, clearlydefined
 crate/cratesio/-/num_cpus/1.17.0, MIT OR Apache-2.0, approved, clearlydefined
 crate/cratesio/-/once_cell/1.21.4, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #20275
 crate/cratesio/-/openssl-probe/0.1.6, Apache-2.0 AND MIT, approved, #16606
-crate/cratesio/-/openssl-probe/0.2.1, Apache-2.0 AND MIT AND OpenSSL AND LicenseRef-BSD-style, approved, #27067
+crate/cratesio/-/openssl-probe/0.2.2, Apache-2.0 AND MIT AND OpenSSL AND LicenseRef-BSD-style, approved, #27067
 crate/cratesio/-/outref/0.5.2, MIT, approved, #18875
 crate/cratesio/-/p256/0.13.2, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #22480
 crate/cratesio/-/p256/0.14.0, Apache-2.0 AND MIT, approved, #32823
 crate/cratesio/-/p384/0.13.1, Apache-2.0 OR MIT OR BSD-1-Clause, approved, #26889
 crate/cratesio/-/parking/2.2.1, Apache-2.0 OR MIT, approved, clearlydefined
 crate/cratesio/-/parking_lot/0.12.5, MIT OR Apache-2.0, approved, clearlydefined
+crate/cratesio/-/parking_lot/0.13.0, Apache-2.0 AND MIT, approved, #34108
+crate/cratesio/-/parking_lot_core/0.10.0, Apache-2.0 AND MIT, approved, #34101
 crate/cratesio/-/parking_lot_core/0.9.12, MIT OR Apache-2.0, approved, clearlydefined
 crate/cratesio/-/parse-display-derive/0.9.1, Apache-2.0 AND MIT AND Apache-2.0 WITH LLVM-exception AND MIT, approved, #31161
 crate/cratesio/-/parse-display/0.9.1, Apache-2.0 AND MIT AND Apache-2.0 WITH LLVM-exception, approved, #31111
@@ -262,38 +261,38 @@ crate/cratesio/-/pem-rfc7468/1.0.0, Apache-2.0 AND MIT, approved, #32836
 crate/cratesio/-/pem/3.0.6, MIT, approved, clearlydefined
 crate/cratesio/-/percent-encoding/2.3.2, MIT OR Apache-2.0, approved, clearlydefined
 crate/cratesio/-/petgraph/0.7.1, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #21875
-crate/cratesio/-/pin-project-internal/1.1.13, Apache-2.0 AND MIT AND Apache-2.0 AND MIT AND (Apache-2.0 OR MIT), approved, #20260
-crate/cratesio/-/pin-project-lite/0.2.17, Apache-2.0 or MIT, approved, #14202
-crate/cratesio/-/pin-project/1.1.13, Apache-2.0 AND MIT AND Apache-2.0 AND MIT AND (Apache-2.0 OR MIT), approved, #17307
-crate/cratesio/-/pingora-cache/0.9.0, Apache-2.0, approved, #31233
-crate/cratesio/-/pingora-core/0.9.0, Apache-2.0, approved, #31228
-crate/cratesio/-/pingora-error/0.9.0, Apache-2.0, approved, #31219
-crate/cratesio/-/pingora-header-serde/0.9.0, Apache-2.0, approved, #31232
-crate/cratesio/-/pingora-http/0.9.0, Apache-2.0, approved, #31221
-crate/cratesio/-/pingora-lru/0.9.0, Apache-2.0, approved, #31222
-crate/cratesio/-/pingora-pool/0.9.0, Apache-2.0, approved, #31230
-crate/cratesio/-/pingora-proxy/0.9.0, Apache-2.0, approved, #31227
-crate/cratesio/-/pingora-runtime/0.9.0, Apache-2.0, approved, #31225
-crate/cratesio/-/pingora-timeout/0.9.0, Apache-2.0, approved, #31226
-crate/cratesio/-/pingora/0.9.0, Apache-2.0, approved, #31224
+crate/cratesio/-/pin-project-internal/1.2.0, Apache-2.0 AND MIT AND (Apache-2.0 OR MIT), approved, #34086
+crate/cratesio/-/pin-project-lite/0.2.18, Apache-2.0 or MIT, approved, #14202
+crate/cratesio/-/pin-project/1.2.0, Apache-2.0 AND MIT AND (Apache-2.0 OR MIT), approved, #34088
+crate/cratesio/-/pingora-cache/0.9.1, Apache-2.0, approved, #31233
+crate/cratesio/-/pingora-core/0.9.1, Apache-2.0, approved, #31228
+crate/cratesio/-/pingora-error/0.9.1, Apache-2.0, approved, #31219
+crate/cratesio/-/pingora-header-serde/0.9.1, Apache-2.0, approved, #31232
+crate/cratesio/-/pingora-http/0.9.1, Apache-2.0, approved, #31221
+crate/cratesio/-/pingora-lru/0.9.1, Apache-2.0, approved, #31222
+crate/cratesio/-/pingora-pool/0.9.1, Apache-2.0, approved, #31230
+crate/cratesio/-/pingora-proxy/0.9.1, Apache-2.0, approved, #31227
+crate/cratesio/-/pingora-runtime/0.9.1, Apache-2.0, approved, #31225
+crate/cratesio/-/pingora-timeout/0.9.1, Apache-2.0, approved, #31226
+crate/cratesio/-/pingora/0.9.1, Apache-2.0, approved, #31224
 crate/cratesio/-/pkcs1/0.7.5, Apache-2.0 OR MIT, approved, clearlydefined
 crate/cratesio/-/pkcs5/0.7.1, Apache-2.0 OR MIT, approved, clearlydefined
 crate/cratesio/-/pkcs8/0.10.2, Apache-2.0 OR MIT, approved, clearlydefined
 crate/cratesio/-/pkcs8/0.11.0, Apache-2.0 OR MIT, approved, clearlydefined
 crate/cratesio/-/portable-atomic/1.15.0, Apache-2.0 OR MIT AND (Apache-2.0 AND MIT) AND Apache-2.0 AND MIT, approved, #30210
 crate/cratesio/-/potential_utf/0.1.6, Unicode-3.0, approved, #22549
-crate/cratesio/-/powerfmt/0.2.0, Apache-2.0 OR MIT, approved, #17175
+crate/cratesio/-/powerfmt/0.2.1, Apache-2.0 OR MIT, approved, #17175
 crate/cratesio/-/ppv-lite86/0.2.21, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #20269
 crate/cratesio/-/prettyplease/0.3.0, Apache-2.0 AND MIT, approved, #31156
 crate/cratesio/-/primefield/0.14.0, Apache-2.0 AND MIT, approved, #32814
 crate/cratesio/-/primeorder/0.13.6, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #22481
 crate/cratesio/-/primeorder/0.14.0, Apache-2.0 AND MIT, approved, #32821
 crate/cratesio/-/proc-macro2/1.0.107, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #15103
-crate/cratesio/-/prost-derive/0.14.4, Apache-2.0, approved, #29105
-crate/cratesio/-/prost-types/0.14.4, Apache-2.0 AND BSD-2-Clause, approved, #26781
-crate/cratesio/-/prost/0.14.4, Apache-2.0, approved, #29106
+crate/cratesio/-/prost-derive/0.14.6, Apache-2.0, approved, #29105
+crate/cratesio/-/prost-types/0.14.6, Apache-2.0 AND BSD-2-Clause, approved, #26781
+crate/cratesio/-/prost/0.14.6, Apache-2.0, approved, #29106
 crate/cratesio/-/quote/1.0.47, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #17177
-crate/cratesio/-/rand/0.10.2, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #29878
+crate/cratesio/-/rand/0.10.4, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #29878
 crate/cratesio/-/rand/0.8.8, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #27436
 crate/cratesio/-/rand/0.9.5, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #30079
 crate/cratesio/-/rand_chacha/0.3.1, MIT OR Apache-2.0, approved, clearlydefined
@@ -301,10 +300,10 @@ crate/cratesio/-/rand_chacha/0.9.0, MIT OR Apache-2.0, approved, clearlydefined
 crate/cratesio/-/rand_core/0.10.1, MIT OR Apache-2.0, approved, clearlydefined
 crate/cratesio/-/rand_core/0.6.4, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #16073
 crate/cratesio/-/rand_core/0.9.5, MIT OR Apache-2.0, approved, clearlydefined
-crate/cratesio/-/regex-automata/0.4.18, Apache-2.0 or MIT, approved, #15415
+crate/cratesio/-/regex-automata/0.4.19, Apache-2.0 or MIT, approved, #15415
 crate/cratesio/-/regex-lite/0.1.9, Apache-2.0 AND MIT AND Unicode-TOU, approved, #31119
-crate/cratesio/-/regex-syntax/0.8.11, (Apache-2.0 or MIT) AND Unicode-DFS-2016, approved, #11398
-crate/cratesio/-/regex/1.13.1, Apache-2.0 AND MIT AND Unicode-TOU, approved, #29879
+crate/cratesio/-/regex-syntax/0.8.12, (Apache-2.0 or MIT) AND Unicode-DFS-2016, approved, #11398
+crate/cratesio/-/regex/1.13.2, Apache-2.0 AND MIT AND Unicode-TOU, approved, #29879
 crate/cratesio/-/reqwest/0.12.28, Apache-2.0 AND MIT, approved, #31105
 crate/cratesio/-/rfc6979/0.4.0, Apache-2.0 OR MIT, approved, clearlydefined
 crate/cratesio/-/rfc6979/0.6.0, Apache-2.0 AND MIT, approved, #32824
@@ -314,14 +313,14 @@ crate/cratesio/-/rmp/0.8.15, MIT, approved, clearlydefined
 crate/cratesio/-/rsa/0.9.10, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #25121
 crate/cratesio/-/rust_decimal/1.43.0, MIT, approved, #31173
 crate/cratesio/-/rustc-hash/2.1.3, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #30087
-crate/cratesio/-/rustix/1.1.5, (Apache-2.0 WITH LLVM-exception OR MIT OR Apache-2.0) AND (Apache-2.0 OR MIT), approved, #25537
-crate/cratesio/-/rustls-native-certs/0.8.4, Apache-2.0 AND ISC AND MIT AND Apache-2.0 AND ISC AND MIT, approved, #28543
+crate/cratesio/-/rustix/1.1.6, (Apache-2.0 WITH LLVM-exception OR MIT OR Apache-2.0) AND (Apache-2.0 OR MIT), approved, #25537
+crate/cratesio/-/rustls-native-certs/0.8.5, Apache-2.0 AND ISC AND MIT AND Apache-2.0 AND ISC AND MIT, approved, #28543
 crate/cratesio/-/rustls-pemfile/2.2.0, Apache-2.0 OR ISC OR MIT, approved, clearlydefined
-crate/cratesio/-/rustls-pki-types/1.15.1, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #29661
+crate/cratesio/-/rustls-pki-types/1.16.0, Apache-2.0 AND MIT, approved, #33559
 crate/cratesio/-/rustls-webpki/0.101.7, ISC, approved, #9798
-crate/cratesio/-/rustls-webpki/0.103.15, ISC, approved, #22461
+crate/cratesio/-/rustls-webpki/0.103.17, ISC, approved, #22461
 crate/cratesio/-/rustls/0.21.12, Apache-2.0 AND ISC AND MIT, approved, #14616
-crate/cratesio/-/rustls/0.23.45, Apache-2.0 AND ISC AND MIT, approved, #25685
+crate/cratesio/-/rustls/0.23.46, Apache-2.0 AND ISC AND MIT, approved, #25685
 crate/cratesio/-/rustversion/1.0.23, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #19410
 crate/cratesio/-/ryu/1.0.23, Apache-2.0 AND BSL-1.0 AND CC-BY-SA-3.0, approved, #4267
 crate/cratesio/-/salsa20/0.10.2, Apache-2.0 AND MIT, approved, #31116
@@ -335,17 +334,17 @@ crate/cratesio/-/seize/0.3.3, MIT, approved, clearlydefined
 crate/cratesio/-/serde/1.0.229, Apache-2.0 or MIT, approved, #16100
 crate/cratesio/-/serde_core/1.0.229, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #29876
 crate/cratesio/-/serde_derive/1.0.229, Apache-2.0 or MIT, approved, #16099
-crate/cratesio/-/serde_json/1.0.151, Apache-2.0 AND MIT, approved, #4264
+crate/cratesio/-/serde_json/1.0.154, Apache-2.0 AND MIT, approved, #4264
 crate/cratesio/-/serde_repr/0.1.21, Apache-2.0 AND MIT, approved, #31137
 crate/cratesio/-/serde_urlencoded/0.7.1, MIT OR Apache-2.0, approved, clearlydefined
-crate/cratesio/-/serde_with/3.23.0, Apache-2.0 AND MIT, approved, #31204
-crate/cratesio/-/serde_with_macros/3.23.0, Apache-2.0 AND MIT, approved, #31172
+crate/cratesio/-/serde_with/3.25.0, Apache-2.0 AND MIT, approved, #34100
+crate/cratesio/-/serde_with_macros/3.25.0, Apache-2.0 AND MIT, approved, #34085
 crate/cratesio/-/serde_yaml/0.9.34+deprecated, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #17816
 crate/cratesio/-/sfv/0.10.4, MIT OR Apache-2.0, approved, clearlydefined
 crate/cratesio/-/sha1/0.10.7, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #30085
 crate/cratesio/-/sha1/0.11.0, MIT OR Apache-2.0, approved, clearlydefined
 crate/cratesio/-/sha2/0.10.9, MIT OR Apache-2.0, approved, clearlydefined
-crate/cratesio/-/sha2/0.11.0, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #29130
+crate/cratesio/-/sha2/0.11.1, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #29130
 crate/cratesio/-/signal-hook-registry/1.4.8, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #25534
 crate/cratesio/-/signature/1.6.4, Apache-2.0 OR MIT, approved, clearlydefined
 crate/cratesio/-/signature/2.2.0, Apache-2.0 OR MIT, approved, clearlydefined
@@ -353,7 +352,7 @@ crate/cratesio/-/signature/3.0.0, Apache-2.0 AND MIT, approved, #32838
 crate/cratesio/-/simdutf8/0.1.5, MIT OR Apache-2.0, approved, clearlydefined
 crate/cratesio/-/simple_asn1/0.6.4, ISC, approved, clearlydefined
 crate/cratesio/-/slab/0.4.12, MIT, approved, #22882
-crate/cratesio/-/smallvec/1.16.1, Apache-2.0 AND MIT, approved, #31170
+crate/cratesio/-/smallvec/1.16.6, Apache-2.0 AND MIT, approved, #31170
 crate/cratesio/-/socket2/0.5.10, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #13490
 crate/cratesio/-/socket2/0.6.5, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #26546
 crate/cratesio/-/sodiumoxide/0.2.7, MIT OR Apache-2.0, approved, clearlydefined
@@ -376,29 +375,29 @@ crate/cratesio/-/strum_macros/0.26.4, MIT, approved, clearlydefined
 crate/cratesio/-/subtle/2.6.1, BSD-3-Clause, approved, #16076
 crate/cratesio/-/syn/1.0.109, Apache-2.0 or MIT, approved, #17801
 crate/cratesio/-/syn/2.0.119, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #14203
-crate/cratesio/-/syn/3.0.6, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #29877
+crate/cratesio/-/syn/3.0.10, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #29877
 crate/cratesio/-/sync_wrapper/1.0.2, Apache-2.0, approved, clearlydefined
 crate/cratesio/-/synstructure/0.14.0, MIT, approved, #31197
 crate/cratesio/-/testcontainers-modules/0.14.0, MIT, approved, #31122
 crate/cratesio/-/testcontainers/0.26.3, Apache-2.0 AND MIT, approved, #31141
-crate/cratesio/-/thiserror-impl/2.0.20, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #25682
-crate/cratesio/-/thiserror/2.0.20, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #19424
+crate/cratesio/-/thiserror-impl/2.0.21, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #25682
+crate/cratesio/-/thiserror/2.0.21, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #19424
 crate/cratesio/-/thread_local/1.1.10, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #30081
 crate/cratesio/-/time-core/0.1.9, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #20270
 crate/cratesio/-/time-macros/0.2.32, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #20265
 crate/cratesio/-/time/0.3.55, Apache-2.0 OR MIT, approved, #17179
 crate/cratesio/-/tiny-keccak/2.0.2, CC0-1.0, approved, clearlydefined
-crate/cratesio/-/tinystr/0.8.4, Unicode-3.0, approved, #22554
+crate/cratesio/-/tinystr/0.8.5, Unicode-3.0, approved, #22554
 crate/cratesio/-/tinyvec/1.13.3, Apache-2.0 AND MIT AND Zlib, approved, #31176
 crate/cratesio/-/tokio-macros/2.7.2, MIT, approved, #27192
 crate/cratesio/-/tokio-rustls/0.24.1, MIT OR Apache-2.0, approved, clearlydefined
-crate/cratesio/-/tokio-rustls/0.26.5, Apache-2.0 AND MIT, approved, #31188
+crate/cratesio/-/tokio-rustls/0.26.6, Apache-2.0 AND MIT, approved, #31188
 crate/cratesio/-/tokio-stream/0.1.19, MIT, approved, #30519
-crate/cratesio/-/tokio-test/0.4.5, MIT, approved, clearlydefined
-crate/cratesio/-/tokio-util/0.7.19, MIT, approved, #11389
-crate/cratesio/-/tokio/1.53.1, MIT, approved, #29874
-crate/cratesio/-/tonic-prost/0.14.6, MIT, approved, #26783
-crate/cratesio/-/tonic/0.14.6, MIT AND (Apache-2.0 AND MIT), approved, #26782
+crate/cratesio/-/tokio-test/0.4.6, MIT, approved, #34090
+crate/cratesio/-/tokio-util/0.7.20, MIT, approved, #11389
+crate/cratesio/-/tokio/1.54.1, MIT, approved, #32885
+crate/cratesio/-/tonic-prost/0.14.9, MIT, approved, #26783
+crate/cratesio/-/tonic/0.14.9, MIT AND (Apache-2.0 AND MIT), approved, #26782
 crate/cratesio/-/tower-http/0.6.11, MIT AND CC0-1.0, approved, #28570
 crate/cratesio/-/tower-layer/0.3.3, MIT, approved, clearlydefined
 crate/cratesio/-/tower-service/0.3.3, MIT, approved, clearlydefined
@@ -408,44 +407,44 @@ crate/cratesio/-/tracing-core/0.1.36, MIT, approved, #17502
 crate/cratesio/-/tracing/0.1.44, MIT, approved, #25125
 crate/cratesio/-/try-lock/0.2.5, MIT, approved, clearlydefined
 crate/cratesio/-/typenum/1.20.1, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #28559
-crate/cratesio/-/unicase/2.9.0, Apache-2.0 AND MIT, approved, #31089
+crate/cratesio/-/unicase/2.10.0, Apache-2.0 AND MIT, approved, #34084
 crate/cratesio/-/unicode-bidi/0.3.18, MIT OR Apache-2.0, approved, clearlydefined
-crate/cratesio/-/unicode-ident/1.0.26, Apache-2.0 AND MIT AND LicenseRef-unicode, approved, #4138
-crate/cratesio/-/unicode-normalization/0.1.25, MIT OR Apache-2.0, approved, clearlydefined
-crate/cratesio/-/unicode-properties/0.1.4, MIT OR Apache-2.0, approved, clearlydefined
+crate/cratesio/-/unicode-ident/1.0.27, Apache-2.0 AND MIT AND LicenseRef-unicode, approved, #4138
+crate/cratesio/-/unicode-normalization/0.1.26, Apache-2.0 AND MIT AND LicenseRef-scancode-unicode, restricted, #33554
+crate/cratesio/-/unicode-properties/0.1.5, Apache-2.0 AND MIT AND LicenseRef-scancode-unicode, restricted, #34094
 crate/cratesio/-/unsafe-libyaml/0.2.11, MIT, approved, clearlydefined
 crate/cratesio/-/untrusted/0.9.0, ISC AND (ISC AND MIT), approved, #7111
-crate/cratesio/-/ureq-proto/0.6.4, Apache-2.0 AND MIT, approved, #31208
-crate/cratesio/-/ureq/3.4.2, Apache-2.0 AND MIT, approved, #31190
-crate/cratesio/-/url/2.5.8, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #17429
+crate/cratesio/-/ureq-proto/0.7.1, Apache-2.0 AND MIT, approved, #34104
+crate/cratesio/-/ureq/3.5.2, Apache-2.0 AND MIT, approved, #34091
+crate/cratesio/-/url/2.5.9, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #17429
 crate/cratesio/-/urlencoding/2.1.3, MIT, approved, clearlydefined
 crate/cratesio/-/utf8-zero/0.8.1, MIT OR Apache-2.0, approved, clearlydefined
-crate/cratesio/-/utf8_iter/1.0.4, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #15426
+crate/cratesio/-/utf8_iter/1.1.0, Apache-2.0 AND MIT, approved, #33566
 crate/cratesio/-/utf8parse/0.2.2, Apache-2.0 OR MIT, approved, clearlydefined
-crate/cratesio/-/uuid/1.29.0, Apache-2.0 AND MIT, approved, #32825
+crate/cratesio/-/utf_types/1.0.0, Apache-2.0 AND MIT AND (Apache-2.0 AND CC0-1.0 AND MIT), approved, #33565
+crate/cratesio/-/uuid/1.29.3, Apache-2.0 AND MIT, approved, #32825
 crate/cratesio/-/vsimd/0.8.0, MIT, approved, clearlydefined
-crate/cratesio/-/walkdir/2.5.0, Unlicense OR MIT, approved, clearlydefined
-crate/cratesio/-/want/0.3.1, MIT, approved, clearlydefined
+crate/cratesio/-/walkdir/2.5.1, MIT AND Unlicense, approved, #34079
+crate/cratesio/-/want/0.3.2, MIT, approved, #33561
 crate/cratesio/-/webpki-roots/0.26.11, CDLA-Permissive-2.0, approved, #22432
-crate/cratesio/-/webpki-roots/1.0.9, LicenseRef-CDLA-Permissive-2.0, approved, #25535
+crate/cratesio/-/webpki-roots/1.0.12, LicenseRef-CDLA-Permissive-2.0, approved, #25535
 crate/cratesio/-/whoami/1.6.1, Apache-2.0 OR BSL-1.0 OR MIT, approved, clearlydefined
 crate/cratesio/-/wnaf/0.14.1, Apache-2.0 AND MIT, approved, #32837
 crate/cratesio/-/writeable/0.6.4, Unicode-3.0, approved, #22550
-crate/cratesio/-/xattr/1.6.1, MIT OR Apache-2.0, approved, clearlydefined
+crate/cratesio/-/xattr/1.7.0, Apache-2.0 AND MIT, approved, #34096
 crate/cratesio/-/xmlparser/0.13.6, MIT OR Apache-2.0, approved, clearlydefined
-crate/cratesio/-/yoke-derive/0.8.3, Unicode-3.0, approved, #22553
-crate/cratesio/-/yoke/0.8.3, Unicode-3.0, approved, #22547
-crate/cratesio/-/zerocopy/0.8.57, Apache-2.0 AND BSD-2-Clause AND BSD-3-Clause AND MIT AND (Apache-2.0 AND BSD-3-Clause AND MIT) AND (Apache-2.0 AND BSD-2-Clause AND MIT) AND Apache-2.0 AND BSD-2-Clause AND MIT, approved, #20054
+crate/cratesio/-/xxhash-rust/0.8.21, BSL-1.0, approved, #30207
+crate/cratesio/-/yoke-derive/0.8.4, Unicode-3.0, approved, #22553
+crate/cratesio/-/yoke/0.8.4, Unicode-3.0, approved, #22547
+crate/cratesio/-/zerocopy/0.8.65, Apache-2.0 AND BSD-2-Clause AND BSD-3-Clause AND MIT AND (Apache-2.0 AND BSD-3-Clause AND MIT) AND (Apache-2.0 AND BSD-2-Clause AND MIT) AND Apache-2.0 AND BSD-2-Clause AND MIT, approved, #20054
 crate/cratesio/-/zerofrom-derive/0.1.8, Apache-2.0 AND Unicode-3.0, approved, #15438
 crate/cratesio/-/zerofrom/0.1.8, Apache-2.0 AND Unicode-3.0, approved, #15435
-crate/cratesio/-/zeroize/1.9.0, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #29110
+crate/cratesio/-/zeroize/1.9.2, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #29110
 crate/cratesio/-/zeroize_derive/1.5.0, Apache-2.0 AND MIT AND Apache-2.0 AND MIT, approved, #29111
 crate/cratesio/-/zerotrie/0.2.5, Unicode-3.0, approved, #22561
-crate/cratesio/-/zerovec-derive/0.11.6, Unicode-3.0, approved, #22552
-crate/cratesio/-/zerovec/0.11.8, Unicode-3.0, approved, #22560
+crate/cratesio/-/zerovec-derive/0.11.7, Unicode-3.0, approved, #22552
+crate/cratesio/-/zerovec/0.11.9, Unicode-3.0, approved, #22560
 crate/cratesio/-/zmij/1.0.23, MIT, approved, #25540
-crate/cratesio/-/zstd-safe/7.3.0, BSD-3-Clause, approved, #31220
-crate/cratesio/-/zstd-safe/8.0.0, BSD-3-Clause, approved, #31174
-crate/cratesio/-/zstd-sys/2.1.0+zstd.1.5.7, BSD-3-Clause AND CC0-1.0 AND BSD-2-Clause, approved, #31192
-crate/cratesio/-/zstd/0.13.3, BSD-3-Clause AND MIT, approved, #31140
-crate/cratesio/-/zstd/0.14.0, BSD-3-Clause, approved, #31196
+crate/cratesio/-/zstd-safe/8.4.0, BSD-3-Clause, approved, #34089
+crate/cratesio/-/zstd-sys/2.2.0+zstd.1.6.0, BSD-2-Clause AND BSD-3-Clause AND GPL-2.0-only AND (BSD-3-Clause AND GPL-2.0-only) AND (MIT OR CC0-1.0) AND (BSD-2-Clause AND BSD-3-Clause AND GPL-2.0-only), restricted, #34099
+crate/cratesio/-/zstd/0.14.5, BSD-3-Clause, approved, #31196
