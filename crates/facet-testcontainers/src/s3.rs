@@ -14,6 +14,7 @@ use aws_config::BehaviorVersion;
 use aws_sdk_s3::Client;
 use aws_sdk_s3::config::{Credentials, Region};
 use aws_sdk_s3::primitives::ByteStream;
+use std::time::Duration;
 
 use testcontainers::core::WaitFor;
 use testcontainers::{ContainerAsync, GenericImage, ImageExt, core::ContainerPort, runners::AsyncRunner};
@@ -40,6 +41,27 @@ pub async fn create_direct_s3_client(s3_endpoint: &str) -> Client {
     Client::new(&config)
 }
 
+/// Wait until the S3 server answers API requests successfully.
+///
+/// RustFS logs its startup line before storage quorum and IAM are initialised, and
+/// answers `503 Service not ready` until then.
+async fn wait_for_s3_ready(endpoint: &str) {
+    const READY_TIMEOUT: Duration = Duration::from_secs(60);
+    const POLL_INTERVAL: Duration = Duration::from_millis(250);
+
+    let client = create_direct_s3_client(endpoint).await;
+    let deadline = tokio::time::Instant::now() + READY_TIMEOUT;
+    loop {
+        match client.list_buckets().send().await {
+            Ok(_) => return,
+            Err(e) if tokio::time::Instant::now() >= deadline => {
+                panic!("S3 server at {endpoint} not ready after {READY_TIMEOUT:?}: {e:?}")
+            }
+            Err(_) => tokio::time::sleep(POLL_INTERVAL).await,
+        }
+    }
+}
+
 /// Encapsulates an S3-compatible test server (RustFS) with convenient helper methods.
 pub struct S3Instance {
     #[allow(dead_code)]
@@ -64,6 +86,8 @@ impl S3Instance {
         let port = container.get_host_port_ipv4(9000).await.unwrap();
         let host = format!("{}:{}", crate::utils::container_host(), port);
         let endpoint = format!("http://{}", host);
+
+        wait_for_s3_ready(&endpoint).await;
 
         Self {
             container,
